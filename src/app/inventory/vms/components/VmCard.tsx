@@ -3,8 +3,9 @@
 
 import { VmInstance } from "@prisma/client";
 import Link from "next/link";
-import { useState } from "react";
-import DecommissionModal from "./DecommissionModal";
+import { RenewButton } from "@/app/requests/components/RenewButton";
+import { Settings, Trash2, Eye } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface VmCardProps {
   vm: VmInstance & {
@@ -19,7 +20,6 @@ interface VmCardProps {
 }
 
 export default function VmCard({ vm }: VmCardProps) {
-  const [isDecommissionOpen, setIsDecommissionOpen] = useState(false);
 
   const getStatusColor = (status: VmInstance["status"]) => {
     switch (status) {
@@ -95,29 +95,31 @@ export default function VmCard({ vm }: VmCardProps) {
       )}
 
       {/* Actions */}
-      <div className="mt-4 flex gap-2">
-        <Link
-          href={`/inventory/vms/${vm.id}`}
-          className="flex-1 text-center text-sm bg-indigo-50 text-indigo-700 py-1.5 rounded-lg hover:bg-indigo-100"
-        >
-          Details
-        </Link>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <Button asChild variant="outline" size="sm" className="bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100">
+          <Link href={`/requests/customize?vmId=${vm.id}`}>
+            <Settings className="h-3.5 w-3.5 mr-1.5" /> Customize
+          </Link>
+        </Button>
+        
+        <Button asChild variant="outline" size="sm" className="bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100">
+          <Link href={`/inventory/vms/${vm.id}`}>
+            <Eye className="h-3.5 w-3.5 mr-1.5" /> Details
+          </Link>
+        </Button>
+
         {vm.status !== "RETIRED" && (
-          <button
-            onClick={() => setIsDecommissionOpen(true)}
-            className="flex-1 text-center text-sm bg-red-50 text-red-700 py-1.5 rounded-lg hover:bg-red-100"
-          >
-            Decommission
-          </button>
+          <Button asChild variant="outline" size="sm" className="bg-red-50 text-red-700 border-red-100 hover:bg-red-100">
+            <Link href={`/requests/decommission?vmId=${vm.id}`}>
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" /> Decommission
+            </Link>
+          </Button>
+        )}
+
+        {vm.status !== "RETIRED" && (
+           <RenewButton vmId={vm.id} />
         )}
       </div>
-
-      {/* Decommission Modal */}
-      <DecommissionModal
-        isOpen={isDecommissionOpen}
-        onClose={() => setIsDecommissionOpen(false)}
-        vmId={vm.id}
-      />
     </div>
   );
 }

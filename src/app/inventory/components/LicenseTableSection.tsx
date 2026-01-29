@@ -2,8 +2,9 @@
 "use client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
+import { EnrollmentLicense } from "@/types/inventory";
 
-export function LicenseTableSection({ licenses }: { licenses: any[] }) {
+export function LicenseTableSection({ licenses }: { licenses: EnrollmentLicense[] }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">

@@ -1,67 +1,58 @@
-// src/app/admin/audit/page.tsx
-import prisma from "@/lib/prisma";
-import { format } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/authOptions";
+import { redirect } from "next/navigation";
+import { ROLES } from "@/lib/roles";
+import { getAuditLogs } from "@/app/actions/audit-actions";
+import { AuditExplorerClient } from "./components/AuditExplorerClient";
+import { Shield } from "lucide-react";
 
-export default async function AuditLogPage() {
-  const logs = await (prisma as any).auditLog.findMany({
-    include: {
-      actor: { select: { name: true, email: true } },
-    },
-    orderBy: { timestamp: "desc" },
-    take: 100,
-  });
+interface AuditPageProps {
+  searchParams?: Promise<{
+    search?: string;
+    action?: string;
+    page?: string;
+  }>;
+}
+
+export default async function AuditExplorerPage(props: AuditPageProps) {
+  const searchParams = await props.searchParams;
+  const session = await getServerSession(authOptions);
+  
+  if (!session?.user?.roles?.includes(ROLES.ADMIN)) 
+    redirect("/unauthorized");
+
+  // Parse params safely
+  const page = searchParams?.page ? parseInt(searchParams.page) : 1;
+  const search = searchParams?.search?.trim() || undefined;
+  const action = searchParams?.action || undefined;
+
+  const { logs, total, totalPages, currentPage, uniqueActions } = 
+    await getAuditLogs({ search, action, page });
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-800">System Audit Logs</h1>
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b">
-                <tr>
-                  <th className="p-4 font-semibold">Timestamp</th>
-                  <th className="p-4 font-semibold">User</th>
-                  <th className="p-4 font-semibold">Action</th>
-                  <th className="p-4 font-semibold">Entity</th>
-                  <th className="p-4 font-semibold">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {(logs as any[]).map((log: any) => (
-                  <tr key={log.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4 whitespace-nowrap text-slate-500">
-                      {format(new Date(log.timestamp), "MMM d, yyyy HH:mm:ss")}
-                    </td>
-                    <td className="p-4">
-                      <div className="font-medium text-slate-900">{log.actor.name}</div>
-                      <div className="text-xs text-slate-500">{log.actor.email}</div>
-                    </td>
-                    <td className="p-4">
-                      <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium uppercase tracking-wider">
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="p-4 text-slate-600">
-                      {log.entityType} ({log.entityId?.substring(0, 8) || "N/A"})
-                    </td>
-                    <td className="p-4 text-slate-500 max-w-xs truncate">
-                      {log.details ? (
-                        <span title={JSON.stringify(log.details, null, 2) || ""}>
-                          {typeof log.details === "string" ? log.details : JSON.stringify(log.details)}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+    <div className="p-6 md:p-10 space-y-8 bg-slate-50/20 min-h-screen">
+      <div className="space-y-1">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-red-600 rounded-lg text-white shadow-lg shadow-red-100">
+            <Shield className="h-5 w-5" />
           </div>
-        </CardContent>
-      </Card>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase italic">
+            Audit Ledger
+          </h1>
+        </div>
+        <p className="text-slate-500 font-medium ml-12">
+          Authoritative, immutable record of all system activities and security pulses.
+        </p>
+      </div>
+
+      <AuditExplorerClient 
+        initialLogs={logs}
+        total={total}
+        totalPages={totalPages}
+        currentPage={currentPage}
+        uniqueActions={uniqueActions}
+        initialFilters={{ search: searchParams?.search, action: searchParams?.action }}
+      />
     </div>
   );
 }

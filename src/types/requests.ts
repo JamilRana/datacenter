@@ -1,33 +1,109 @@
-// src/types/request.ts
-export type RequestStatus =
-  | "DRAFT"
-  | "PENDING_L1"
-  | "PENDING_L2"
-  | "PENDING_L3"
-  | "APPROVED"
-  | "REJECTED"
-  | "PROVISIONED"
-  | "CLOSED"; // ← Add this
+// src/types/requests.ts
+import { 
+  RequestStatus, 
+  RequestType, 
+  Environment, 
+  NetworkAccess,
+  Raid
+} from "@prisma/client";
 
-  export const requestStatus = [
-    "PENDING_L1",
-    "PENDING_L2",
-    "PENDING_L3",
-    "APPROVED",
-    "REJECTED",
-    "PROVISIONED",
-    "CLOSED"
-  ] as const;
-
-export type RequestType = "NEW_VM" | "CLONE_VM" | "CUSTOMIZE_VM";
-
-export type ApprovalEntityType = "REQUEST" | "VM_INSTANCE";
-
-export interface Request {
+export interface Approval {
   id: string;
-  userId: string;
-  type: RequestType;
+  level: string;
+  approverId: string;
+  decision: string;
+  comments: string | null;
+  approver?: {
+     name: string;
+  };
+}
+
+export interface Person {
+  name: string;
+  designation: string;
+  organization: string;
+  contact: string;
+  email: string;
+}
+
+export interface AdditionalDisk {
+  sizeGb: string;
+  purpose: string;
+}
+
+export interface FirewallPort {
+  port: string;
+  protocol: "TCP" | "UDP" | "OTHER";
+  purpose: string;
+  source?: string;
+}
+
+export interface Developer {
+  name: string;
+  address: string;
+  contact: string;
+  email: string;
+}
+
+export interface RequestDetailsData {
+  id: string;
+  systemName: string;
+  projectName?: string | null;
+  purpose: string;
+  environment: Environment;
+  expectedEndDate?: string;
+  
+  // People
+  responsiblePerson: Person;
+  alternativePerson: Person;
+  developer: Developer;
+  
+  // Tech Stack
+  frontendTech?: string | null;
+  backendTech?: string | null;
+  dataBase?: string | null;
+  serverArchitecture?: string | null;
+  additionalTechNotes?: string | null;
+  
+  // VM Spec
+  quantity: number;
+  vcpu?: number | null;        // ✅
+  ramGb?: number | null;       // ✅
+  storageGb?: number | null;    // ✅
+  osName?: string | null;
+  osVersion?: string | null;
+  subdomain?: string | null;
+  raid: Raid;
+  sslProvider?: string | null;
+  sslCostPaidBy?: string | null;
+  
+  // Network & Security
+  requiredPublicIP: boolean;
+  vpnRequired: boolean;
+  networkAccess: NetworkAccess[];
+  additionalDisks: AdditionalDisk[];
+  firewallPorts: FirewallPort[];
+  
+  // Compliance
+  vaReportSubmitted: boolean;
+  justificationSubmitted: boolean;
+  renewalRequired: boolean;
+  renewalPeriodMonths?: number | null; // ✅
+  
+  // Status
   status: RequestStatus;
-  createdAt: Date;
-  updatedAt: Date;
+  requestType: RequestType;
+  
+  // Relations
+  approvals: Approval[];
+  vmInstances: VmInstance[];
+  targetVm?: VmInstance | null;
+  submittedAt?: string;
+}
+
+export interface VmInstance {
+  id: string;
+  hostname: string | null;
+  ipAddress: string | null;
+  status?: string;
 }

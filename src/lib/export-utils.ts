@@ -1,15 +1,19 @@
-export function exportToCsv(filename: string, rows: object[]) {
+export function exportToCsv<T extends Record<string, unknown>>(
+  filename: string,
+  rows: T[]
+) {
   if (!rows || !rows.length) return;
 
   const separator = ",";
-  const keys = Object.keys(rows[0]);
+  const keys = Object.keys(rows[0]) as (keyof T)[];
   const csvContent = [
     keys.join(separator),
-    ...rows.map((row: any) =>
+    ...rows.map((row) =>
       keys
         .map((key) => {
-          const cell = row[key] === null || row[key] === undefined ? "" : row[key];
-          const stringCell = typeof cell === "string" ? cell : JSON.stringify(cell);
+          const cell = row[key];
+          const safeCell = cell === null || cell === undefined ? "" : cell;
+          const stringCell = typeof safeCell === "string" ? safeCell : String(safeCell);
           return `"${stringCell.replace(/"/g, '""')}"`;
         })
         .join(separator)

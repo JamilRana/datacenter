@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { createAsset, updateAsset } from "@/app/actions/asset-actions";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import type { Asset } from "@prisma/client";
 
 const assetTypes = [
   "SERVER",
@@ -35,7 +36,7 @@ const assetTypes = [
 ] as const;
 
 // ─── Edit Modal ─────────────────────────────────────
-export function EditAssetModal({ asset }: { asset: any }) {
+export function EditAssetModal({ asset }: { asset: Asset }) {
   const [open, setOpen] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -58,15 +59,9 @@ export function EditAssetModal({ asset }: { asset: any }) {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <input type="hidden" name="id" value={asset.id} />
-
           <AssetFormFields asset={asset} />
-
           <div className="flex justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setOpen(false)}
-            >
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button type="submit">Save</Button>
@@ -100,11 +95,7 @@ export function NewAssetModal() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <AssetFormFields />
           <div className="flex justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setOpen(false)}
-            >
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button type="submit">Add Asset</Button>
@@ -116,21 +107,34 @@ export function NewAssetModal() {
 }
 
 // ─── Shared Form Fields ──────────────────────────────
-function AssetFormFields({ asset }: { asset?: any }) {
-  const getValue = (key: string) => asset?.[key] ?? "";
-  const getDateValue = (key: string) =>
-    asset?.[key] ? asset[key].split("T")[0] : "";
+function AssetFormFields({ asset }: { asset?: Asset }) {
+  const [vlanSupport, setVlanSupport] = useState(asset?.vlanSupport ?? false);
+
+  const getString = (value: string | null | undefined) => value ?? "";
+  const getNumber = (value: number | null | undefined) => value?.toString() ?? "";
+  const getDate = (value: Date | string | null | undefined) => {
+    if (!value) return "";
+    if (value instanceof Date) return value.toISOString().split("T")[0];
+    return value.split("T")[0];
+  };
+
+  // Initialize state from prop (for edit)
+  useEffect(() => {
+    if (asset) {
+      setVlanSupport(!!asset.vlanSupport);
+    }
+  }, [asset]);
 
   return (
     <>
       <div>
         <Label>Name *</Label>
-        <Input name="name" defaultValue={getValue("name")} required />
+        <Input name="name" defaultValue={getString(asset?.name)} required />
       </div>
 
       <div>
         <Label>Type *</Label>
-        <Select name="type" defaultValue={getValue("type") || "OTHER"} required>
+        <Select name="type" defaultValue={getString(asset?.type) || "OTHER"} required>
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -146,22 +150,22 @@ function AssetFormFields({ asset }: { asset?: any }) {
 
       <div>
         <Label>Vendor</Label>
-        <Input name="vendor" defaultValue={getValue("vendor")} />
+        <Input name="vendor" defaultValue={getString(asset?.vendor)} />
       </div>
 
       <div>
         <Label>Model</Label>
-        <Input name="model" defaultValue={getValue("model")} />
+        <Input name="model" defaultValue={getString(asset?.model)} />
       </div>
 
       <div>
         <Label>Serial Number</Label>
-        <Input name="serial" defaultValue={getValue("serial")} />
+        <Input name="serial" defaultValue={getString(asset?.serial)} />
       </div>
 
       <div>
         <Label>Location</Label>
-        <Input name="location" defaultValue={getValue("location")} />
+        <Input name="location" defaultValue={getString(asset?.location)} />
       </div>
 
       <div>
@@ -169,58 +173,37 @@ function AssetFormFields({ asset }: { asset?: any }) {
         <Input
           name="warrantyExpiry"
           type="date"
-          defaultValue={getDateValue("warrantyExpiry")}
+          defaultValue={getDate(asset?.warrantyExpiry)}
         />
       </div>
 
-      {/* Compute specs (for servers/workstations) */}
       <div className="grid grid-cols-3 gap-2 pt-2">
         <div>
           <Label>CPU Cores</Label>
-          <Input
-            name="cpuCores"
-            type="number"
-            defaultValue={getValue("cpuCores")}
-          />
+          <Input name="cpuCores" type="number" defaultValue={getNumber(asset?.cpuCores)} />
         </div>
         <div>
           <Label>RAM (GB)</Label>
-          <Input name="ramGb" type="number" defaultValue={getValue("ramGb")} />
+          <Input name="ramGb" type="number" defaultValue={getNumber(asset?.ramGb)} />
         </div>
         <div>
           <Label>Storage (GB)</Label>
-          <Input
-            name="storageGb"
-            type="number"
-            defaultValue={getValue("storageGb")}
-          />
+          <Input name="storageGb" type="number" defaultValue={getNumber(asset?.storageGb)} />
         </div>
       </div>
 
-      {/* Graphics (optional) */}
       <div>
         <Label>Graphics Card Model</Label>
-        <Input
-          name="graphicsCardModel"
-          defaultValue={getValue("graphicsCardModel")}
-        />
+        <Input name="graphicsCardModel" defaultValue={getString(asset?.graphicsCardModel)} />
       </div>
       <div>
         <Label>Graphics Spec</Label>
-        <Textarea
-          name="graphicsCardSpec"
-          defaultValue={getValue("graphicsCardSpec")}
-        />
+        <Textarea name="graphicsCardSpec" defaultValue={getString(asset?.graphicsCardSpec)} />
       </div>
 
-      {/* Network specs */}
       <div>
         <Label>Interfaces (Ports)</Label>
-        <Input
-          name="interfaces"
-          type="number"
-          defaultValue={getValue("interfaces")}
-        />
+        <Input name="interfaces" type="number" defaultValue={getNumber(asset?.interfaces)} />
       </div>
       <div>
         <Label>Throughput (Gbps)</Label>
@@ -228,26 +211,26 @@ function AssetFormFields({ asset }: { asset?: any }) {
           name="throughputGbps"
           type="number"
           step="0.1"
-          defaultValue={getValue("throughputGbps")}
+          defaultValue={getNumber(asset?.throughputGbps)}
         />
       </div>
       <div className="flex items-center gap-2">
         <Label>VLAN Support</Label>
         <Switch
-          name="vlanSupport"
-          defaultChecked={asset?.vlanSupport}
+          checked={vlanSupport}
+          onCheckedChange={setVlanSupport}
           aria-label="VLAN Support"
         />
+        <input type="hidden" name="vlanSupport" value={vlanSupport ? "true" : "false"} />
       </div>
 
-      {/* Storage-specific */}
       <div>
         <Label>Capacity (TB)</Label>
         <Input
           name="capacityTb"
           type="number"
           step="0.1"
-          defaultValue={getValue("capacityTb")}
+          defaultValue={getNumber(asset?.capacityTb)}
         />
       </div>
     </>

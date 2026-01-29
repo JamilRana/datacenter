@@ -1,3 +1,4 @@
+//prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -143,7 +144,10 @@ model Request {
   firewallPorts             FirewallPort[]
   networkAccess             NetworkAccessEntry[]
 
+  targetVmId String?
+  targetVm   VmInstance? @relation("DecommissionTarget",fields: [targetVmId],references: [id])
 
+  @@index([targetVmId])
   @@map("requests")
   @@index([requesterId])
   @@index([status])
@@ -304,6 +308,7 @@ model VmInstance {
   customizationRequests CustomizationRequest[] @relation("CustomizationTarget")
   customizationHistory CustomizationHistory[]
   auditLogs         AuditLog[] @relation("VmAudit")
+decommissionRequests Request[] @relation("DecommissionTarget")
 
   @@map("vm_instances")
   @@unique([requestId, sequenceNumber])

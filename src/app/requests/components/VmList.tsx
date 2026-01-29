@@ -3,8 +3,9 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RenewButton } from "./RenewButton";
+import { VmInstance } from "@/types/inventory";
 
-export function VmList({ vms }: { vms: any[] }) {
+export function VmList({ vms }: { vms: VmInstance[] }) {
   if (vms.length === 0) {
     return <p className="text-muted-foreground">No VMs provisioned yet.</p>;
   }
@@ -29,10 +30,10 @@ export function VmList({ vms }: { vms: any[] }) {
               <td className="p-3">{vm.hostname || "—"} </td>
               <td className="p-3">{vm.ipAddress || "—"}</td>
               <td className="p-3">
-                {vm.osName} {vm.osVersion}
+                {vm.vmOsName} {vm.vmOsVersion}
               </td>
               <td className="p-3">
-                {vm.vcpu} vCPU / {vm.ramGb} GB
+                {vm.currentSpec?.vcpu} vCPU / {vm.currentSpec?.ramGb} GB
               </td>
               <td className="p-3">{vm.request?.environment || "—"}</td>
               <td className="p-3">

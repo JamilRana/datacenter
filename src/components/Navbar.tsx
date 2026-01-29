@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Server, PlusCircle, Shield, LogOut, User } from "lucide-react";
+import {  Server, PlusCircle,  LogOut } from "lucide-react";
 
 export function Navbar() {
   const { data: session } = useSession();
@@ -39,25 +39,27 @@ export function Navbar() {
                 Requests
               </Link>
 
-              {/* Inventory Link for Everyone */}
+              {/* Inventory Link for Relevant Roles */}
+              {(session.user.roles.some(r => r.startsWith("APPROVER") || r === "ADMIN" || r === "DCOPS")) && (
               <Link
                 href="/inventory/vms"
                 className="inline-flex items-center px-1 pt-1 text-sm font-medium text-slate-500 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-all"
               >
                 Inventory
               </Link>
+              )}
 
               {/* Role Specific Links */}
-              {(session.user.role.startsWith("APPROVER") || session.user.role === "ADMIN") && (
+              {(session.user.roles.some(r => r.startsWith("APPROVER") || r === "ADMIN")) && (
                 <Link
-                  href="/approver"
+                  href="/approvals"
                   className="inline-flex items-center px-1 pt-1 text-sm font-medium text-slate-500 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-all"
                 >
                   Approvals
                 </Link>
               )}
 
-              {(session.user.role === "DC_OPS" || session.user.role === "ADMIN") && (
+              {(session.user.roles.some(r => r === "DCOPS" || r === "ADMIN")) && (
                 <Link
                   href="/ops"
                   className="inline-flex items-center px-1 pt-1 text-sm font-medium text-slate-500 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-all"
@@ -66,7 +68,7 @@ export function Navbar() {
                 </Link>
               )}
 
-              {session.user.role === "ADMIN" && (
+              {session.user.roles.includes("ADMIN") && (
                 <Link
                   href="/admin"
                   className="inline-flex items-center px-1 pt-1 text-sm font-medium text-slate-500 hover:text-blue-600 border-b-2 border-transparent hover:border-blue-600 transition-all"
@@ -88,7 +90,7 @@ export function Navbar() {
             <div className="flex items-center gap-3 pl-4 border-l">
               <div className="hidden sm:block text-right">
                 <div className="text-sm font-semibold text-slate-900">{session.user.name}</div>
-                <div className="text-xs text-slate-500">{session.user.role}</div>
+                <div className="text-[10px] text-slate-500 uppercase font-bold">{session.user.roles.join(" | ")}</div>
               </div>
               <Button
                 variant="ghost"

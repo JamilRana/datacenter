@@ -4,6 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 const licenseSchema = z.object({
   name: z.string().min(1),
@@ -67,7 +68,7 @@ export async function fetchLicenseDetails(
   type?: string
 ) {
   const skip = (page - 1) * PAGE_SIZE;
-  const where: any = {};
+  const where: Prisma.SoftwareLicenseWhereInput = {};
 
   if (search) {
     where.OR = [

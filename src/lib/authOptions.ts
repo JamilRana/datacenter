@@ -1,5 +1,5 @@
 // src/lib/authOptions.ts
-import NextAuth, { type NextAuthOptions } from "next-auth";
+import  { type NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import bcrypt from "bcryptjs";
@@ -45,7 +45,7 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        const primaryRole = user.roles[0]?.role?.name || "REQUESTER";
+        const roles = user.roles.map(ur => ur.role.name);
 
         return {
           id: user.id,
@@ -54,7 +54,7 @@ export const authOptions: NextAuthOptions = {
           contact: user.contact ?? "",
           designation: user.designation ?? "",
           organization: user.organization ?? "",
-          role: primaryRole,
+          roles: roles,
         };
       },
     }),
@@ -70,7 +70,7 @@ export const authOptions: NextAuthOptions = {
         token.name = user.name;
         token.designation = user.designation;
         token.contact = user.contact;
-        token.role = user.role;
+        token.roles = user.roles;
         token.organization = user.organization;
       }
       return token;
@@ -83,7 +83,7 @@ export const authOptions: NextAuthOptions = {
           email: token.email as string,
           name: token.name as string,
           designation: token.designation as string,
-          role: token.role as string,
+          roles: token.roles as string[],
           contact: token.contact as string,
           organization: token.organization as string,
         };

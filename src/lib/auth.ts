@@ -15,7 +15,7 @@ export const requireAuth = async (roles: string[] = []) => {
     redirect("/auth");
   }
 
-  if (roles.length > 0 && !roles.includes(user.role)) {
+  if (roles.length > 0 && !roles.includes(user.roles[0])) {
     redirect("/unauthorized");
   }
 

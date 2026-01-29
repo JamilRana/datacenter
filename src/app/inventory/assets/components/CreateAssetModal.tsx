@@ -50,7 +50,7 @@ export default function CreateAssetModal() {
             <label className="block text-sm font-medium mb-1">Asset Type</label>
             <select
               value={assetType}
-              onChange={(e) => setAssetType(e.target.value as any)}
+              onChange={(e) => setAssetType(e.target.value as typeof assetType)}
               className="w-full border rounded px-3 py-2"
             >
               {ASSET_TYPES.map((type) => (

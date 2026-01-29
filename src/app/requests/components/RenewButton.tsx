@@ -15,13 +15,13 @@ export function RenewButton({ vmId }: { vmId: string }) {
       await renewVmRequest(vmId, session.user.id);
       toast.success("Renewal request submitted successfully.");
     } catch (err) {
-      toast.error("Failed to submit renewal request.");
+      toast.error(`Failed to submit renewal request: ${err}`);
     }
   };
 
   return (
-    <Button size="sm" variant="secondary" onClick={handleRenew}>
-      Renew
+    <Button size="sm" variant="secondary" onClick={handleRenew} className="flex-1 text-center text-sm bg-green-50 text-green-700 py-1 rounded-lg hover:bg-green-100">
+      Renew 
     </Button>
   );
 }

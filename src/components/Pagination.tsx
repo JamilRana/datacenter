@@ -2,13 +2,13 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useTransition } from "react";
+
 
 export function Pagination({ totalPages }: { totalPages: number }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const [isPending, startTransition] = useTransition();
+
 
   const currentPage = Number(searchParams.get("page")) || 1;
 
@@ -22,7 +22,7 @@ export function Pagination({ totalPages }: { totalPages: number }) {
     <div className="flex justify-center items-center gap-2">
       <button
         onClick={() => router.push(createPageURL(currentPage - 1))}
-        disabled={currentPage <= 1 || isPending}
+        disabled={currentPage <= 1}
         className="px-3 py-1 border rounded disabled:opacity-50"
       >
         Prev
@@ -34,7 +34,7 @@ export function Pagination({ totalPages }: { totalPages: number }) {
 
       <button
         onClick={() => router.push(createPageURL(currentPage + 1))}
-        disabled={currentPage >= totalPages || isPending}
+        disabled={currentPage >= totalPages}
         className="px-3 py-1 border rounded disabled:opacity-50"
       >
         Next

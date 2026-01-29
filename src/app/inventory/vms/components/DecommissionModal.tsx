@@ -1,7 +1,6 @@
 // src/app/inventory/vms/components/DecommissionModal.tsx
 "use client";
 
-import { decommissionVm } from "@/app/actions/vm-actions";
 import { useSession } from "next-auth/react"; // or your auth method
 import { useRouter } from "next/navigation";
 import { useState } from "react";

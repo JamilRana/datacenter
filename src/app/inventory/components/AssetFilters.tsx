@@ -56,7 +56,7 @@ export function AssetFilters({
           <Select
             value={filters.assetType}
             onValueChange={(value) =>
-              setFilters((prev) => ({ ...prev, assetType: value as any }))
+              setFilters((prev) => ({ ...prev, assetType: value as FilterState["assetType"] }))
             }
           >
             <SelectTrigger>
@@ -77,13 +77,12 @@ export function AssetFilters({
         {/* Status (only for VMs) */}
         <div>
           <label className="text-sm font-medium block mb-1">Status</label>
-          <Select
-            value={filters.status}
-            onValueChange={(value) =>
-              setFilters((prev) => ({ ...prev, status: value as any }))
-            }
-            disabled={filters.assetType !== "vm" && filters.assetType !== "all"}
-          >
+<Select
+  value={filters.status}
+  onValueChange={(value) => 
+    setFilters(prev => ({ ...prev, status: value as FilterState["status"] }))
+  }
+>
             <SelectTrigger>
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>

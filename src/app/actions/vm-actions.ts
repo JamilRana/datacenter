@@ -4,7 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
-import { VmStatus, RequestStatus, Prisma } from "@prisma/client";
+import { VmStatus,  Prisma, ApprovalEntityType, ApprovalDecision } from "@prisma/client";
 
 // ==============
 // Helper: Create Audit Log
@@ -112,7 +112,7 @@ export async function updateVm(formData: FormData, actorId: string) {
   const { id, ...data } = validated;
   const oldVm = await prisma.vmInstance.findUnique({ where: { id } });
 
-  const updatedVm = await prisma.vmInstance.update({
+  await prisma.vmInstance.update({
     where: { id },
     data: {
       ...data,
@@ -212,24 +212,27 @@ export async function createDecommissionRequest(vmId: string, actorId: string, r
     },
   });
 
-  const approvalData = approvers.flatMap((user) =>
-    user.roles.map((ur) => {
+  // ✅ Fixed approval creation
+  const approvalData: Prisma.ApprovalCreateManyInput[] = [];
+  for (const user of approvers) {
+    for (const ur of user.roles) {
       const levelMap: Record<string, "L1" | "L2" | "L3"> = {
         APPROVER_L1: "L1",
         APPROVER_L2: "L2",
         APPROVER_L3: "L3",
       };
       const level = levelMap[ur.role.name];
-      if (!level) return [];
-      return [{
-        entityId: decommissionRequest.id,
-        entityType: "REQUEST" as any,
-        approverId: user.id,
-        level,
-        decision: "PENDING" as any,
-      }];
-    }).flat()
-  );
+      if (level) {
+        approvalData.push({
+          entityId: decommissionRequest.id,
+          entityType: ApprovalEntityType.REQUEST,
+          approverId: user.id,
+          level,
+          decision: ApprovalDecision.PENDING,
+        });
+      }
+    }
+  }
 
   await prisma.approval.createMany({ data: approvalData });
 
@@ -359,7 +362,7 @@ export async function fetchAllVms({
 }) {
   const skip = (page - 1) * perPage;
 
-  const where: any = {};
+  const where: Prisma.VmInstanceWhereInput = {};
 
   // Data Isolation: Requesters only see their own VMs
   if (role === "REQUESTER" && userId) {
@@ -457,24 +460,27 @@ export async function renewVmRequest(vmId: string, actorId: string, durationMont
     },
   });
 
-  const approvalData = approvers.flatMap((user) =>
-    user.roles.map((ur) => {
+  // ✅ Fixed approval creation
+  const approvalData: Prisma.ApprovalCreateManyInput[] = [];
+  for (const user of approvers) {
+    for (const ur of user.roles) {
       const levelMap: Record<string, "L1" | "L2" | "L3"> = {
         APPROVER_L1: "L1",
         APPROVER_L2: "L2",
         APPROVER_L3: "L3",
       };
       const level = levelMap[ur.role.name];
-      if (!level) return [];
-      return [{
-        entityId: newRequest.id,
-        entityType: "REQUEST" as any,
-        approverId: user.id,
-        level,
-        decision: "PENDING" as any,
-      }];
-    }).flat()
-  );
+      if (level) {
+        approvalData.push({
+          entityId: newRequest.id,
+          entityType: ApprovalEntityType.REQUEST,
+          approverId: user.id,
+          level,
+          decision: ApprovalDecision.PENDING,
+        });
+      }
+    }
+  }
 
   await prisma.approval.createMany({ data: approvalData });
 

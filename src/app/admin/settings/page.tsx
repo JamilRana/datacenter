@@ -4,7 +4,7 @@ import SettingsForm from "./SettingsForm";
 
 
 export default async function AdminSettings() {
-  const settings = await (prisma as any).systemSetting.findMany();
+  const settings = await prisma.systemSetting.findMany();
 
   // Ensure default settings exist if not in DB
   const defaultSettings = [
@@ -14,7 +14,7 @@ export default async function AdminSettings() {
   ];
 
   const mergedSettings = defaultSettings.map(ds => {
-    const dbSetting = (settings as any[]).find((s: any) => s.key === ds.key);
+    const dbSetting = settings.find((s) => s.key === ds.key);
     return dbSetting ? { ...ds, value: dbSetting.value } : ds;
   });
 

@@ -6,16 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { handleApproval } from "@/app/actions/approval-actions";
+import { handleApprovalDecision } from "@/app/actions/approval-actions";
+import { Approval } from "@/types/requests";
+
+
 
 export function ApprovalPanel({
-  requestId,
   approvals,
   currentStatus,
   currentUserId,
 }: {
-  requestId: string;
-  approvals: any[];
+  approvals: Approval[];
   currentStatus: string;
   currentUserId: string;
 }) {
@@ -44,12 +45,12 @@ export function ApprovalPanel({
     if (!activeApprovalRecord) return;
     setLoading(true);
     try {
-      const result = await handleApproval(
+      const result = await handleApprovalDecision(
         activeApprovalRecord.id,
         decision,
         comments
       );
-      if (result.success) {
+      if (result) {
         toast.success(`Request ${decision.toLowerCase().replace('_', ' ')} successfully`);
         // Force a refresh to update the timeline and status badges
         window.location.reload();
@@ -77,7 +78,7 @@ export function ApprovalPanel({
             >
               <div className="flex flex-col">
                 <span className="font-semibold text-sm">
-                  {app.approver.name}
+                  {app.approver?.name || app.approverId}
                 </span>
                 <span className="text-xs text-muted-foreground uppercase tracking-wider">
                   Level {app.level} Approver
@@ -86,7 +87,7 @@ export function ApprovalPanel({
               <div className="flex items-center gap-4">
                 {app.comments && (
                   <span className="text-xs italic text-slate-500 hidden md:block">
-                    "{app.comments}"
+                    {app.comments}
                   </span>
                 )}
                 <Badge

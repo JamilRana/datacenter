@@ -3,7 +3,7 @@ import prisma from "./prisma";
 
 export async function createNotification(userId: string, type: string, message: string) {
   try {
-    await (prisma as any).notification.create({
+    await prisma.notification.create({
       data: {
         userId,
         type,

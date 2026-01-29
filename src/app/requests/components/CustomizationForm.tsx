@@ -1,104 +1,202 @@
-// src/app/requests/components/CustomizationForm.tsx
 "use client";
+
 import { useState } from "react";
-import { createCustomizationRequest } from "@/app/actions/request-actions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { HardDrive, Cpu, Database, Save, Send } from "lucide-react";
+import { VmInstance } from "@/types/inventory";
 
-export function CustomizationForm({
-  vm,
-  userId,
-}: {
-  vm: {
-    id: string;
-    hostname: string | null;
-    vcpu: number;
-    ramGb: number;
-    additionalDiskGb: number;
-  };
+interface CustomizationFormProps {
+  vms: VmInstance[];
+  preselectedVmId?: string;
   userId: string;
-}) {
-  const [vcpu, setVcpu] = useState(vm.vcpu);
-  const [ramGb, setRamGb] = useState(vm.ramGb);
-  const [additionalDiskGb, setAdditionalDiskGb] = useState(0);
-  const [purpose, setPurpose] = useState("");
+}
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const formData = new FormData();
+export function CustomizationForm({ vms, preselectedVmId, userId }: CustomizationFormProps) {
+  const router = useRouter();
+  const [selectedVmId, setSelectedVmId] = useState(preselectedVmId || "");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const selectedVm = vms.find(v => v.id === selectedVmId);
+
+  async function handleSubmit(type: "draft" | "submit") {
+    if (!selectedVmId) {
+      toast.error("Please select a virtual machine");
+      return;
+    }
+
+    setIsSubmitting(true);
+    const form = document.getElementById("customize-form") as HTMLFormElement;
+    const formData = new FormData(form);
+    
+    formData.append("targetVmId", selectedVmId);
     formData.append("userId", userId);
-    formData.append("targetVmId", vm.id);
-    formData.append("vcpu", vcpu.toString());
-    formData.append("ramGb", ramGb.toString());
-    formData.append("additionalDiskGb", additionalDiskGb.toString());
-    formData.append("purpose", purpose);
-    await createCustomizationRequest(formData);
-    window.location.href = "/requests";
-  };
+    formData.append("requestType", "CUSTOMIZED");
+    formData.append("status", type === "submit" ? "PENDING_L1" : "DRAFT");
+
+    try {
+      const res = await fetch("/api/requests", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        toast.success(`Customization request ${type === "submit" ? "submitted" : "saved"}!`);
+        router.push("/requests");
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Failed to create request");
+      }
+    } catch (error) {
+      toast.error(`Network error: ${error}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Customize VM: {vm.hostname || vm.id}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label>Purpose of Change *</Label>
-            <Input
-              value={purpose}
-              onChange={(e) => setPurpose(e.target.value)}
-              required
-            />
+    <form id="customize-form" className="space-y-6">
+      <Card className="shadow-sm border-slate-200">
+        <CardHeader className="bg-slate-50/50 border-b">
+          <div className="flex items-center gap-2">
+            <HardDrive className="h-5 w-5 text-blue-600" />
+            <CardTitle>Target Virtual Machine</CardTitle>
           </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Select VM to Modify *</Label>
+              <Select value={selectedVmId} onValueChange={setSelectedVmId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose one of your VMs..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {vms.map(vm => (
+                    <SelectItem key={vm.id} value={vm.id}>
+                      {vm.hostname} ({vm.ipAddress || "No IP"}) - {vm.currentSpec?.vcpu} vCPU, {vm.currentSpec?.ramGb}GB RAM
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>vCPU (current: {vm.vcpu})</Label>
-              <Input
-                type="number"
-                min={vm.vcpu}
-                value={vcpu}
-                onChange={(e) =>
-                  setVcpu(
-                    Math.max(vm.vcpu, parseInt(e.target.value) || vm.vcpu)
-                  )
-                }
-              />
-            </div>
-            <div>
-              <Label>RAM GB (current: {vm.ramGb})</Label>
-              <Input
-                type="number"
-                min={vm.ramGb}
-                value={ramGb}
-                onChange={(e) =>
-                  setRamGb(
-                    Math.max(vm.ramGb, parseInt(e.target.value) || vm.ramGb)
-                  )
-                }
-              />
-            </div>
-            <div>
-              <Label>Additional Disk (GB)</Label>
-              <Input
-                type="number"
-                min="0"
-                value={additionalDiskGb}
-                onChange={(e) =>
-                  setAdditionalDiskGb(
-                    Math.max(0, parseInt(e.target.value) || 0)
-                  )
-                }
-              />
-            </div>
+            {selectedVm && (
+              <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg space-y-2">
+                <p className="text-sm font-semibold text-blue-900">Current Specification:</p>
+                <div className="grid grid-cols-3 gap-4 text-xs text-blue-800">
+                  <div className="flex items-center gap-1"><Cpu className="h-3 w-3" /> {selectedVm.currentSpec?.vcpu} vCPU</div>
+                  <div className="flex items-center gap-1"><Database className="h-3 w-3" /> {selectedVm.currentSpec?.ramGb} GB RAM</div>
+                  <div className="flex items-center gap-1"><HardDrive className="h-3 w-3" /> {selectedVm.currentSpec?.storageGb} GB Disk</div>
+                </div>
+              </div>
+            )}
           </div>
+        </CardContent>
+      </Card>
 
-          <Button type="submit">Submit Customization Request</Button>
-        </form>
-      </CardContent>
-    </Card>
+{selectedVm && (
+  <Card className="shadow-sm border-slate-200">
+    <CardHeader className="bg-slate-50/50 border-b">
+      <div className="flex items-center gap-2">
+        <Cpu className="h-5 w-5 text-indigo-600" />
+        <CardTitle>Requested Changes</CardTitle>
+      </div>
+    </CardHeader>
+    <CardContent className="pt-6 space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-2">
+          <Label>Required vCPU Cores</Label>
+          <Input 
+            name="vcpu" 
+            type="number" 
+            defaultValue={selectedVm.currentSpec?.vcpu ?? ""} 
+            min="1" 
+            max="128" 
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Required RAM (GB)</Label>
+          <Input 
+            name="ramGb" 
+            type="number" 
+            defaultValue={selectedVm.currentSpec?.ramGb ?? ""} 
+            min="1" 
+            max="1024" 
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Required OS Disk (GB)</Label>
+          <Input 
+            name="storageGb" 
+            type="number" 
+            defaultValue={selectedVm.currentSpec?.storageGb ?? ""} 
+            min="10" 
+            max="10000" 
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>System/Service Name (Reference)</Label>
+          <Input 
+            name="systemName" 
+            defaultValue={selectedVm.hostname || ""} 
+            readOnly 
+            className="bg-slate-100" 
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Justification for Changes *</Label>
+        <Textarea 
+          name="purpose" 
+          placeholder="Explain why these updates are needed..."
+          className="min-h-[100px]"
+          required
+        />
+      </div>
+      
+      <input 
+        type="hidden" 
+        name="environment" 
+        value={selectedVm.request?.environment || "PRODUCTION"} 
+      />
+    </CardContent>
+  </Card>
+)}
+
+      {selectedVm && (
+        <div className="flex justify-end gap-4 pb-10">
+          <Button 
+            type="button" 
+            variant="outline" 
+            disabled={isSubmitting}
+            onClick={() => handleSubmit("draft")}
+          >
+            <Save className="h-4 w-4 mr-2" /> Save as Draft
+          </Button>
+          <Button 
+            type="button" 
+            className="bg-blue-600 hover:bg-blue-700" 
+            disabled={isSubmitting}
+            onClick={() => handleSubmit("submit")}
+          >
+            <Send className="h-4 w-4 mr-2" /> Submit for Approval
+          </Button>
+        </div>
+      )}
+    </form>
   );
 }

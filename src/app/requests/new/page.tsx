@@ -3,18 +3,10 @@
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { RequestForm } from "../components/RequestForm";
-import { useEffect, useState } from "react";
-import { Route } from "lucide-react";
-import { RouteLoader } from "@/components/RouteLoader";
+import { useEffect } from "react";
 
-export default function NewVmPage({
-  params,
-}: {
-  params: { copyFromId?: string };
-}) {
+export default function NewVmPage() {
   const { data: session, status } = useSession();
-  const [loading, setLoading] = useState(true);
-  const [requests, setRequests] = useState<any[]>([]);
   const router = useRouter();
 
   useEffect(() => {

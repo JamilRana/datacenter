@@ -14,53 +14,50 @@ export const ASSET_TYPES = [
 
 export type AssetType = (typeof ASSET_TYPES)[number];
 
-// Form data types (Zod will validate these)
-export interface ServerFormData {
-  type: "SERVER";
+export interface BaseAssetFormData {
   name: string;
+  vendor: string;
   model: string;
+  serial: string;
   location: string;
+  warrantyExpiry?: string;
+}
+
+export interface ServerFormData extends BaseAssetFormData {
+  type: "SERVER";
   cpuCores: number;
   ramGb: number;
   storageGb: number;
-  graphics?: string; // Optional
+  graphicsCardModel?: string;
+  graphicsCardSpec?: string;
 }
 
-export interface RouterFormData {
+export interface RouterFormData extends BaseAssetFormData {
   type: "ROUTER";
-  name: string;
-  model: string;
-  location: string;
   interfaces: number;
   throughputGbps: number;
 }
 
-export interface SwitchFormData {
+export interface SwitchFormData extends BaseAssetFormData {
   type: "SWITCH";
-  name: string;
-  model: string;
-  location: string;
-  ports: number;
-  portSpeedGbps: number;
+  interfaces: number;
+  throughputGbps: number;
   vlanSupport: boolean;
 }
 
-export interface FirewallFormData {
+export interface FirewallFormData extends BaseAssetFormData {
   type: "FIREWALL";
-  name: string;
-  model: string;
-  location: string;
+  interfaces: number;
   throughputGbps: number;
-  maxRules: number;
 }
 
-export interface StorageFormData {
+export interface StorageFormData extends BaseAssetFormData {
   type: "STORAGE";
-  name: string;
-  model: string;
-  location: string;
   capacityTb: number;
-  raidType: "RAID0" | "RAID1" | "RAID5" | "RAID10" | "NONE";
+}
+
+export interface OtherAssetFormData extends BaseAssetFormData {
+  type: "UPS" | "CONSOLE_SERVER" | "OTHER";
 }
 
 export type AssetFormData =
@@ -68,7 +65,21 @@ export type AssetFormData =
   | RouterFormData
   | SwitchFormData
   | FirewallFormData
-  | StorageFormData;
+  | StorageFormData
+  | OtherAssetFormData;
+
+export interface AssetFormValues extends BaseAssetFormData {
+  type: AssetType;
+  cpuCores?: number;
+  ramGb?: number;
+  storageGb?: number;
+  graphicsCardModel?: string;
+  graphicsCardSpec?: string;
+  interfaces?: number;
+  throughputGbps?: number;
+  vlanSupport?: boolean;
+  capacityTb?: number;
+}
 
 export interface FilterState {
   assetType: AssetType | "all";
@@ -79,21 +90,69 @@ export interface FilterState {
 export interface VmInstance {
   id: string;
   hostname: string | null;
+  sequenceNumber?: number;
   ipAddress: string | null;
-  vcpu: number | null;
-  ramGb: number | null;
-  storageGb: number | null;
-  raid: string | null;
   status: "ACTIVE" | "SUSPENDED" | "RETIRED";
-  createdAt: Date;
+  vmOsName?: string;
+  vmOsVersion?: string;
+  owner: { name: string | null; email: string | null } | null;
+  request: { environment: string | null; systemName: string | null } | null;
+  currentSpec: {
+    vcpu: number | null;
+    ramGb: number | null;
+    storageGb: number | null;
+  } | null;
+  provisionedAt: Date | string | null;
 }
 
-export interface License {
+export interface PhysicalAsset {
+  id: string;
+  name: string;
+  serial: string | null;
+  type: AssetType;
+  vendor: string | null;
+  model: string | null;
+  location: string | null;
+  cpuCores: number | null;
+  ramGb: number | null;
+  storageGb: number | null;
+  createdAt: Date | string;
+}
+
+export interface EnrollmentLicense {
   id: string;
   name: string;
   vendor: string;
   type: string;
-  expiryDate: Date | null;
-  maintenanceExpiry: Date | null;
+  expiryDate: Date | string | null;
+  maintenanceExpiry: Date | string | null;
   notes: string | null;
+  usedSeats?: number;
+  totalSeats?: number;
+  assets?: { id: string; name: string }[];
+}
+
+export interface VmSpecHistory {
+  id: string;
+  createdAt: Date | string;
+  vcpu: number;
+  ramGb: number;
+  storageGb: number;
+  sourceRequestId: string | null;
+}
+
+export interface VmAuditLog {
+  id: string;
+  timestamp: Date | string;
+  action: string;
+  actorId: string;
+}
+
+
+export interface ResourceChartData {
+  date: string;
+  cpu: number;
+  ram: number;
+  storage: number;
+  network: number;
 }

@@ -4,7 +4,6 @@ import { Progress } from "../ui/progress";
 export function ResourceGauge({ 
   title, 
   value, 
-  max, 
   color 
 }: { 
   title: string; 

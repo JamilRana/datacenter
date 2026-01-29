@@ -1,8 +1,8 @@
+// src/app/requests/components/RequestForm.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
 import {
-  createRequest,
   getCopyRequestData,
 } from "@/app/actions/request-actions";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,9 @@ import {
   Code,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { set } from "zod";
+import { RequestData, AdditionalDisk, FirewallPort, Person } from "@/types/request-form";
+import { Protocol } from "@prisma/client";
+
 
 export function RequestForm({
   userId,
@@ -51,50 +53,71 @@ export function RequestForm({
   const formRef = useRef<HTMLFormElement>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitType, setSubmitType] = useState<"draft" | "submit">("draft");
-
-  // For dynamic lists (we'll reset these on copy)
-  const [additionalDisks, setAdditionalDisks] = useState<
-    { sizeGb: string; purpose: string }[]
-  >([{ sizeGb: "", purpose: "" }]);
-  const [firewallPorts, setFirewallPorts] = useState<
-    { port: string; protocol: string; purpose: string }[]
-  >([{ port: "", protocol: "TCP", purpose: "" }]);
-  const [networkAccess, setNetworkAccess] = useState<string[]>(["LOCAL"]);
+  // For dynamic lists
+  const [additionalDisks, setAdditionalDisks] = useState<AdditionalDisk[]>([
+    { sizeGb: "", purpose: "" }
+  ]);
+  const [firewallPorts, setFirewallPorts] = useState<FirewallPort[]>([
+    { port: "", protocol: "TCP", purpose: "" }
+  ]);
+  const [networkAccess, setNetworkAccess] = useState<("LOCAL" | "INTERNET" | "REMOTE")[]>(["LOCAL"]);
 
   // Files
   const [securityReport, setSecurityReport] = useState<File | null>(null);
   const [justificationDoc, setJustificationDoc] = useState<File | null>(null);
 
-  // Prefill data (for uncontrolled inputs)
-  const [prefillData, setPrefillData] = useState<any>(null);
+  // Prefill data
+  const [prefillData, setPrefillData] = useState<RequestData | null>(null);
 
+  // Hardware values
   const [vcpuValue, setVcpuValue] = useState<string>("2");
   const [ramValue, setRamValue] = useState<string>("4");
   const [storageValue, setStorageValue] = useState<string>("50");
 
+  // Controlled values for Selects and Switches
+  const [environment, setEnvironment] = useState<string>("PRODUCTION");
+  const [raid, setRaid] = useState<string>("NONE");
+  const [sslProvider, setSslProvider] = useState<string>("MIS");
+  const [requiredPublicIP, setRequiredPublicIP] = useState<boolean>(false);
+  const [vpnRequired, setVpnRequired] = useState<boolean>(false);
+  const [renewalRequired, setRenewalRequired] = useState<boolean>(false);
+  // const [osLicenseBy, setOsLicenseBy] = useState<string>("MIS");
+
+  // Initialize hardware values from prefill data
   useEffect(() => {
     if (prefillData) {
-      if (["1", "2", "4", "8"].includes(String(prefillData.vcpu))) {
-        setVcpuValue(String(prefillData.vcpu));
+      // CPU
+      if (prefillData.vcpu && ["1", "2", "4", "8"].includes(prefillData.vcpu)) {
+        setVcpuValue(prefillData.vcpu);
       } else if (prefillData.vcpu) {
         setVcpuValue("other");
       }
 
-      if (["4", "8", "16", "32"].includes(String(prefillData.ramGb))) {
-        setRamValue(String(prefillData.ramGb));
+      // RAM
+      if (prefillData.ramGb && ["4", "8", "16", "32"].includes(prefillData.ramGb)) {
+        setRamValue(prefillData.ramGb);
       } else if (prefillData.ramGb) {
         setRamValue("other");
       }
 
-      if (["50", "100", "250", "500"].includes(String(prefillData.storageGb))) {
-        setStorageValue(String(prefillData.storageGb));
+      // Storage
+      if (prefillData.storageGb && ["50", "100", "250", "500"].includes(prefillData.storageGb)) {
+        setStorageValue(prefillData.storageGb);
       } else if (prefillData.storageGb) {
         setStorageValue("other");
       }
+
+      // Controlled state updates
+      if (prefillData.environment) setEnvironment(prefillData.environment);
+      if (prefillData.raid) setRaid(prefillData.raid);
+      if (prefillData.sslProvider) setSslProvider(prefillData.sslProvider);
+      if (prefillData.requiredPublicIP !== undefined) setRequiredPublicIP(!!prefillData.requiredPublicIP);
+      if (prefillData.vpnRequired !== undefined) setVpnRequired(!!prefillData.vpnRequired);
+      if (prefillData.renewalRequired !== undefined) setRenewalRequired(!!prefillData.renewalRequired);
     }
   }, [prefillData]);
 
+  // Load prefill data
   useEffect(() => {
     const loadCopyData = async () => {
       if (!copyFrom && !isEditing) {
@@ -103,39 +126,45 @@ export function RequestForm({
       }
 
       try {
-        let data: any = null;
+        let data: RequestData | null = null;
         if (copyFrom) {
           data = await getCopyRequestData(copyFrom);
         } else if (isEditing && editId) {
           data = await getCopyRequestData(editId);
         }
-        setPrefillData(data);
+        setPrefillData(data || null);
+        
         // Reset dynamic lists
-        setAdditionalDisks(
-          data.additionalDisks?.map((d: any) => ({
-            sizeGb: String(d.sizeGb),
-            purpose: d.purpose || "",
-          })) || [{ sizeGb: "", purpose: "" }]
-        );
-        setFirewallPorts(
-          data.firewallPorts?.map((p: any) => ({
-            port: String(p.port),
-            protocol: p.protocol || "TCP",
-            purpose: p.purpose || "",
-          })) || [{ port: "", protocol: "TCP", purpose: "" }]
-        );
-        setNetworkAccess(data.networkAccess || ["LOCAL"]);
-        setSecurityReport(null); // Don't auto-fill files
+        if (data) {
+          setAdditionalDisks(
+            data.additionalDisks.map(d => ({
+              sizeGb: String(d.sizeGb),
+              purpose: d.purpose || "",
+            })) || [{ sizeGb: "", purpose: "" }]
+          );
+          
+          setFirewallPorts(
+            data.firewallPorts.map(p => ({
+              port: String(p.port),
+              protocol: p.protocol || "TCP",
+              purpose: p.purpose || "",
+              source: p.source || "",
+            })) || [{ port: "", protocol: "TCP", purpose: "" }]
+          );
+          
+          setNetworkAccess(data.networkAccess || ["LOCAL"]);
+        }
+        
+        setSecurityReport(null);
         setJustificationDoc(null);
       } catch (err) {
-        toast.error("Failed to load copied request.");
+        toast.error(`Failed to load copied request: ${err}`);
         setPrefillData(null);
       }
     };
 
     loadCopyData();
   }, [copyFrom, isEditing, editId]);
-  console.log(prefillData);
 
   const handleSubmit = async (submitType: "draft" | "submit") => {
     setIsSubmitting(true);
@@ -159,24 +188,18 @@ export function RequestForm({
       JSON.stringify(firewallPorts.filter((p) => p.port))
     );
 
-    // Hardware: use custom values if "other" is selected
-    const vcpuValue = formData.get("vcpuValue")?.toString() || "2";
-    const finalVcpu =
-      vcpuValue === "other"
-        ? formData.get("customVcpu")?.toString() || "2"
-        : vcpuValue;
-
-    const ramValueRaw = formData.get("ramValue")?.toString() || "4";
-    const finalRam =
-      ramValueRaw === "other"
-        ? formData.get("customRam")?.toString() || "4"
-        : ramValueRaw;
-
-    const storageValueRaw = formData.get("storageValue")?.toString() || "50";
-    const finalStorage =
-      storageValueRaw === "other"
-        ? formData.get("customStorage")?.toString() || "50"
-        : storageValueRaw;
+    // Hardware values
+    const finalVcpu = vcpuValue === "other" 
+      ? formData.get("customVcpu")?.toString() || "2"
+      : vcpuValue;
+      
+    const finalRam = ramValue === "other"
+      ? formData.get("customRam")?.toString() || "4"
+      : ramValue;
+      
+    const finalStorage = storageValue === "other"
+      ? formData.get("customStorage")?.toString() || "50"
+      : storageValue;
 
     formData.set("vcpu", finalVcpu);
     formData.set("ramGb", finalRam);
@@ -191,36 +214,25 @@ export function RequestForm({
       justificationDoc ? "true" : "false"
     );
 
-    // People: fallback to empty if missing
-    const fields = [
-      "responsiblePersonName",
-      "responsiblePersonDesignation",
-      "responsiblePersonOrganization",
-      "responsiblePersonContact",
-      "responsiblePersonEmail",
-      "alternativePersonName",
-      "alternativePersonDesignation",
-      "alternativePersonOrganization",
-      "alternativePersonContact",
-      "alternativePersonEmail",
-      "developerName",
-      "developerAddress",
-      "developerContact",
-      "developerEmail",
-    ];
-    for (const field of fields) {
-      if (!formData.has(field) || formData.get(field) === "") {
-        formData.set(field, "");
-      }
-    }
-    if (isEditing) {
-      formData.append("isEditing", "true");
+    // People fields
+    const personFields: (keyof Person)[] = ["name", "designation", "organization", "contact", "email"];
+    const prefixes = ["responsiblePerson", "alternativePerson", "developer"] as const;
+    
+    prefixes.forEach(prefix => {
+      personFields.forEach(field => {
+        const fieldName = `${prefix}${field.charAt(0).toUpperCase() + field.slice(1)}`;
+        if (!formData.has(fieldName) || formData.get(fieldName) === "") {
+          formData.set(fieldName, "");
+        }
+      });
+    });
+
+    if (isEditing && editId) {
       formData.append("requestId", editId);
     }
 
     try {
       const url = isEditing ? `/api/requests/${requestId}` : "/api/requests";
-
       const response = await fetch(url, {
         method: isEditing ? "PATCH" : "POST",
         body: formData,
@@ -228,21 +240,18 @@ export function RequestForm({
 
       const result = await response.json();
       if (response.ok) {
-        toast.success(
-          `Request ${submitType === "submit" ? "submitted" : "saved"}!`
-        );
+        toast.success(`Request ${submitType === "submit" ? "submitted" : "saved"}!`);
         window.location.href = "/requests";
       } else {
         toast.error(result.error || "Submission failed");
       }
     } catch (error) {
-      toast.error("Network error");
+      toast.error(`Network error ${error}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Safe checkbox handler (avoids 'indeterminate' type error)
   const handleCheckboxChange = (
     checked: boolean,
     callback: (checked: boolean) => void
@@ -252,39 +261,37 @@ export function RequestForm({
     }
   };
 
-  // Auto-fill requester
+const fillRequester = (
+  checked: boolean,
+  type: "responsible" | "alternative"
+) => {
+  if (!checked || !session?.user || !formRef.current) return;
 
-  const fillRequester = (
-    checked: boolean,
-    type: "responsible" | "alternative"
-  ) => {
-    if (!checked || !session?.user || !formRef.current) return;
+  const form = formRef.current;
+  const prefix = type === "responsible" ? "responsiblePerson" : "alternativePerson";
+  
+  // Exact mapping to input 'name' attributes
+  const fields = [
+    { sessionKey: "name" as const, inputName: `${prefix}Name` },
+    { sessionKey: "designation" as const, inputName: `${prefix}Designation` },
+    { sessionKey: "organization" as const, inputName: `${prefix}Organization` },
+    { sessionKey: "contact" as const, inputName: `${prefix}Contact` },
+    { sessionKey: "email" as const, inputName: `${prefix}Email` },
+  ] as const;
 
-    const form = formRef.current;
-    const prefix =
-      type === "responsible" ? "responsiblePerson" : "alternativePerson";
-    
-    // Map of session user fields to form input names
-    const fieldMap: Record<string, string> = {
-      name: "Name",
-      designation: "Designation",
-      organization: "Organization",
-      contact: "Contact",
-      email: "Email"
-    };
-
-    Object.entries(fieldMap).forEach(([sessionKey, formSuffix]) => {
-      const input = form.querySelector(
-        `[name="${prefix}${formSuffix}"]`
-      ) as HTMLInputElement;
-      if (input) {
-        input.value = (session.user as any)[sessionKey] || "";
-      }
-    });
-  };
+  fields.forEach(({ sessionKey, inputName }) => {
+    const input = form.querySelector(`[name="${inputName}"]`) as HTMLInputElement;
+    if (input) {
+      // Type-safe property access
+      input.value = session.user[sessionKey] || "";
+    }
+  });
+};
+  // Helper function to get default value
+  const getDefaultValue = (value: string | undefined | null, defaultValue: string) => 
+    value ?? defaultValue;
 
   return (
-    // 👇 Key ensures form resets when copyFrom changes
     <form
       ref={formRef}
       key={copyFrom || "new-request"}
@@ -296,7 +303,7 @@ export function RequestForm({
           📋 Prefilled from a previous request. Please review all fields.
         </div>
       )}
-      {/* ... (Your existing header and structure remains exactly the same) ... */}
+
       {/* System Card */}
       <Card className="lg:col-span-2 shadow-md border border-slate-300">
         <CardHeader className="bg-slate-50/70 border-b border-slate-300">
@@ -310,14 +317,14 @@ export function RequestForm({
           <Input
             name="systemName"
             placeholder="System/Service Name *"
-            defaultValue={prefillData?.systemName || ""}
+            defaultValue={getDefaultValue(prefillData?.systemName, "")}
             required
           />
           <Label>Project/Program Name</Label>
           <Input
             name="projectName"
             placeholder="Project/Program Name"
-            defaultValue={prefillData?.projectName || ""}
+            defaultValue={getDefaultValue(prefillData?.projectName, "")}
           />
           <div className="md:col-span-2">
             <Label>System Purpose *</Label>
@@ -325,38 +332,44 @@ export function RequestForm({
               name="purpose"
               placeholder="Briefly describe why this VM is needed..."
               className="min-h-[100px]"
-              defaultValue={prefillData?.purpose || ""}
+              defaultValue={getDefaultValue(prefillData?.purpose, "")}
               required
             />
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
           <Select
             name="environment"
-            defaultValue={prefillData?.environment || "PRODUCTION"}
+            value={environment}
+            onValueChange={setEnvironment}
           >
             <Label>Target Environment</Label>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(
-                ["DEVELOPMENT", "STAGING", "PRODUCTION", "TESTING"] as const
-              ).map((e) => (
+              {(["DEVELOPMENT", "STAGING", "PRODUCTION", "TESTING"] as const).map((e) => (
                 <SelectItem key={e} value={e}>
                   {e}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          </div>
           <div>
             <Label>Expected End Date</Label>
             <Input
               name="expectedEndDate"
               type="date"
-              defaultValue={prefillData?.expectedEndDate || ""}
+              defaultValue={getDefaultValue(prefillData?.expectedEndDate, "")}
             />
+          </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Rest of your form components remain the same, but with proper typing */}
+      
       {/* Tech Stack Card */}
       <Card className="shadow-md border border-slate-300">
         <CardHeader className="bg-slate-50/70 border-b border-slate-300">
@@ -372,7 +385,7 @@ export function RequestForm({
           <Input
             name="frontendTech"
             placeholder="React, Angular, etc."
-            defaultValue={prefillData?.frontendTech || ""}
+            defaultValue={getDefaultValue(prefillData?.frontendTech, "")}
           />
           <div className="space-2">
             <Label htmlFor="backendTech" className="mt-2">
@@ -381,7 +394,7 @@ export function RequestForm({
             <Input
               name="backendTech"
               placeholder="Node.js, Django, etc."
-              defaultValue={prefillData?.backendTech || ""}
+              defaultValue={getDefaultValue(prefillData?.backendTech, "")}
             />
           </div>
           <div className="space-2">
@@ -391,7 +404,7 @@ export function RequestForm({
             <Input
               name="dataBase"
               placeholder="PostgreSQL, MongoDB, etc."
-              defaultValue={prefillData?.dataBase || ""}
+              defaultValue={getDefaultValue(prefillData?.dataBase, "")}
             />
           </div>
           <div className="space-2">
@@ -399,7 +412,7 @@ export function RequestForm({
             <Input
               name="serverArchitecture"
               placeholder="Docker / Kubernetes / Monolith"
-              defaultValue={prefillData?.serverArchitecture || ""}
+              defaultValue={getDefaultValue(prefillData?.serverArchitecture, "")}
             />
           </div>
           <div className="space-2">
@@ -409,11 +422,12 @@ export function RequestForm({
             <Textarea
               name="additionalTechNotes"
               placeholder="Additional technical notes..."
-              defaultValue={prefillData?.additionalTechNotes || ""}
+              defaultValue={getDefaultValue(prefillData?.additionalTechNotes, "")}
             />
           </div>
         </CardContent>
       </Card>
+
       {/* Responsible Persons */}
       <Card className="shadow-md border border-slate-300">
         <CardHeader className="bg-slate-50/70 border-b border-slate-300">
@@ -445,34 +459,32 @@ export function RequestForm({
               <Input
                 name="responsiblePersonName"
                 placeholder="Name"
-                defaultValue={prefillData?.responsiblePerson?.name || ""}
+                defaultValue={getDefaultValue(prefillData?.responsiblePerson.name, "")}
                 required
               />
               <Input
                 name="responsiblePersonDesignation"
                 placeholder="Designation"
-                defaultValue={prefillData?.responsiblePerson?.designation || ""}
+                defaultValue={getDefaultValue(prefillData?.responsiblePerson.designation, "")}
                 required
               />
               <Input
                 name="responsiblePersonOrganization"
                 placeholder="Organization"
-                defaultValue={
-                  prefillData?.responsiblePerson?.organization || ""
-                }
+                defaultValue={getDefaultValue(prefillData?.responsiblePerson.organization, "")}
                 required
               />
               <Input
                 name="responsiblePersonContact"
                 placeholder="Contact Number"
-                defaultValue={prefillData?.responsiblePerson?.contact || ""}
+                defaultValue={getDefaultValue(prefillData?.responsiblePerson.contact, "")}
                 required
               />
               <Input
                 name="responsiblePersonEmail"
                 type="email"
                 placeholder="Email"
-                defaultValue={prefillData?.responsiblePerson?.email || ""}
+                defaultValue={getDefaultValue(prefillData?.responsiblePerson.email, "")}
                 required
               />
             </div>
@@ -487,30 +499,28 @@ export function RequestForm({
               <Input
                 name="alternativePersonName"
                 placeholder="Name"
-                defaultValue={prefillData?.alternativePerson?.name || ""}
+                defaultValue={getDefaultValue(prefillData?.alternativePerson.name, "")}
               />
               <Input
                 name="alternativePersonDesignation"
                 placeholder="Designation"
-                defaultValue={prefillData?.alternativePerson?.designation || ""}
+                defaultValue={getDefaultValue(prefillData?.alternativePerson.designation, "")}
               />
               <Input
                 name="alternativePersonOrganization"
                 placeholder="Organization"
-                defaultValue={
-                  prefillData?.alternativePerson?.organization || ""
-                }
+                defaultValue={getDefaultValue(prefillData?.alternativePerson.organization, "")}
               />
               <Input
                 name="alternativePersonContact"
                 placeholder="Contact Number"
-                defaultValue={prefillData?.alternativePerson?.contact || ""}
+                defaultValue={getDefaultValue(prefillData?.alternativePerson.contact, "")}
               />
               <Input
                 name="alternativePersonEmail"
                 type="email"
                 placeholder="Email"
-                defaultValue={prefillData?.alternativePerson?.email || ""}
+                defaultValue={getDefaultValue(prefillData?.alternativePerson.email, "")}
               />
             </div>
           </div>
@@ -524,28 +534,29 @@ export function RequestForm({
               <Input
                 name="developerName"
                 placeholder="Name"
-                defaultValue={prefillData?.developer?.name || ""}
+                defaultValue={getDefaultValue(prefillData?.developer.name, "")}
               />
               <Input
                 name="developerAddress"
                 placeholder="Address"
-                defaultValue={prefillData?.developer?.address || ""}
+                defaultValue={getDefaultValue(prefillData?.developer.address, "")}
               />
               <Input
                 name="developerContact"
                 placeholder="Contact Number"
-                defaultValue={prefillData?.developer?.contact || ""}
+                defaultValue={getDefaultValue(prefillData?.developer.contact, "")}
               />
               <Input
                 name="developerEmail"
                 type="email"
                 placeholder="Email"
-                defaultValue={prefillData?.developer?.email || ""}
+                defaultValue={getDefaultValue(prefillData?.developer.email, "")}
               />
             </div>
           </div>
         </CardContent>
       </Card>
+
       {/* VM Resources */}
       <Card className="shadow-md border border-slate-300">
         <CardHeader className="bg-slate-50/70 border-b border-slate-300 flex flex-row items-center justify-between">
@@ -560,7 +571,7 @@ export function RequestForm({
             <Input
               name="quantity"
               type="number"
-              defaultValue={prefillData?.quantity || "1"}
+              defaultValue={getDefaultValue(prefillData?.quantity, "1")}
               className="w-16 h-8"
               min="1"
               max="10"
@@ -571,43 +582,13 @@ export function RequestForm({
           {/* CPU */}
           <div className="space-y-3">
             <Label>vCPU Cores</Label>
-            {/* <RadioGroup
-              name="vcpuValue"
-              defaultValue={prefillData?.vcpu || "2"}
-              className="grid grid-cols-2 gap-2"
-            >
-              {[1, 2, 4, 8].map((n) => (
-                <div
-                  key={n}
-                  className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50"
-                >
-                  <RadioGroupItem value={n.toString()} id={`cpu-${n}`} />
-                  <Label htmlFor={`cpu-${n}`}>
-                    {n} core{n > 1 ? "s" : ""}
-                  </Label>
-                </div>
-              ))}
-              <div className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50">
-                <RadioGroupItem value="other" id="cpu-other" />
-                <Label htmlFor="cpu-other">Other</Label>
-              </div>
-            </RadioGroup>
-            {prefillData?.vcpu === "other" && (
-              <Input
-                name="customVcpu"
-                placeholder="Specify cores"
-                type="number"
-                className="mt-2"
-                defaultValue={prefillData?.customVcpu || ""}
-              />
-            )} */}
             <RadioGroup
               name="vcpuValue"
-              value={vcpuValue} // ✅ Controlled component
-              onValueChange={setVcpuValue as any}
+              value={vcpuValue}
+              onValueChange={setVcpuValue}
               className="grid grid-cols-2 gap-2"
             >
-              {[1, 2, 4, 8].map((n) => (
+              {([1, 2, 4, 8] as const).map((n) => (
                 <div
                   key={n}
                   className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50"
@@ -620,7 +601,7 @@ export function RequestForm({
               ))}
               <div className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50">
                 <RadioGroupItem value="other" id="cpu-other" />
-                <Label htmlFor="cpu-other">Other</Label>
+                <Label htmlFor="cpu-other">Other (Cores)</Label>
               </div>
             </RadioGroup>
 
@@ -629,7 +610,7 @@ export function RequestForm({
                 name="customVcpu"
                 placeholder="Specify cores"
                 type="number"
-                defaultValue={prefillData?.vcpu || ""}
+                defaultValue={getDefaultValue(prefillData?.vcpu, "")}
                 className="mt-2"
               />
             )}
@@ -644,7 +625,7 @@ export function RequestForm({
               onValueChange={setRamValue}
               className="grid grid-cols-2 gap-2"
             >
-              {[4, 8, 16, 32].map((n) => (
+              {([4, 8, 16, 32] as const).map((n) => (
                 <div
                   key={n}
                   className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50"
@@ -655,7 +636,7 @@ export function RequestForm({
               ))}
               <div className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50">
                 <RadioGroupItem value="other" id="ram-other" />
-                <Label htmlFor="ram-other">Other</Label>
+                <Label htmlFor="ram-other">Other (GB)</Label>
               </div>
             </RadioGroup>
             {ramValue === "other" && (
@@ -664,7 +645,7 @@ export function RequestForm({
                 placeholder="Specify GB"
                 type="number"
                 className="mt-2"
-                defaultValue={prefillData?.ramGb || ""}
+                defaultValue={getDefaultValue(prefillData?.ramGb, "")}
               />
             )}
           </div>
@@ -678,7 +659,7 @@ export function RequestForm({
               onValueChange={setStorageValue}
               className="grid grid-cols-2 gap-2"
             >
-              {[50, 100, 250, 500].map((n) => (
+              {([50, 100, 250, 500] as const).map((n) => (
                 <div
                   key={n}
                   className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50"
@@ -689,7 +670,7 @@ export function RequestForm({
               ))}
               <div className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50">
                 <RadioGroupItem value="other" id="st-other" />
-                <Label htmlFor="st-other">Other</Label>
+                <Label htmlFor="st-other">Other (GB)</Label>
               </div>
             </RadioGroup>
             {storageValue === "other" && (
@@ -698,7 +679,7 @@ export function RequestForm({
                 placeholder="Specify OS GB"
                 type="number"
                 className="mt-2"
-                defaultValue={prefillData?.storageGb || ""}
+                defaultValue={getDefaultValue(prefillData?.storageGb, "")}
               />
             )}
           </div>
@@ -710,15 +691,15 @@ export function RequestForm({
               <Input
                 name="osName"
                 placeholder="e.g., Ubuntu, CentOS"
-                defaultValue={prefillData?.osName || "Ubuntu"}
+                defaultValue={getDefaultValue(prefillData?.osName, "Ubuntu")}
               />
             </div>
             <div className="space-y-2">
-              <Label>Operating System Version * </Label>
+              <Label>Operating System Version *</Label>
               <Input
                 name="osVersion"
                 placeholder="e.g., 22.04 LTS"
-                value={prefillData?.osVersion || "22.04 LTS"}
+                defaultValue={getDefaultValue(prefillData?.osVersion, "")}
               />
             </div>
           </div>
@@ -727,18 +708,16 @@ export function RequestForm({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 pt-6">
             <div className="space-y-2">
               <Label>RAID Configuration</Label>
-              <Select name="raid" defaultValue={prefillData?.raid || "NONE"}>
+              <Select name="raid" value={raid} onValueChange={setRaid}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(["RAID0", "RAID1", "RAID5", "RAID10", "NONE"] as const).map(
-                    (r) => (
-                      <SelectItem key={r} value={r}>
-                        {r}
-                      </SelectItem>
-                    )
-                  )}
+                  {(["RAID0", "RAID1", "RAID5", "RAID10", "NONE"] as const).map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -747,7 +726,7 @@ export function RequestForm({
               <Input
                 name="subdomain"
                 placeholder="e.g., app.example.com"
-                defaultValue={prefillData?.subdomain || ""}
+                defaultValue={getDefaultValue(prefillData?.subdomain, "")}
               />
             </div>
           </div>
@@ -810,6 +789,7 @@ export function RequestForm({
           </div>
         </CardContent>
       </Card>
+
       {/* Network & Compliance */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Network */}
@@ -858,7 +838,8 @@ export function RequestForm({
               </div>
               <Switch
                 name="requiredPublicIP"
-                defaultChecked={prefillData?.requiredPublicIP || false}
+                checked={requiredPublicIP}
+                onCheckedChange={setRequiredPublicIP}
               />
               <div className="space-y-0.5">
                 <Label>Required VPN</Label>
@@ -866,7 +847,8 @@ export function RequestForm({
               </div>
               <Switch
                 name="vpnRequired"
-                defaultChecked={prefillData?.vpnRequired || false}
+                checked={vpnRequired}
+                onCheckedChange={setVpnRequired}
               />
             </div>
 
@@ -875,7 +857,8 @@ export function RequestForm({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
                 <Select
                   name="sslProvider"
-                  defaultValue={prefillData?.sslProvider || "MIS"}
+                  value={sslProvider}
+                  onValueChange={setSslProvider}
                 >
                   <Label>SSL Provider</Label>
                   <SelectTrigger>
@@ -891,7 +874,7 @@ export function RequestForm({
                   <Input
                     name="sslCostPaidBy"
                     placeholder="Paid by Project/DGHS/etc."
-                    defaultValue={prefillData?.sslCostPaidBy || ""}
+                    defaultValue={getDefaultValue(prefillData?.sslCostPaidBy, "")}
                   />
                 </div>
               </div>
@@ -921,7 +904,7 @@ export function RequestForm({
                       value={port.protocol}
                       onValueChange={(v) => {
                         const newPorts = [...firewallPorts];
-                        newPorts[i].protocol = v;
+                        newPorts[i].protocol = v as Protocol;
                         setFirewallPorts(newPorts);
                       }}
                     >
@@ -991,7 +974,7 @@ export function RequestForm({
           <CardContent className="pt-6 space-y-6">
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Security Assessment (VA Report) *</Label>
+                <Label>Security Assessment (Software Testing Report) *</Label>
                 <div className="flex items-center gap-3 border-2 border-dashed border-slate-300 rounded-lg p-4 bg-slate-50">
                   <Upload className="w-5 h-5 text-slate-400" />
                   <input
@@ -1006,6 +989,7 @@ export function RequestForm({
               <div className="space-y-2">
                 <Label>Resource Justification Document</Label>
                 <div className="flex items-center gap-3 border border-slate-300 rounded-lg p-2">
+                  <Upload className="w-5 h-5 text-slate-400" />
                   <input
                     type="file"
                     className="text-sm flex-1"
@@ -1019,16 +1003,23 @@ export function RequestForm({
 
             <div className="pt-4">
               <div className="flex items-center gap-2">
-                fill-responsible
+                <Switch
+                  id="renewal"
+                  name="renewalRequired"
+                  checked={renewalRequired}
+                  onCheckedChange={setRenewalRequired}
+                />
                 <Label htmlFor="renewal">Renewal Required</Label>
               </div>
-              <Input
-                name="renewalPeriodMonths"
-                placeholder="Renewal Period (Months)"
-                type="number"
-                className="mt-2"
-                defaultValue={prefillData?.renewalPeriodMonths || ""}
-              />
+              {renewalRequired && (
+                <Input
+                  name="renewalPeriodMonths"
+                  placeholder="Renewal Period (Months)"
+                  type="number"
+                  className="mt-2"
+                  defaultValue={getDefaultValue(prefillData?.renewalPeriodMonths, "")}
+                />
+              )}
             </div>
 
             {/* Hidden flags */}
@@ -1045,6 +1036,7 @@ export function RequestForm({
           </CardContent>
         </Card>
       </div>
+
       {/* Action Buttons */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-300 p-4 shadow-lg z-50 flex justify-center gap-4">
         <Button

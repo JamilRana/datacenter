@@ -1,64 +1,45 @@
 // src/app/inventory/assets/page.tsx
-import { Suspense } from "react";
-import { SearchBar } from "@/components/SearchBar";
-import { Pagination } from "@/components/Pagination";
-import AssetList from "./components/AssetList";
-import AssetSummary from "./components/AssetSummary";
-import prisma from "@/lib/prisma";
-import { Prisma } from "@prisma/client"; // 👈 Import Prisma
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/authOptions";
+import { redirect } from "next/navigation";
+import { getAssets } from "@/app/actions/inventory-actions";
+import { ROLES } from "@/lib/roles";
+import { AssetListClient } from "../components/AssetListClient";
+import {  Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
-const ITEMS_PER_PAGE = 10;
+export default async function AssetsPage() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) redirect("/auth");
 
-export default async function AssetsPage({
-  searchParams,
-}: {
-  searchParams?: { [key: string]: string | string[] | undefined };
-}) {
-  const search = (searchParams?.search as string) || "";
-  const page = Number(searchParams?.page) || 1;
-  const skip = (page - 1) * ITEMS_PER_PAGE;
+  // REQUESTERS cannot view physical hardware assets per requirements
+  if (session.user.roles.includes(ROLES.REQUESTER)) {
+     redirect("/inventory/vms");
+  }
 
-  // ✅ Correct Prisma where input with typed QueryMode
-  const where: Prisma.AssetWhereInput = search
-    ? {
-        OR: [
-          { name: { contains: search, mode: Prisma.QueryMode.insensitive } },
-          { vendor: { contains: search, mode: Prisma.QueryMode.insensitive } },
-          { model: { contains: search, mode: Prisma.QueryMode.insensitive } },
-        ],
-      }
-    : {};
-
-  const [assets, totalAssets] = await Promise.all([
-    prisma.asset.findMany({
-      where,
-      skip,
-      take: ITEMS_PER_PAGE,
-      orderBy: { name: "asc" },
-    }),
-    prisma.asset.count({ where }),
-  ]);
-
-  const totalPages = Math.ceil(totalAssets / ITEMS_PER_PAGE);
+  const initialAssets = await getAssets();
+  const canEdit = session.user.roles.includes(ROLES.ADMIN) || session.user.roles.includes(ROLES.DCOPS);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Hardware Inventory</h1>
-        <SearchBar />
+    <div className="p-6 md:p-10 space-y-8 bg-slate-50/20 min-h-screen">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Physical Infrastructure</h1>
+          <p className="text-slate-500 mt-1">Authoritative inventory of hardware assets, including hypervisors and networking stack.</p>
+        </div>
+        {canEdit && (
+           <Button asChild className="bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-100 gap-2 h-11 px-6">
+              <Link href="/inventory/assets/new">
+                <Plus className="h-4 w-4" /> Register New Asset
+              </Link>
+           </Button>
+        )}
       </div>
 
-      <Suspense fallback={<div>Loading summary...</div>}>
-        <AssetSummary assets={assets} />
-      </Suspense>
-
-      <AssetList assets={assets} />
-
-      {totalPages > 1 && (
-        <div className="mt-8 flex justify-center">
-          <Pagination totalPages={totalPages} />
-        </div>
-      )}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+         <AssetListClient initialAssets={JSON.parse(JSON.stringify(initialAssets))} />
+      </div>
     </div>
   );
 }

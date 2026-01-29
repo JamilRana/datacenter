@@ -3,8 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import prisma from "@/lib/prisma";
-import { ApprovalEntityType } from "@prisma/client";
-import { RequestStatus } from "@prisma/client";
+import { 
+   
+  RequestStatus,
+  ServerType,
+  Environment,
+  LicenseProvider,
+  SSLProvider,
+  Raid,
+  Protocol,
+  NetworkAccess
+} from "@prisma/client";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { parse } from "path";
@@ -17,57 +26,15 @@ const ALLOWED_FILE_TYPES = [
   "text/plain",
 ];
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+// ✅ Helper function with proper typing
+function parseJsonField<T>(key: string, formData: FormData): T[] {
+  const raw = formData.get(key)?.toString();
+  if (!raw) return [] as T[];
+  try {
+    return JSON.parse(raw) as T[];
+  } catch {
+    return [] as T[];
   }
-
-  const { id: requestId } = params;
-
-  const req = await prisma.request.findUnique({
-    where: { id: requestId, requesterId: session.user.id },
-    include: {
-      vmInstances: {
-        select: {
-          id: true,
-          hostname: true,
-          ipAddress: true,
-          publicIpAddress: true,
-          status: true,
-          currentSpec: {
-            select: {
-              vcpu: true,
-              ramGb: true,
-              storageGb: true,
-              osName: true,
-              osVersion: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  if (!req) {
-    return Response.json({ error: "Not found" }, { status: 404 });
-  }
-
-  const approvals = await prisma.approval.findMany({
-    where: {
-      entityType: ApprovalEntityType.REQUEST,
-      entityId: requestId,
-    },
-    include: {
-      approver: { select: { id: true, name: true } },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-
-  return Response.json({ ...req, approvals });
 }
 
 export async function PATCH(
@@ -89,14 +56,14 @@ export async function PATCH(
     }
 
     const formData = await request.formData();
-    const requestId = params.id; // ✅ Use URL param, NOT new UUID
+    const requestId = params.id;
 
     // ✅ Verify ownership and status
     const existingRequest = await prisma.request.findUnique({
       where: {
         id: requestId,
         requesterId: session.user.id,
-        status: "DRAFT", // Only allow editing DRAFT
+        status: "DRAFT",
       },
     });
 
@@ -109,12 +76,11 @@ export async function PATCH(
       );
     }
 
-    // --- Parse fields (same as POST) ---
+    // --- Parse fields ---
     const systemName = formData.get("systemName")?.toString()?.trim();
     const purpose = formData.get("purpose")?.toString()?.trim();
-    const environment = formData.get("environment")?.toString();
-    const quantity =
-      parseInt(formData.get("quantity")?.toString() || "1", 10) || 1;
+    const environment = formData.get("environment")?.toString() as Environment | undefined;
+    const quantity = parseInt(formData.get("quantity")?.toString() || "1", 10) || 1;
 
     if (!systemName || !purpose || !environment) {
       return NextResponse.json(
@@ -123,32 +89,36 @@ export async function PATCH(
       );
     }
 
-    const parseJsonField = (key: string): any[] => {
-      const raw = formData.get(key)?.toString();
-      if (!raw) return [];
-      try {
-        return JSON.parse(raw);
-      } catch {
-        return [];
-      }
-    };
+    // ✅ Parse with proper types
+    interface AdditionalDiskInput {
+      sizeGb: string;
+      purpose: string;
+    }
+    
+    interface FirewallPortInput {
+      port: string;
+      protocol: string;
+      purpose: string;
+      source?: string;
+    }
 
-    const additionalDisks = parseJsonField("additionalDisks");
-    const firewallPorts = parseJsonField("firewallPorts");
-    const networkAccess = parseJsonField("networkAccess");
+    const additionalDisks = parseJsonField<AdditionalDiskInput>("additionalDisks", formData);
+    const firewallPorts = parseJsonField<FirewallPortInput>("firewallPorts", formData);
+    const networkAccess = parseJsonField<string>("networkAccess", formData);
 
     // --- Handle file uploads ---
     const securityFile = formData.get("securityReport") as File | null;
     const justificationFile = formData.get("justificationDoc") as File | null;
 
-    const attachments: {
+    interface AttachmentData {
       fileName: string;
       filePath: string;
       attachmentType: "SECURITY_REPORT" | "JUSTIFICATION";
       uploadedBy: string;
-    }[] = [];
+    }
 
-    // Create upload dir for this request (reuse existing if possible)
+    const attachments: AttachmentData[] = [];
+
     const uploadDir = join(process.cwd(), "public", "uploads", requestId);
     await mkdir(uploadDir, { recursive: true });
 
@@ -168,9 +138,7 @@ export async function PATCH(
       }
 
       const buffer = Buffer.from(await securityFile.arrayBuffer());
-      const safeName = `security-report-${Date.now()}${
-        parse(securityFile.name).ext
-      }`;
+      const safeName = `security-report-${Date.now()}${parse(securityFile.name).ext}`;
       const filePath = join(uploadDir, safeName);
       await writeFile(filePath, buffer);
       attachments.push({
@@ -197,9 +165,7 @@ export async function PATCH(
       }
 
       const buffer = Buffer.from(await justificationFile.arrayBuffer());
-      const safeName = `justification-${Date.now()}${
-        parse(justificationFile.name).ext
-      }`;
+      const safeName = `justification-${Date.now()}${parse(justificationFile.name).ext}`;
       const filePath = join(uploadDir, safeName);
       await writeFile(filePath, buffer);
       attachments.push({
@@ -222,67 +188,47 @@ export async function PATCH(
           systemName,
           purpose,
           projectName: formData.get("projectName")?.toString()?.trim() || null,
-          environment: environment as any,
+          environment: environment,
           expectedEndDate: formData.get("expectedEndDate")
             ? new Date(formData.get("expectedEndDate") as string)
             : null,
 
           // People
-          responsiblePersonName:
-            formData.get("responsiblePersonName")?.toString() || null,
-          responsiblePersonDesignation:
-            formData.get("responsiblePersonDesignation")?.toString() || null,
-          responsiblePersonOrganization:
-            formData.get("responsiblePersonOrganization")?.toString() || null,
-          responsiblePersonContact:
-            formData.get("responsiblePersonContact")?.toString() || null,
-          responsiblePersonEmail:
-            formData.get("responsiblePersonEmail")?.toString() || null,
-          alternativePersonName:
-            formData.get("alternativePersonName")?.toString() || null,
-          alternativePersonDesignation:
-            formData.get("alternativePersonDesignation")?.toString() || null,
-          alternativePersonOrganization:
-            formData.get("alternativePersonOrganization")?.toString() || null,
-          alternativePersonContact:
-            formData.get("alternativePersonContact")?.toString() || null,
-          alternativePersonEmail:
-            formData.get("alternativePersonEmail")?.toString() || null,
+          responsiblePersonName: formData.get("responsiblePersonName")?.toString() || null,
+          responsiblePersonDesignation: formData.get("responsiblePersonDesignation")?.toString() || null,
+          responsiblePersonOrganization: formData.get("responsiblePersonOrganization")?.toString() || null,
+          responsiblePersonContact: formData.get("responsiblePersonContact")?.toString() || null,
+          responsiblePersonEmail: formData.get("responsiblePersonEmail")?.toString() || null,
+          alternativePersonName: formData.get("alternativePersonName")?.toString() || null,
+          alternativePersonDesignation: formData.get("alternativePersonDesignation")?.toString() || null,
+          alternativePersonOrganization: formData.get("alternativePersonOrganization")?.toString() || null,
+          alternativePersonContact: formData.get("alternativePersonContact")?.toString() || null,
+          alternativePersonEmail: formData.get("alternativePersonEmail")?.toString() || null,
 
           developerName: formData.get("developerName")?.toString() || null,
-          developerAddress:
-            formData.get("developerAddress")?.toString() || null,
-          developerContact:
-            formData.get("developerContact")?.toString() || null,
+          developerAddress: formData.get("developerAddress")?.toString() || null,
+          developerContact: formData.get("developerContact")?.toString() || null,
           developerEmail: formData.get("developerEmail")?.toString() || null,
 
           // Tech Stack
           frontendTech: formData.get("frontendTech")?.toString() || null,
           backendTech: formData.get("backendTech")?.toString() || null,
-          serverArchitecture:
-            formData.get("serverArchitecture")?.toString() || null,
+          serverArchitecture: formData.get("serverArchitecture")?.toString() || null,
           dataBase: formData.get("dataBase")?.toString() || null,
-          additionalTechNotes:
-            formData.get("additionalTechNotes")?.toString() || null,
+          additionalTechNotes: formData.get("additionalTechNotes")?.toString() || null,
 
           // VM Spec
-          serverType: (formData.get("serverType") as any) || "APPLICATION",
-          vcpu: formData.get("vcpu")
-            ? parseInt(formData.get("vcpu") as string, 10)
-            : null,
-          ramGb: formData.get("ramGb")
-            ? parseInt(formData.get("ramGb") as string, 10)
-            : null,
-          storageGb: formData.get("storageGb")
-            ? parseInt(formData.get("storageGb") as string, 10)
-            : null,
+          serverType: (formData.get("serverType") as ServerType) || "APPLICATION",
+          vcpu: formData.get("vcpu") ? parseInt(formData.get("vcpu") as string, 10) : null,
+          ramGb: formData.get("ramGb") ? parseInt(formData.get("ramGb") as string, 10) : null,
+          storageGb: formData.get("storageGb") ? parseInt(formData.get("storageGb") as string, 10) : null,
           osName: formData.get("osName")?.toString() || null,
           osVersion: formData.get("osVersion")?.toString() || null,
-          osLicenseBy: (formData.get("osLicenseBy") as any) || null,
+          osLicenseBy: (formData.get("osLicenseBy") as LicenseProvider) || null,
           subdomain: formData.get("subdomain")?.toString() || null,
-          sslProvider: (formData.get("sslProvider") as any) || "MIS",
+          sslProvider: (formData.get("sslProvider") as SSLProvider) || "MIS",
           sslCostPaidBy: formData.get("sslCostPaidBy")?.toString() || null,
-          raid: (formData.get("raid") as any) || "NONE",
+          raid: (formData.get("raid") as Raid) || "NONE",
 
           // Network & Security
           requiredPublicIP: formData.get("requiredPublicIP") === "on",
@@ -294,8 +240,7 @@ export async function PATCH(
             ? parseInt(formData.get("renewalPeriodMonths") as string, 10)
             : null,
           vaReportSubmitted: securityFile !== null && securityFile.size > 0,
-          justificationSubmitted:
-            justificationFile !== null && justificationFile.size > 0,
+          justificationSubmitted: justificationFile !== null && justificationFile.size > 0,
         },
       });
 
@@ -308,8 +253,8 @@ export async function PATCH(
       if (additionalDisks.length > 0) {
         await tx.additionalDisk.createMany({
           data: additionalDisks
-            .filter((d: any) => d.sizeGb && !isNaN(parseInt(d.sizeGb)))
-            .map((d: any, i: number) => ({
+            .filter((d) => d.sizeGb && !isNaN(parseInt(d.sizeGb)))
+            .map((d, i) => ({
               requestId,
               sizeGb: parseInt(d.sizeGb, 10),
               purpose: d.purpose || null,
@@ -321,11 +266,11 @@ export async function PATCH(
       if (firewallPorts.length > 0) {
         await tx.firewallPort.createMany({
           data: firewallPorts
-            .filter((p: any) => p.port && !isNaN(parseInt(p.port)))
-            .map((p: any) => ({
+            .filter((p) => p.port && !isNaN(parseInt(p.port)))
+            .map((p) => ({
               requestId,
               port: parseInt(p.port, 10),
-              protocol: p.protocol || "TCP",
+              protocol: (p.protocol as Protocol) || "TCP",
               purpose: p.purpose || "N/A",
               source: p.source || null,
             })),
@@ -335,17 +280,17 @@ export async function PATCH(
       if (networkAccess.length > 0) {
         await tx.networkAccessEntry.createMany({
           data: networkAccess
-            .filter((type: any) =>
+            .filter((type): type is NetworkAccess => 
               ["LOCAL", "INTERNET", "REMOTE"].includes(type)
             )
-            .map((type: string) => ({
+            .map((type) => ({
               requestId,
-              accessType: type as any,
+              accessType: type,
             })),
         });
       }
 
-      // 4. Create new attachments (do NOT delete old ones unless replacing)
+      // 4. Create new attachments
       if (attachments.length > 0) {
         await tx.attachment.createMany({
           data: attachments.map((att) => ({
@@ -362,59 +307,10 @@ export async function PATCH(
       { message: "Request updated successfully", requestId: updatedRequest.id },
       { status: 200 }
     );
-  } catch (error: any) {
-    console.error("Edit API Error:", error);
+  } catch (error) {
+    console.error("Failed to fetch expected facilities:", error);
     return NextResponse.json(
-      { error: error.message || "Failed to update request" },
-      { status: 500 }
-    );
-  }
-}
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { id: requestId } = params;
-
-    const existingRequest = await prisma.request.findUnique({
-      where: {
-        id: requestId,
-        requesterId: session.user.id,
-      },
-    });
-
-    if (!existingRequest) {
-      return NextResponse.json({ error: "Request not found" }, { status: 404 });
-    }
-
-    if (existingRequest.status !== "DRAFT") {
-      return NextResponse.json(
-        { error: "Only draft requests can be deleted" },
-        { status: 400 }
-      );
-    }
-
-    // Delete associated relations first (or rely on CASCADE if configured)
-    await prisma.$transaction([
-      prisma.additionalDisk.deleteMany({ where: { requestId } }),
-      prisma.firewallPort.deleteMany({ where: { requestId } }),
-      prisma.networkAccessEntry.deleteMany({ where: { requestId } }),
-      prisma.attachment.deleteMany({ where: { requestId } }),
-      prisma.approval.deleteMany({ where: { entityId: requestId, entityType: "REQUEST" } }),
-      prisma.request.delete({ where: { id: requestId } }),
-    ]);
-
-    return NextResponse.json({ message: "Request deleted successfully" });
-  } catch (error: any) {
-    console.error("Delete API Error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to delete request" },
+      { error: "Failed to load facilities" },
       { status: 500 }
     );
   }

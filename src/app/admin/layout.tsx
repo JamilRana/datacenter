@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { ROLES } from "@/lib/roles";
 
 export default async function AdminLayout({
   children,
@@ -10,8 +11,9 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const session = await getServerSession(authOptions);
+  console.log(session);
 
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || !session.user.roles.includes(ROLES.ADMIN)) {
     redirect("/unauthorized");
   }
 

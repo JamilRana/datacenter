@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function SettingsForm({ settings }: { settings: any[] }) {
+interface Setting { key: string; value: string; label: string; description: string; }
+export default function SettingsForm({ settings }: { settings: Setting[] }) {
   const [formValues, setFormValues] = useState<Record<string, string>>(
     settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {})
   );
@@ -19,7 +20,7 @@ export default function SettingsForm({ settings }: { settings: any[] }) {
       await updateSetting(key, formValues[key]);
       toast.success(`Setting '${key}' updated.`);
     } catch (err) {
-      toast.error("Failed to update setting.");
+      toast.error(`Failed to update setting.${err as string}`);
     }
   };
 

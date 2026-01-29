@@ -2,8 +2,9 @@
 "use client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
+import { VmInstance } from "@/types/inventory";
 
-export function VmTableSection({ vms }: { vms: any[] }) {
+export function VmTableSection({ vms }: { vms: VmInstance[] }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -25,10 +26,10 @@ export function VmTableSection({ vms }: { vms: any[] }) {
             {vms.map((vm) => (
               <div key={vm.id} className="flex justify-between text-sm">
                 <span className="font-medium">
-                  {vm.hostname || `VM #${vm.sequenceNumber}`}
+                  {vm.hostname || `VM #${(vm as VmInstance).sequenceNumber || '?'}`}
                 </span>
                 <span className="text-muted-foreground">
-                  {vm.ipAddress || "—"} • {vm.request.systemName}
+                  {vm.ipAddress || "—"} • {vm.request?.systemName || 'No Request Context'}
                 </span>
               </div>
             ))}

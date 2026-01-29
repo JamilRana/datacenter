@@ -1,73 +1,31 @@
-// src/app/requests/components/RequestDetails.tsx
+// src/app/requests/components/RequestDetail.tsx
+"use client";
+
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import {
-  Check,
-  Copy,
-  FileText,
-  Shield,
-  Server,
-  Users,
-  Code,
-  Network,
+import { useEffect, useState } from "react";
+import { 
+  Check, 
+  Copy, 
+
+  Server, 
+  Users, 
+  Code,  
+  HardDrive,
+  Clock,
+  LucideIcon,
+  Shield
 } from "lucide-react";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { VmInstanceList } from "./VmInstanceList";
-import {
-  getDetailedRequest,
-  submitRequest,
-} from "@/app/actions/request-actions";
-import { da } from "zod/v4/locales";
-import { useEffect, useState } from "react";
+import { getDetailedRequest, submitRequest } from "@/app/actions/request-actions";
+// import { Person } from "@/types/request-form"; // REMOVED: Use type from requests.ts to avoid mismatch
+import { RequestDetailsData, Person, Developer } from "@/types/requests";
+import { toast } from "sonner";
+import type { ReactNode } from "react";
 
-// ✅ Define proper TypeScript interface
-interface RequestData {
-  id: string;
-  systemName: string;
-  status: string;
-  environment: string;
-  requestType: string;
-  projectName?: string | null;
-  purpose: string;
-  expectedEndDate?: string;
-  frontendTech?: string | null;
-  backendTech?: string | null;
-  dataBase?: string | null;
-  serverArchitecture?: string | null;
-  additionalTechNotes?: string | null;
-  quantity?: number;
-  vcpu?: number;
-  ramGb?: number;
-  storageGb?: number;
-  osName?: string | null;
-  osVersion?: string | null;
-  raid?: string | null;
-  subdomain?: string | null;
-  requiredPublicIP: boolean;
-  vpnRequired: boolean;
-  sslProvider?: string | null;
-  sslCostPaidBy?: string | null;
-  vaReportSubmitted: boolean;
-  justificationSubmitted: boolean;
-  renewalRequired: boolean;
-  renewalPeriodMonths?: number | null;
-  vmInstances: any[]; // Replace with actual VM type
-  approvals: any[]; // Replace with actual Approval type
-  responsiblePerson: any;
-  alternativePerson: any;
-  developer: any;
-  networkAccess: string[];
-  additionalDisks: { sizeGb: string; purpose: string }[];
-  firewallPorts: {
-    port: string;
-    protocol: string;
-    purpose: string;
-    source?: string;
-  }[];
-  // Add other fields as needed
-}
 
 export function RequestDetails({
   requestId,
@@ -76,323 +34,303 @@ export function RequestDetails({
   requestId: string;
   userId: string;
 }) {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+const [data, setData] = useState<RequestDetailsData | null>(null);
+const [loading, setLoading] = useState(true);
+
   const fetchRequestData = async () => {
     setLoading(true);
     try {
       const res = await getDetailedRequest(requestId);
       setData(res);
     } catch (error) {
-      alert("Failed to load request data.");
+      toast.error(`Failed to load request data: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchRequestData();
-  }, [requestId]);
+useEffect(() => {
+  if (!requestId) return;
 
-  if (loading) {
-    return <div className="p-10 text-center">Loading request details...</div>;
+  async function load() {
+    setLoading(true);
+    const res = await getDetailedRequest(requestId);
+    setData(res);
+    setLoading(false);
   }
 
-  if (!data) {
-    return (
-      <div className="p-10 text-center">No data found for this request.</div>
-    );
-  }
+  load();
+}, [requestId]);
 
-  const canClone = data.status === "APPROVED";
-  const isDraft = data.status === "DRAFT";
 
   const handleSubmit = async () => {
-    const formData = new FormData();
-    formData.append("requestId", data.id);
+    if (!data) return;
     try {
       const response = await submitRequest(data.id);
-      if (!response) {
-        throw new Error("Failed to submit request for approval.");
+      if (response) {
+        toast.success("Request submitted for approval");
+        fetchRequestData();
       }
-      alert("Request submitted for approval.");
-      window.location.reload();
     } catch (error) {
-      alert((error as Error).message);
+      toast.error(`Failed to submit: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
+  if (loading) return <div className="p-10 text-center text-slate-500">Loading request details...</div>;
+  if (!data) return <div className="p-10 text-center text-red-500">No data found for this request.</div>;
+
+  const canClone = data.status === "APPROVED" || data.status === "PROVISIONED";
+  const isDraft = data.status === "DRAFT";
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-28">
-      {" "}
-      {/* Added padding to avoid fixed bar overlap */}
       {/* Header */}
-      <div className="flex justify-between items-start">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            {data.systemName}
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            {data.systemName || "Request Detail"}
           </h1>
-          <div className="flex items-center gap-2 mt-2">
-            <Badge
-              variant={data.status === "REJECTED" ? "destructive" : "default"}
-            >
-              {data.status.replace(/_/g, " ")}
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            <Badge className={
+              data.status === "APPROVED" ? "bg-green-100 text-green-800" :
+              data.status === "REJECTED" ? "bg-red-100 text-red-800" :
+              data.status === "DRAFT" ? "bg-slate-100 text-slate-800" : "bg-blue-100 text-blue-800"
+            }>
+              {data.status?.replace(/_/g, " ")}
             </Badge>
-            <span className="text-sm text-muted-foreground">
-              {data.environment} • {data.requestType.replace(/_/g, " ")}
-            </span>
+            <span className="text-sm text-slate-500">•</span>
+            <span className="text-sm font-medium text-slate-600">{data.environment}</span>
+            <span className="text-sm text-slate-500">•</span>
+            <span className="text-sm text-slate-500">{data.requestType.replace(/_/g, " ")}</span>
           </div>
         </div>
 
-        {canClone && (
-          <Button asChild>
-            <Link href={`/requests/new?copyFrom=${data.id}`}>
-              <Copy className="w-4 h-4 mr-2" />
-              Clone Request
-            </Link>
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {canClone && (
+            <Button asChild variant="outline">
+              <Link href={`/requests/new?copyFrom=${data.id}`}>
+                <Copy className="w-4 h-4 mr-2" /> Clone Request
+              </Link>
+            </Button>
+          )}
+          {isDraft && (
+            <Button asChild className="bg-amber-600 hover:bg-amber-700">
+              <Link href={
+                data.requestType === "CUSTOMIZED" ? `/requests/customize?vmId=${data.targetVm?.id || data.vmInstances?.[0]?.id}` :
+                data.requestType === "DECOMMISSION" ? `/requests/decommission?vmId=${data.targetVm?.id || data.vmInstances?.[0]?.id}` :
+                `/requests/${data.id}/edit`
+              }>
+                Edit Draft
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
-      {/* Sections */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Section 1: System & Purpose */}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
-          <Card title="System Information" icon={Server}>
-            <DetailItem label="Project Name" value={data.projectName || "-"} />
-            <DetailItem label="Purpose" value={data.purpose} />
-            <DetailItem
-              label="Expected End Date"
-              value={
-                data.expectedEndDate
-                  ? format(new Date(data.expectedEndDate), "PPP")
-                  : "-"
-              }
-            />
+          {/* Target VM Link (for customizations/decommissions) */}
+          {(data.targetVm || data.vmInstances?.[0]) && (
+            <Card title="Target Virtual Machine" icon={HardDrive}>
+              <div className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
+                <div>
+                  <p className="font-bold text-slate-900">
+                    {data.targetVm?.hostname || data.vmInstances?.[0]?.hostname || "Reference VM"}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {data.targetVm?.ipAddress || data.vmInstances?.[0]?.ipAddress || "Provisioning Pending"}
+                  </p>
+                </div>
+                <Link href={`/inventory/vms/${data.targetVm?.id || data.vmInstances?.[0]?.id}`}>
+                  <Button variant="outline" size="sm" className="h-8">View VM History</Button>
+                </Link>
+              </div>
+            </Card>
+          )}
+
+          {/* Info Card */}
+          <Card 
+            title={data.requestType === "DECOMMISSION" ? "Decommission Justification" : "Request Information"} 
+            icon={data.requestType === "DECOMMISSION" ? Clock : Server}
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-8">
+              <DetailItem label="Project Name" value={data.projectName} />
+              <DetailItem label="Environment" value={data.environment} />
+              <div className="md:col-span-2">
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Purpose / Reason</p>
+                <p className="text-sm text-slate-700 leading-relaxed">{data.purpose}</p>
+              </div>
+              <DetailItem label="Quantity" value={data.quantity?.toString() || "1"} />
+              <DetailItem 
+                label="End Date" 
+                value={data.expectedEndDate ? format(new Date(data.expectedEndDate), "PPP") : "None"} 
+              />
+            </div>
           </Card>
 
-          <Card title="Technology Stack" icon={Code}>
-            <DetailItem label="Frontend" value={data.frontendTech || "-"} />
-            <DetailItem label="Backend" value={data.backendTech || "-"} />
-            <DetailItem label="Database" value={data.dataBase || "-"} />
-            <DetailItem
-              label="Architecture"
-              value={data.serverArchitecture || "-"}
-            />
-            <DetailItem
-              label="Additional Notes"
-              value={data.additionalTechNotes || "-"}
-            />
-          </Card>
+          {/* Technology Stack */}
+          {data.requestType !== "DECOMMISSION" && (
+            <Card title="Technology Stack" icon={Code}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <DetailItem label="Frontend" value={data.frontendTech} />
+                <DetailItem label="Backend" value={data.backendTech} />
+                <DetailItem label="Database" value={data.dataBase} />
+                <DetailItem label="Architecture" value={data.serverArchitecture} />
+                <div className="md:col-span-2">
+                  <DetailItem label="Tech Notes" value={data.additionalTechNotes} />
+                </div>
+              </div>
+            </Card>
+          )}
 
-          <Card title="Responsible Persons" icon={Users}>
-            <PersonSection
-              title="Primary Responsible"
-              person={data.responsiblePerson}
-            />
-            <PersonSection
-              title="Alternate Responsible"
-              person={data.alternativePerson}
-            />
-            <PersonSection title="Developer" person={data.developer} />
+          {/* People */}
+          <Card title="Responsible Personnel" icon={Users}>
+             <div className="space-y-6">
+                <PersonSection title="Primary Contact" person={data.responsiblePerson} />
+                <PersonSection title="Alternative Contact" person={data.alternativePerson} />
+                <PersonSection title="Technical Developer" person={data.developer} />
+             </div>
           </Card>
         </div>
 
-        {/* Section 2: VM Specification & Network */}
         <div className="space-y-6">
-          <Card title="VM Specification" icon={Server}>
-            <DetailItem
-              label="Quantity"
-              value={data.quantity?.toString() || "1"}
-            />
-            <DetailItem label="vCPU" value={data.vcpu?.toString() || "0"} />
-            <DetailItem
-              label="RAM (GB)"
-              value={data.ramGb?.toString() || "0"}
-            />
-            <DetailItem
-              label="OS Disk (GB)"
-              value={data.storageGb?.toString() || "0"}
-            />
-            <DetailItem
-              label="OS"
-              value={`${data.osName || "-"} ${data.osVersion || ""}`}
-            />
-            <DetailItem label="RAID" value={data.raid || "NONE"} />
-            <DetailItem label="Subdomain" value={data.subdomain || "-"} />
+          {/* Specification */}
+          <Card title="Resource Specification" icon={HardDrive}>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-blue-500" /> <span className="text-sm text-slate-600">vCPU</span></div>
+                <span className="font-bold text-slate-900">{data.vcpu || 0} Cores</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-indigo-500" /> <span className="text-sm text-slate-600">RAM</span></div>
+                <span className="font-bold text-slate-900">{data.ramGb || 0} GB</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-emerald-500" /> <span className="text-sm text-slate-600">Storage</span></div>
+                <span className="font-bold text-slate-900">{data.storageGb || 0} GB</span>
+              </div>
+              <DetailItem label="Operating System" value={`${data.osName || ""} ${data.osVersion || ""}`} />
+              <DetailItem label="RAID Level" value={data.raid || "NONE"} />
+              <DetailItem label="Subdomain" value={data.subdomain} />
+            </div>
           </Card>
 
-          <Card title="Additional Disks" icon={Server}>
-            {data.additionalDisks.length > 0 ? (
-              data.additionalDisks.map((disk: any, i: any) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <span>{disk.purpose || `Disk ${i + 1}`}</span>
-                  <span className="font-medium">{disk.sizeGb} GB</span>
-                </div>
-              ))
-            ) : (
-              <span className="text-muted-foreground">None</span>
-            )}
-          </Card>
-
-          <Card title="Network & Security" icon={Network}>
-            <DetailItem
-              label="Network Access"
-              value={data.networkAccess.join(", ")}
-            />
-            <DetailItem
-              label="Public IP"
-              value={data.requiredPublicIP ? "Yes" : "No"}
-            />
-            <DetailItem
-              label="VPN Required"
-              value={data.vpnRequired ? "Yes" : "No"}
-            />
-            <DetailItem label="SSL Provider" value={data.sslProvider || "-"} />
-            <DetailItem label="SSL Paid By" value={data.sslCostPaidBy || "-"} />
-          </Card>
-
-          <Card title="Firewall Ports" icon={Shield}>
-            {data.firewallPorts.length > 0 ? (
-              data.firewallPorts.map((port: any, i: any) => (
-                <div key={i} className="text-sm">
-                  <span className="font-medium">
-                    {port.port}/{port.protocol}
-                  </span>
-                  {port.purpose && ` - ${port.purpose}`}
-                  {port.source && ` (Source: ${port.source})`}
-                </div>
-              ))
-            ) : (
-              <span className="text-muted-foreground">None</span>
-            )}
-          </Card>
-
-          <Card title="Compliance" icon={FileText}>
-            <DetailItem
-              label="VA Report Submitted"
-              value={data.vaReportSubmitted ? "Yes" : "No"}
-            />
-            <DetailItem
-              label="Justification Submitted"
-              value={data.justificationSubmitted ? "Yes" : "No"}
-            />
-            <DetailItem
-              label="Renewal Required"
-              value={data.renewalRequired ? "Yes" : "No"}
-            />
-            {data.renewalRequired && (
-              <DetailItem
-                label="Renewal Period"
-                value={`${data.renewalPeriodMonths} months`}
-              />
-            )}
+          {/* Security & Compliance */}
+          <Card title="Security & Network" icon={Shield}>
+             <div className="space-y-2">
+                <ComplianceItem label="Public IP" status={data.requiredPublicIP} />
+                <ComplianceItem label="VPN Required" status={data.vpnRequired} />
+                <ComplianceItem label="VA Report" status={data.vaReportSubmitted} />
+                <ComplianceItem label="Renewal" status={data.renewalRequired} />
+                {data.renewalPeriodMonths && (
+                   <div className="pt-2 text-xs text-slate-500 border-t mt-2">Renew every {data.renewalPeriodMonths} months</div>
+                )}
+             </div>
           </Card>
         </div>
       </div>
-      {/* VM Instances */}
+
+      {/* Provisioned VMs */}
       {data.vmInstances.length > 0 && (
-        <>
-          <h2 className="text-xl font-semibold border-b pb-2">
-            Provisioned VMs
+        <div className="space-y-4">
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Server className="h-5 w-5 text-blue-600" /> Provisioned Instances
           </h2>
           <VmInstanceList vms={data.vmInstances} />
-        </>
+        </div>
       )}
-      {/* Approvals */}
+
+      {/* Approval Flow */}
       <ApprovalPanel
-        requestId={data.id}
+        // ✅ Removed unused requestId
         approvals={data.approvals}
         currentStatus={data.status}
         currentUserId={userId}
       />
-      {/* Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 shadow-lg flex justify-between z-50">
-        <Button asChild variant="outline">
-          <Link href="/requests">Back to Requests</Link>
+
+      {/* Bottom Action Bar */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t p-4 shadow-2xl flex justify-between items-center z-50">
+        <Button asChild variant="ghost">
+          <Link href="/requests">Back to List</Link>
         </Button>
+        
         {isDraft && (
-          <Button asChild>
-            <Link href={`/requests/${data.id}/edit`}>
-              <Check className="w-4 h-4 mr-2" />
-              Edit Draft
-            </Link>
-          </Button>
+          <div className="flex gap-3">
+             <Button variant="outline" asChild>
+                <Link href={`/requests/${data.id}/edit`}>Edit Content</Link>
+             </Button>
+             <Button onClick={handleSubmit} className="bg-blue-600 hover:bg-blue-700">
+                Submit for Approval
+             </Button>
+          </div>
         )}
       </div>
-      {data.status === "DRAFT" && (
-        <div className="flex gap-2">
-          <Button onClick={handleSubmit}>Submit for Approval</Button>
-          <Link href="/requests">
-            <Button variant="outline">Back to List</Button>
-          </Link>
-        </div>
+    </div>
+  );
+}
+
+// Subcomponents (same as before, but with proper types)
+interface CardProps {
+  title: string;
+  icon: LucideIcon;
+  children: ReactNode;
+}
+
+function Card({ title, icon: Icon, children }: CardProps) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-50 bg-slate-50/30 flex items-center gap-2.5">
+        <Icon className="h-4 w-4 text-slate-500" />
+        <h3 className="font-bold text-slate-800 text-sm tracking-tight capitalize">{title}</h3>
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  );
+}
+
+interface DetailItemProps {
+  label: string;
+  value: string | number | null | undefined;
+}
+
+function DetailItem({ label, value }: DetailItemProps) {
+  const displayValue = value == null ? "—" : String(value);
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">{label}</p>
+      <p className="text-sm font-semibold text-slate-800">{displayValue}</p>
+    </div>
+  );
+}
+
+function ComplianceItem({ label, status }: { label: string; status: boolean }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-slate-500">{label}</span>
+      {status ? (
+        <span className="flex items-center gap-1.5 text-emerald-600 font-bold">
+          <Check className="h-4 w-4" /> Yes
+        </span>
+      ) : (
+        <span className="text-slate-300">No</span>
       )}
     </div>
   );
 }
 
-// Helper Components (unchanged from your original)
-function Card({
-  title,
-  icon: Icon,
-  children,
-}: {
-  title: string;
-  icon: any;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="border rounded-lg bg-white p-4 shadow-sm">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className="w-5 h-5 text-muted-foreground" />
-        <h3 className="font-semibold">{title}</h3>
-      </div>
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
-}
-
-function DetailItem({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-muted-foreground">{label}:</span>
-      <span className="font-medium">{value}</span>
-    </div>
-  );
-}
-
-function PersonSection({
-  title,
-  person,
-}: {
-  title: string;
-  person: {
-    name: string;
-    designation: string;
-    organization: string;
-    contact: string;
-    email: string;
-  };
-}) {
-  if (!person.name) return null;
+function PersonSection({ title, person }: { title: string; person: Person | Developer }) {
+  if (!person?.name) return null;
+  
+  const designation = 'designation' in person ? person.designation : 'External Developer';
+  const organization = 'organization' in person ? person.organization : ('address' in person ? person.address : '');
 
   return (
-    <div className="pt-2">
-      <h4 className="font-medium text-sm mb-1">{title}</h4>
-      <div className="text-sm space-y-1">
-        <div>
-          {person.name} ({person.designation})
-        </div>
-        <div>{person.organization}</div>
-        <div>
-          {person.contact} | {person.email}
-        </div>
+    <div className="space-y-2">
+      <p className="text-xs font-bold text-slate-900 border-l-2 border-blue-500 pl-2">{title}</p>
+      <div className="pl-2 space-y-0.5">
+        <p className="text-sm font-semibold text-slate-800">{person.name}</p>
+        <p className="text-xs text-slate-500">{designation} • {organization}</p>
+        <p className="text-xs text-slate-400">{person.email} • {person.contact}</p>
       </div>
     </div>
   );

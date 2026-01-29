@@ -1,5 +1,7 @@
+import { VmInstance } from "@/types/inventory";
+
 // src/app/requests/components/VmInstanceList.tsx
-export function VmInstanceList({ vms }: { vms: any[] }) {
+export function VmInstanceList({ vms }: { vms: VmInstance[] }) {
   return (
     <div>
       <h2 className="font-semibold mb-2">Provisioned VMs</h2>

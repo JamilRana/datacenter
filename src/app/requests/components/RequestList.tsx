@@ -5,11 +5,24 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Trash2, Eye, Edit2, Copy, AlertCircle } from "lucide-react";
+import { 
+  Trash2, 
+  Eye, 
+  Edit2, 
+  Copy, 
+  AlertCircle, 
+  HardDrive 
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RequestDetailsData } from "@/types/requests";
 
-export function RequestList({ requests: initialRequests }: { requests: any[] }) {
-  const [requests, setRequests] = useState(initialRequests);
+// ✅ MINIMAL, PRECISE INTERFACES (matches EXACT data shape used)
+interface RequestListProps {
+  requests: RequestDetailsData[];
+}
+
+export function RequestList({ requests: initialRequests }: RequestListProps) {
+  const [requests, setRequests] = useState<RequestDetailsData[]>(initialRequests);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this draft?")) return;
@@ -17,18 +30,18 @@ export function RequestList({ requests: initialRequests }: { requests: any[] }) 
     try {
       const res = await fetch(`/api/requests/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setRequests(requests.filter((r) => r.id !== id));
+        setRequests(prev => prev.filter(r => r.id !== id));
         toast.success("Draft deleted successfully");
       } else {
-        const error = await res.json();
+        const error: { error?: string } = await res.json();
         toast.error(error.error || "Failed to delete draft");
       }
-    } catch (err) {
+    } catch {
       toast.error("Network error");
     }
   };
 
-  if (!requests || requests.length === 0) {
+  if (requests.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl border border-dashed border-slate-300">
         <AlertCircle className="w-10 h-10 text-slate-400 mb-2" />
@@ -51,6 +64,7 @@ export function RequestList({ requests: initialRequests }: { requests: any[] }) 
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Environment</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Associated VM</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
             </tr>
@@ -64,7 +78,7 @@ export function RequestList({ requests: initialRequests }: { requests: any[] }) 
                 </td>
                 <td className="px-6 py-4">
                   <Badge variant="outline" className="font-normal border-slate-200 bg-slate-50">
-                    {req.requestType}
+                    {req.requestType.replace(/_/g, " ").toLowerCase()}
                   </Badge>
                 </td>
                 <td className="px-6 py-4">
@@ -88,6 +102,24 @@ export function RequestList({ requests: initialRequests }: { requests: any[] }) 
                     {req.status.toLowerCase().replace(/_/g, " ")}
                   </Badge>
                 </td>
+                <td className="px-6 py-4">
+                  {req.vmInstances.length > 0 ? (
+                    <div className="flex flex-col gap-1">
+                      {req.vmInstances.map((vm) => (
+                        <Link 
+                          key={vm.id} 
+                          href={`/inventory/vms/${vm.id}`}
+                          className="text-xs font-medium text-blue-600 hover:underline flex items-center gap-1"
+                        >
+                          <HardDrive className="h-3 w-3" />
+                          {vm.hostname || vm.ipAddress || "Provisioning..."}
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-slate-400">—</span>
+                  )}
+                </td>
                 <td className="px-6 py-4 text-sm text-slate-600">
                   {req.submittedAt
                     ? format(new Date(req.submittedAt), "MMM dd, yyyy")
@@ -95,7 +127,7 @@ export function RequestList({ requests: initialRequests }: { requests: any[] }) 
                 </td>
                 <td className="px-6 py-4 text-right">
                   <div className="flex justify-end gap-2">
-                    <Link href={`/requests/${req.id}`}>
+                    <Link href={`/requests/${req.id}/view`}>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600">
                         <Eye className="w-4 h-4" />
                       </Button>
@@ -119,9 +151,9 @@ export function RequestList({ requests: initialRequests }: { requests: any[] }) 
                       </>
                     )}
 
-                    {req.status === "APPROVED" && (
+                    {["APPROVED", "REJECTED", "PROVISIONED"].includes(req.status) && (
                       <Link href={`/requests/new?copyFrom=${req.id}`}>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-green-600">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-green-600" title="Copy Request">
                           <Copy className="w-4 h-4" />
                         </Button>
                       </Link>
