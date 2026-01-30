@@ -1,10 +1,33 @@
 // src/app/admin/settings/page.tsx
-import prisma from "@/lib/prisma";
+"use client";
 import SettingsForm from "./SettingsForm";
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
+import { getSettings } from "@/app/actions/settings-actions";
+import { SystemSetting } from "@prisma/client";
 
 
 export default async function AdminSettings() {
-  const settings = await prisma.systemSetting.findMany();
+  const {data:session} = useSession();
+  const [settings, setSettings] = useState<SystemSetting []>([]);
+
+  if (!session?.user?.id) {
+    throw new Error("Unauthorized");
+  }
+
+  const userId = session.user.id;
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+try {
+  const res = await getSettings();
+setSettings(res);
+} catch (error) {
+  console.error("Failed to fetch settings:", error);
+}
+    }
+    fetchSettings();
+  }, [session]);
 
   // Ensure default settings exist if not in DB
   const defaultSettings = [

@@ -1,18 +1,14 @@
-// src/app/approvals/page.tsx
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { redirect } from "next/navigation";
-import prisma from "@/lib/prisma";
 import { ROLES } from "@/lib/roles";
-import { RequestStatus, RequestType } from "@prisma/client";
 import { ApproverDashboardClient } from "./components/ApproverDashboardClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle2, Clock, XCircle, PlayCircle, Layers } from "lucide-react";
-import { DashboardRequest } from "@/types/approvals"; // ✅ Import types
+import { fetchDashboardData } from "./lib"; // Reuse shared logic
+import type { MetricColor } from "./lib"; // Create this type file
 
-// ✅ Type-safe icon color mapping
-type MetricColor = "slate" | "amber" | "emerald" | "red" | "blue";
-
+// Keep MetricCard component identical (move to separate file if preferred)
 interface MetricCardProps {
   title: string;
   value: number;
@@ -53,112 +49,31 @@ export default async function ApprovalsDashboard() {
 
   const userRoles = session.user.roles;
   const isAdmin = userRoles.includes(ROLES.ADMIN);
-
-  // 1. Aggregate pending statuses for all possessed roles
-  let pendingStatusForRole: RequestStatus[] = [];
-  if (userRoles.includes(ROLES.L1_APPROVER)) pendingStatusForRole.push("PENDING_L1");
-  if (userRoles.includes(ROLES.L2_APPROVER)) pendingStatusForRole.push("PENDING_L2");
-  if (userRoles.includes(ROLES.L3_APPROVER)) pendingStatusForRole.push("PENDING_L3");
-  if (userRoles.includes(ROLES.DCOPS)) pendingStatusForRole.push("APPROVED");
   
-  if (isAdmin) {
-    pendingStatusForRole = ["PENDING_L1", "PENDING_L2", "PENDING_L3", "APPROVED"];
-  }
-
-  // Deduplicate
-  pendingStatusForRole = Array.from(new Set(pendingStatusForRole));
-
-  // 2. Fetch Metrics (Role-aware counts from both models)
-  const [
-    reqTotal, reqPending, reqApproved, reqRejected, reqExecuted,
-    custTotal, custPending, custApproved, custRejected, custExecuted
-  ] = await Promise.all([
-    // Basic Requests
-    prisma.request.count({ where: isAdmin ? {} : { status: { not: "DRAFT" } } }),
-    prisma.request.count({ where: { status: { in: pendingStatusForRole } } }),
-    prisma.request.count({ where: { status: "APPROVED" } }),
-    prisma.request.count({ where: { status: "REJECTED" } }),
-    prisma.request.count({ where: { status: { in: ["PROVISIONED", "CLOSED"] } } }),
-    // Customization Requests
-    prisma.customizationRequest.count({ where: { status: { not: "DRAFT" } } }),
-    prisma.customizationRequest.count({ where: { status: { in: pendingStatusForRole } } }),
-    prisma.customizationRequest.count({ where: { status: "APPROVED" } }),
-    prisma.customizationRequest.count({ where: { status: "REJECTED" } }),
-    prisma.customizationRequest.count({ where: { status: { in: ["PROVISIONED", "CLOSED"] } } }),
-  ]);
-
-  const totalVisible = reqTotal + custTotal;
-  const pendingCount = reqPending + custPending;
-  const approvedCount = reqApproved + custApproved;
-  const rejectedCount = reqRejected + custRejected;
-  const executedCount = reqExecuted + custExecuted;
-
-  // 3. Fetch Data from both models
-  const [requests, customizations] = await Promise.all([
-    prisma.request.findMany({
-      where: isAdmin ? {} : { status: { not: "DRAFT" } },
-      include: { requester: { select: { name: true, email: true } } },
-      orderBy: { createdAt: "desc" }
-    }),
-    prisma.customizationRequest.findMany({
-      where: { status: { not: "DRAFT" } },
-      include: { 
-        requester: { select: { name: true, email: true } },
-        targetVm: { select: { hostname: true } }
-      },
-      orderBy: { createdAt: "desc" }
-    })
-  ]);
-
-  // In your page component
-const initialRequests: DashboardRequest[] = [
-  // Transform regular Requests
-  ...requests.map(req => ({
-    id: req.id,
-    createdAt: req.createdAt,
-    status: req.status,
-    requestType: req.requestType,
-    systemName: req.systemName,
-    projectName: req.projectName,
-    requester: req.requester || null,
-    // targetVm is not applicable for regular requests
-  })),
-  
-  // Transform CustomizationRequests
-  ...customizations.map(cust => ({
-    id: cust.id,
-    createdAt: cust.createdAt,
-    status: cust.status,
-    requestType: "CUSTOMIZED" as RequestType,
-    systemName: cust.targetVm?.hostname || "System Customization",
-    projectName: "Infrastructure Update",
-    requester: cust.requester || null,
-    targetVm: cust.targetVm || null
-  }))
-].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  
+  // ✅ Single source of truth: Reuse shared data fetcher
+  const { metrics, requests } = await fetchDashboardData(userRoles, isAdmin);
 
   return (
     <div className="p-6 md:p-10 space-y-8 bg-slate-50/30 min-h-screen">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-tight text-slate-900 capitalize">
-           {userRoles.join(" & ").replace(/_/g, " ")} Dashboard
+          {userRoles.map(r => r.replace(/_/g, " ")).join(" & ")} Dashboard
         </h1>
         <p className="text-slate-500">Manage and execute virtual machine requests across the datacenter.</p>
       </div>
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <MetricCard title="Assigned" value={totalVisible} icon={Layers} color="slate" />
-        <MetricCard title="Pending Action" value={pendingCount} icon={Clock} color="amber" />
-        <MetricCard title="Approved" value={approvedCount} icon={CheckCircle2} color="emerald" />
-        <MetricCard title="Rejected" value={rejectedCount} icon={XCircle} color="red" />
-        <MetricCard title="Executed" value={executedCount} icon={PlayCircle} color="blue" />
+        <MetricCard title="Assigned" value={metrics.totalVisible} icon={Layers} color="slate" />
+        <MetricCard title="Pending Action" value={metrics.pendingCount} icon={Clock} color="amber" />
+        <MetricCard title="Approved" value={metrics.approvedCount} icon={CheckCircle2} color="emerald" />
+        <MetricCard title="Rejected" value={metrics.rejectedCount} icon={XCircle} color="red" />
+        <MetricCard title="Executed" value={metrics.executedCount} icon={PlayCircle} color="blue" />
       </div>
 
-      {/* Main List */}
+      {/* Client Component with Serialized Initial Data */}
       <ApproverDashboardClient 
-        initialRequests={JSON.parse(JSON.stringify(initialRequests))} 
+        initialRequests={JSON.parse(JSON.stringify(requests))} 
         userRoles={userRoles} 
       />
     </div>

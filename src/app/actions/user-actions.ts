@@ -9,6 +9,47 @@ import { ROLES } from "@/lib/roles";
 import { hash } from "bcryptjs";
 import { Role } from "@prisma/client";
 
+export async function getAllUsers() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.roles?.includes(ROLES.ADMIN)) throw new Error("Unauthorized");
+
+  const users = await prisma.user.findMany({
+    include: {
+      roles: {
+        include: { role: true },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return users;
+}
+
+export async function getUserById(id: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.roles?.includes(ROLES.ADMIN)) throw new Error("Unauthorized");
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: {
+      roles: {
+        include: { role: true },
+      },
+    },
+  });
+
+  return user;
+}
+
+export async function getRoles() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.roles?.includes(ROLES.ADMIN)) throw new Error("Unauthorized");
+
+  const roles = await prisma.role.findMany();
+
+  return roles;
+} 
+
 
 export async function createUser(formData: FormData) {
   const session = await getServerSession(authOptions);

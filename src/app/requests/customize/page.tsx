@@ -1,25 +1,39 @@
 // src/app/requests/customize/page.tsx
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+"use client";
 import { redirect } from "next/navigation";
 import { fetchAllVms } from "@/app/actions/vm-actions";
 import { CustomizationForm } from "../components/CustomizationForm";
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
+import { VmInstance } from "@/types/inventory";
 
-export default async function CustomizeVmPage({
+export default function CustomizeVmPage({
   searchParams,
 }: {
   searchParams: { vmId?: string };
 }) {
-  const session = await getServerSession(authOptions);
+  const { data: session } = useSession();
+  const [vms, setVms] = useState<VmInstance[]>([]);
   if (!session?.user) redirect("/auth");
 
-  // Fetch only ACTIVE VMs owned by the user
-  const { vms } = await fetchAllVms({
-    userId: session.user.id,
-    role: "REQUESTER",
-    statusFilter: "ACTIVE",
-    perPage: 100, // Show all possible candidates
-  });
+  useEffect(() => {
+    const fetchVms = async () => {
+      try {
+      const res = await fetchAllVms({
+        userId: session.user.id,
+        role: "REQUESTER",
+        statusFilter: "ACTIVE",
+        perPage: 100, // Show all possible candidates
+      });
+      if(!res) return;
+      setVms(res.vms);
+    } catch (error) {
+      console.error("Error fetching VMs:", error);
+    }    
+    };
+    fetchVms();
+  }, []);
+
 
   return (
     <div className="p-6 md:p-10 max-w-4xl mx-auto space-y-8">

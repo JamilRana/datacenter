@@ -315,3 +315,16 @@ export async function PATCH(
     );
   }
 }
+
+export async function GET({ params }: { params: { id: string } }) {
+  try{
+      const request = await prisma.request.findUnique({
+        where: { id: params.id },
+        select: { requesterId: true, status: true },
+      });
+      return NextResponse.json(request);
+  }catch(error){
+    console.log(error);
+    return NextResponse.json({ error: "Failed to load request" }, { status: 500 });
+  }
+}

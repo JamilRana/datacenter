@@ -1,6 +1,5 @@
 // src/app/inventory/assets/page.tsx
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+"use client";
 import { redirect } from "next/navigation";
 import { getAssets } from "@/app/actions/inventory-actions";
 import { ROLES } from "@/lib/roles";
@@ -8,9 +7,13 @@ import { AssetListClient } from "../components/AssetListClient";
 import {  Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
+import { PhysicalAsset } from "@/types/inventory";
 
-export default async function AssetsPage() {
-  const session = await getServerSession(authOptions);
+export default function AssetsPage() {
+   const { data: session } = useSession();
+   const [assets, setAssets] = useState<PhysicalAsset[]>([]);
   if (!session?.user) redirect("/auth");
 
   // REQUESTERS cannot view physical hardware assets per requirements
@@ -18,7 +21,20 @@ export default async function AssetsPage() {
      redirect("/inventory/vms");
   }
 
-  const initialAssets = await getAssets();
+  useEffect(()=>{
+   const fetchAssets = async () => {
+   try{
+    const res = await getAssets();
+    if(!res){
+      throw new Error("Failed to load Vm metrics");
+    }
+    setAssets(JSON.parse(JSON.stringify(res)));
+   }catch(error){
+    console.log(error);
+   }
+  }
+  fetchAssets();
+  },[session]);
   const canEdit = session.user.roles.includes(ROLES.ADMIN) || session.user.roles.includes(ROLES.DCOPS);
 
   return (
@@ -38,7 +54,7 @@ export default async function AssetsPage() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-         <AssetListClient initialAssets={JSON.parse(JSON.stringify(initialAssets))} />
+         <AssetListClient initialAssets={assets} />
       </div>
     </div>
   );

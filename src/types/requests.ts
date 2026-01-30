@@ -4,7 +4,8 @@ import {
   RequestType, 
   Environment, 
   NetworkAccess,
-  Raid
+  Raid,Approval as PrismaApproval,
+  VmInstance as PrismaVmInstance,
 } from "@prisma/client";
 
 export interface Approval {
@@ -95,11 +96,42 @@ export interface RequestDetailsData {
   requestType: RequestType;
   
   // Relations
-  approvals: Approval[];
-  vmInstances: VmInstance[];
-  targetVm?: VmInstance | null;
+  approvals: PrismaApproval[];
+    vmInstances: Array<
+    Pick<PrismaVmInstance, 
+      'id' | 'hostname' | 'ipAddress' | 'status' | 'provisionedAt'
+    > & {
+      owner: { name: string | null; email: string | null } | null;
+      request: { environment: string | null; systemName: string | null } | null;
+      currentSpec: { vcpu: number | null; ramGb: number | null; storageGb: number | null } | null;
+    }
+  >;
+  targetVm: TargetVmSummary | null;  
   submittedAt?: string;
 }
+
+
+export interface TargetVmSummary {
+  id: string;
+  hostname: string | null;
+  ipAddress: string | null;
+  status: "ACTIVE" | "SUSPENDED" | "RETIRED";
+  provisionedAt: Date | null;
+  owner: {
+    name: string | null;
+    email: string | null;
+  } | null;
+  request: {
+    environment: string | null;
+    systemName: string | null;
+  } | null;
+  currentSpec: {
+    vcpu: number | null;
+    ramGb: number | null;
+    storageGb: number | null;
+  } | null;
+}
+
 
 export interface VmInstance {
   id: string;

@@ -1,14 +1,16 @@
 // src/app/reports/page.tsx
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+"use client";
 import { redirect } from "next/navigation";
 import { ROLES } from "@/lib/roles";
 import { getSystemReportData } from "@/app/actions/report-actions";
 import { ReportsDashboardClient } from "./components/ReportsDashboardClient";
 import { LayoutDashboard } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
 
-export default async function ReportsPage() {
-  const session = await getServerSession(authOptions);
+export default function ReportsPage() {
+  const { data: session } = useSession();
+  const [initialData, setInitialData] = useState<any>(null);
   if (!session?.user) redirect("/auth");
 
   const isAdmin = session.user.roles.includes(ROLES.ADMIN);
@@ -17,8 +19,19 @@ export default async function ReportsPage() {
   if (!isAdmin && !isApprover) {
     redirect("/unauthorized");
   }
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const data = await getSystemReportData();
+        setInitialData(data);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      }
+    };
+    fetchData();
+  }, []);
 
-  const initialData = await getSystemReportData();
+
 
   return (
     <div className="p-6 md:p-10 space-y-8 bg-slate-50/20 min-h-screen">

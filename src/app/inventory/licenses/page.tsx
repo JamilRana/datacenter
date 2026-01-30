@@ -1,12 +1,11 @@
 // src/app/inventory/licenses/page.tsx
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+"use client";
 import { redirect } from "next/navigation";
 import { getLicenses } from "@/app/actions/inventory-actions";
 import { ROLES } from "@/lib/roles";
 import { 
   FileText, 
-  Plus,
+  Plus, 
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format, differenceInDays } from "date-fns";
@@ -14,9 +13,14 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { EnrollmentLicense } from "@/types/inventory";
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
 
-export default async function LicensesPage() {
-  const session = await getServerSession(authOptions);
+export default function LicensesPage() {
+
+   const { data: session } = useSession();
+   const [license, setLicense] = useState<EnrollmentLicense[]>([]);
+   
   if (!session?.user) redirect("/auth");
 
   // Only Admin, DCOPS, and Approvers see licenses
@@ -24,7 +28,21 @@ export default async function LicensesPage() {
      redirect("/inventory/vms");
   }
 
-  const licenses = await getLicenses();
+    useEffect(()=>{
+     getLicense();
+  
+    },[session]);
+const getLicense = async () => {
+
+    try {
+      const res = await  getLicenses();
+      if (!res) return;
+      setLicense(res);
+    } catch (err) {
+      console.log(err);
+    } 
+  };
+
   const canEdit = session.user.roles.includes(ROLES.ADMIN) || session.user.roles.includes(ROLES.DCOPS);
 
   return (
@@ -44,10 +62,10 @@ export default async function LicensesPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-         {licenses.map((lic) => (
+         {license.map((lic) => (
             <LicenseCard key={lic.id} license={lic} />
          ))}
-         {licenses.length === 0 && (
+         {license.length === 0 && (
             <div className="lg:col-span-3 py-20 text-center opacity-30 select-none">
                <FileText className="h-12 w-12 mx-auto mb-3" />
                <p className="font-black uppercase tracking-widest text-lg">No License Data Recorded</p>

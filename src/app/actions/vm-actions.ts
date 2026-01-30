@@ -64,6 +64,23 @@ const vmSpecSchema = z.object({
 // Actions
 // ==============
 
+export async function getVmList(where:boolean,id:string){
+
+        const vmsList = prisma.vmInstance.findMany({
+          where: where 
+            ? {} 
+            : { request: { requesterId: id } },
+          include: {
+             owner: { select: { name: true, email: true } },
+             currentSpec: true,
+             request: { select: { systemName: true, environment: true } }
+          },
+          orderBy: { provisionedAt: "desc" }
+        })
+
+        return vmsList;
+}
+
 // 1. CREATE VM + INITIAL SPEC + AUDIT
 export async function createVm(formData: FormData, actorId: string) {
   const vmData = vmBaseSchema.parse(Object.fromEntries(formData));
@@ -395,7 +412,7 @@ export async function fetchAllVms({
       orderBy: { createdAt: "desc" },
       include: {
         currentSpec: true,
-        owner: { select: { name: true } },
+        owner: { select: { name: true, email: true } },
         request: { select: { systemName: true, environment: true } },
       },
     }),

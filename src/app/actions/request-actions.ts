@@ -609,6 +609,7 @@ export async function getCopyRequestData(sourceRequestId: string) {
   return JSON.parse(JSON.stringify(copyData));
 }
 
+
 export async function getDetailedRequest(requestId: string) {
   if (!requestId || requestId === "undefined") {
     console.error("getDetailedRequest received an invalid ID");
@@ -662,7 +663,16 @@ export async function getDetailedRequest(requestId: string) {
         requester: true,
         targetVm: { 
           include: { 
-            currentSpec: true,
+            currentSpec: {
+              select: {
+                vcpu: true,
+                ramGb: true,
+                storageGb: true,
+                osName: true,
+                osVersion: true,
+                raid: true,
+              },
+            },
             owner: { select: { name: true, email: true } },
             request: { select: { systemName: true, environment: true } }
           } 
@@ -794,70 +804,187 @@ export async function getDetailedRequest(requestId: string) {
   const n = (s: string | null | undefined): string | undefined => s ?? undefined;
 
   return {
-    ...request,
-    projectName: n(request.projectName),
-    frontendTech: n(request.frontendTech),
-    backendTech: n(request.backendTech),
-    dataBase: n(request.dataBase),
-    serverArchitecture: n(request.serverArchitecture),
-    additionalTechNotes: n(request.additionalTechNotes),
-    osName: n(request.osName),
-    osVersion: n(request.osVersion),
-    subdomain: n(request.subdomain),
-    sslProvider: n(request.sslProvider),
-    sslCostPaidBy: n(request.sslCostPaidBy),
-    raid: request.raid || Raid.NONE,
+  id: request.id,
+  systemName: request.systemName,
+  projectName: n(request.projectName),
+  purpose: request.purpose,
+  environment: request.environment,
+  expectedEndDate: request.expectedEndDate?.toISOString().split("T")[0] || "",
+  
+  responsiblePerson: {
+    name: n(request.responsiblePersonName) || "",
+    designation: n(request.responsiblePersonDesignation) || "",
+    organization: n(request.responsiblePersonOrganization) || "",
+    contact: n(request.responsiblePersonContact) || "",
+    email: n(request.responsiblePersonEmail) || "",
+  },
+  alternativePerson: { name: n(request.alternativePersonName) || "",
+    designation: n(request.alternativePersonDesignation) || "",
+    organization: n(request.alternativePersonOrganization) || "",
+    contact: n(request.alternativePersonContact) || "",
+    email: n(request.alternativePersonEmail) || "", },
+  developer: { name: n(request.developerName) || "",
+    address: n(request.developerAddress) || "",
+    contact: n(request.developerContact) || "",
+    email: n(request.developerEmail) || "", },
+  
+  frontendTech: n(request.frontendTech),
+  backendTech: n(request.backendTech),
+  dataBase: n(request.dataBase),
+  serverArchitecture: n(request.serverArchitecture),
+  additionalTechNotes: n(request.additionalTechNotes),
+  
+  quantity: request.quantity ?? 1,
+  vcpu: request.vcpu ?? 0,
+  ramGb: request.ramGb ?? 0,
+  storageGb: request.storageGb ?? 0,
+  osName: n(request.osName),
+  osVersion: n(request.osVersion),
+  subdomain: n(request.subdomain),
+  raid: request.raid || Raid.NONE,
+  sslProvider: n(request.sslProvider),
+  sslCostPaidBy: n(request.sslCostPaidBy),
+  
+  requiredPublicIP: request.requiredPublicIP ?? false,
+  vpnRequired: request.vpnRequired ?? false,
+  networkAccess: request.networkAccess.map(n => n.accessType),
+  additionalDisks: request.additionalDisks.map(d => ({
+    sizeGb: d.sizeGb.toString(),
+    purpose: d.purpose || "",
+  })),
+  firewallPorts: request.firewallPorts.map(p => ({
+    port: p.port.toString(),
+    protocol: p.protocol,
+    purpose: p.purpose || "",
+    source: p.source || "",
+  })),
+  
+  vaReportSubmitted: request.vaReportSubmitted ?? false,
+  justificationSubmitted: request.justificationSubmitted ?? false,
+  renewalRequired: request.renewalRequired ?? false,
+  renewalPeriodMonths: request.renewalPeriodMonths ?? null,
+  
+  status: request.status,
+  requestType: request.requestType,
+  
+  // ✅ CRITICAL: Pass approvals UNMODIFIED (Prisma type matches Timeline)
+  approvals: request.approvals, // Already has level, decision, comments, decidedAt, etc.
+  
+vmInstances: request.vmInstances.map(vm => ({
+  id: vm.id,
+  hostname: vm.hostname,
+  ipAddress: vm.ipAddress,
+  status: vm.status as "ACTIVE" | "SUSPENDED" | "RETIRED", // Type assertion (data matches)
+  provisionedAt: vm.provisionedAt, // Date | null → matches type
+  owner: vm.owner 
+    ? { name: vm.owner.name ?? null, email: vm.owner.email ?? null } 
+    : null,
+  request: vm.request 
+    ? { 
+        environment: vm.request.environment ?? null, 
+        systemName: vm.request.systemName ?? null 
+      } 
+    : null,
+  currentSpec: vm.currentSpec 
+    ? { 
+        vcpu: vm.currentSpec.vcpu ?? null,
+        ramGb: vm.currentSpec.ramGb ?? null,
+        storageGb: vm.currentSpec.storageGb ?? null
+      } 
+    : null,
+})),
+  
+targetVm: request.targetVm 
+  ? {
+      id: request.targetVm.id,
+      hostname: request.targetVm.hostname,
+      ipAddress: request.targetVm.ipAddress,
+      status: request.targetVm.status as "ACTIVE" | "SUSPENDED" | "RETIRED",
+      provisionedAt: request.targetVm.provisionedAt,
+      owner: request.targetVm.owner 
+        ? { name: request.targetVm.owner.name ?? null, email: request.targetVm.owner.email ?? null } 
+        : null,
+      request: request.targetVm.request 
+        ? { 
+            environment: request.targetVm.request.environment ?? null, 
+            systemName: request.targetVm.request.systemName ?? null 
+          } 
+        : null,
+      currentSpec: null, // Not selected in Prisma query - explicitly null to satisfy type
+    }
+  : null,
 
-    quantity: request.quantity ?? 1,
-    vcpu: request.vcpu ?? 0,
-    ramGb: request.ramGb ?? 0,
-    storageGb: request.storageGb ?? 0,
+  
+  // ✅ FIX submittedAt type mismatch
+  submittedAt: request.submittedAt?.toISOString(), // Date → ISO string or undefined
+}
 
-    requiredPublicIP: request.requiredPublicIP ?? false,
-    vpnRequired: request.vpnRequired ?? false,
-    vaReportSubmitted: request.vaReportSubmitted ?? false,
-    justificationSubmitted: request.justificationSubmitted ?? false,
-    renewalRequired: request.renewalRequired ?? false,
 
-    expectedEndDate: request.expectedEndDate?.toISOString().split("T")[0] || "",
+  // return {
+  //   ...request,
+  //   projectName: n(request.projectName),
+  //   frontendTech: n(request.frontendTech),
+  //   backendTech: n(request.backendTech),
+  //   dataBase: n(request.dataBase),
+  //   serverArchitecture: n(request.serverArchitecture),
+  //   additionalTechNotes: n(request.additionalTechNotes),
+  //   osName: n(request.osName),
+  //   osVersion: n(request.osVersion),
+  //   subdomain: n(request.subdomain),
+  //   sslProvider: n(request.sslProvider),
+  //   sslCostPaidBy: n(request.sslCostPaidBy),
+  //   raid: request.raid || Raid.NONE,
 
-    responsiblePerson: {
-      name: n(request.responsiblePersonName) || "",
-      designation: n(request.responsiblePersonDesignation) || "",
-      organization: n(request.responsiblePersonOrganization) || "",
-      contact: n(request.responsiblePersonContact) || "",
-      email: n(request.responsiblePersonEmail) || "",
-    },
-    alternativePerson: {
-      name: n(request.alternativePersonName) || "",
-      designation: n(request.alternativePersonDesignation) || "",
-      organization: n(request.alternativePersonOrganization) || "",
-      contact: n(request.alternativePersonContact) || "",
-      email: n(request.alternativePersonEmail) || "",
-    },
-    developer: {
-      name: n(request.developerName) || "",
-      address: n(request.developerAddress) || "",
-      contact: n(request.developerContact) || "",
-      email: n(request.developerEmail) || "",
-    },
+  //   quantity: request.quantity ?? 1,
+  //   vcpu: request.vcpu ?? 0,
+  //   ramGb: request.ramGb ?? 0,
+  //   storageGb: request.storageGb ?? 0,
 
-    networkAccess: request.networkAccess.map((n) => n.accessType),
-    additionalDisks: request.additionalDisks.map((d) => ({
-      sizeGb: d.sizeGb.toString(),
-      purpose: d.purpose || "",
-    })),
-    firewallPorts: request.firewallPorts.map((p) => ({
-      port: p.port.toString(),
-      protocol: p.protocol,
-      purpose: p.purpose || "",
-      source: p.source || "",
-    })),
+  //   requiredPublicIP: request.requiredPublicIP ?? false,
+  //   vpnRequired: request.vpnRequired ?? false,
+  //   vaReportSubmitted: request.vaReportSubmitted ?? false,
+  //   justificationSubmitted: request.justificationSubmitted ?? false,
+  //   renewalRequired: request.renewalRequired ?? false,
 
-    approvals: request.approvals,
-    vmInstances: request.vmInstances,
-    targetVm: request.targetVm,
-  };
+  //   expectedEndDate: request.expectedEndDate?.toISOString().split("T")[0] || "",
+
+  //   responsiblePerson: {
+  //     name: n(request.responsiblePersonName) || "",
+  //     designation: n(request.responsiblePersonDesignation) || "",
+  //     organization: n(request.responsiblePersonOrganization) || "",
+  //     contact: n(request.responsiblePersonContact) || "",
+  //     email: n(request.responsiblePersonEmail) || "",
+  //   },
+  //   alternativePerson: {
+  //     name: n(request.alternativePersonName) || "",
+  //     designation: n(request.alternativePersonDesignation) || "",
+  //     organization: n(request.alternativePersonOrganization) || "",
+  //     contact: n(request.alternativePersonContact) || "",
+  //     email: n(request.alternativePersonEmail) || "",
+  //   },
+  //   developer: {
+  //     name: n(request.developerName) || "",
+  //     address: n(request.developerAddress) || "",
+  //     contact: n(request.developerContact) || "",
+  //     email: n(request.developerEmail) || "",
+  //   },
+
+  //   networkAccess: request.networkAccess.map((n) => n.accessType),
+  //   additionalDisks: request.additionalDisks.map((d) => ({
+  //     sizeGb: d.sizeGb.toString(),
+  //     purpose: d.purpose || "",
+  //   })),
+  //   firewallPorts: request.firewallPorts.map((p) => ({
+  //     port: p.port.toString(),
+  //     protocol: p.protocol,
+  //     purpose: p.purpose || "",
+  //     source: p.source || "",
+  //   })),
+
+  //   approvals: request.approvals,
+  //   vmInstances: request.vmInstances,
+  //   targetVm: request.targetVm,
+  // };
 }
 
 export async function getRequests(filters: RequestFilters = {}) {

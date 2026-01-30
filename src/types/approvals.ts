@@ -1,10 +1,5 @@
 // src/types/approvals.ts
-import { RequestStatus, RequestType } from "@prisma/client";
-
-export interface Requester {
-  name: string;
-  email: string;
-}
+import { Approval, RequestStatus, RequestType } from "@prisma/client";
 
 // ✅ Make requester optional to match Prisma schema
 export interface BaseRequest {
@@ -47,4 +42,15 @@ export interface DashboardRequest {
   targetVm?: {
     hostname: string | null;
   } | null;
+}
+
+export interface ApprovalRequestDetail extends BaseRequest {
+  requestType: RequestType;
+  systemName: string;
+  projectName: string | null;
+  // Explicitly define included relations with correct nullability
+  requester: (Requester & { designation: string | null }) | null;
+  approvals: Approval[];
+  vmInstances: Array<{ /* define minimal shape if used */ }>;
+  targetVm: VmInstance | null;
 }

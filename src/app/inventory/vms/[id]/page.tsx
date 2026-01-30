@@ -1,8 +1,7 @@
 // src/app/inventory/vms/[id]/page.tsx
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+
 import { redirect, notFound } from "next/navigation";
-import prisma from "@/lib/prisma";
+
 import { ROLES } from "@/lib/roles";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
@@ -19,29 +18,33 @@ import {
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ReactNode } from "react"; // ✅ Add this
-import { VmSpecHistory, VmAuditLog } from "@/types/inventory";
+import { useEffect, useState, type ReactNode } from "react"; // ✅ Add this
+import { VmSpecHistory, VmAuditLog, VmInstance } from "@/types/inventory";
+import { useSession } from "next-auth/react";
+import { getVmById } from "@/app/actions/inventory-actions";
 
 export default async function VmDetailPage({ params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions);
+const {data:session}=useSession();
+const [vm,setVm]=useState<VmInstance | null>(null);
+
   if (!session?.user) redirect("/auth");
+  
 
-  const vm = await prisma.vmInstance.findUnique({
-    where: { id: params.id },
-    include: {
-       owner: true,
-       currentSpec: true,
-       specHistory: { orderBy: { createdAt: "desc" } },
-       request: true,
-       customizationHistory: { orderBy: { createdAt: "desc" } },
-       auditLogs: { orderBy: { timestamp: "desc" }, take: 10 }
-    }
-  });
-
-  if (!vm) notFound();
+  useEffect(()=>{
+         const fetchVm = async()=>{
+   try {
+         const vm = await getVmById(params.id);
+         if (!vm) notFound();
+         setVm(vm);
+   } catch (error) {
+      console.error("Error fetching VM:", error);    
+   }
+}
+fetchVm();
+  },[session])
 
   // RBAC: Requesters can only view their own VMs
-  if (session.user.roles.includes(ROLES.REQUESTER) && vm.ownerId !== session.user.id) {
+  if (session.user.roles.includes(ROLES.REQUESTER) && vm?.owner?.id !== session.user.id) {
      redirect("/unauthorized");
   }
 
@@ -53,12 +56,12 @@ export default async function VmDetailPage({ params }: { params: { id: string } 
                <Link href="/inventory/vms"><ArrowLeft className="h-5 w-5" /></Link>
             </Button>
             <div>
-               <h1 className="text-2xl font-black text-slate-900 leading-tight tracking-tight uppercase">{vm.hostname}</h1>
-               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">{vm.ipAddress || "NO_IP_ASSIGNED"}</p>
+               <h1 className="text-2xl font-black text-slate-900 leading-tight tracking-tight uppercase">{vm?.hostname}</h1>
+               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">{vm?.ipAddress || "NO_IP_ASSIGNED"}</p>
             </div>
           </div>
           <div className="flex gap-2">
-             {vm.status === "ACTIVE" && (
+             {vm?.status === "ACTIVE" && (
                 <>
                    <Button asChild variant="outline" className="text-xs font-bold gap-2">
                       <Link href={`/requests/customize?vmId=${vm.id}`}>Request Upgrade</Link>
@@ -79,42 +82,42 @@ export default async function VmDetailPage({ params }: { params: { id: string } 
                    <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-500">Current Allocation</CardTitle>
                       <Badge className={
-                         vm.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" :
-                         vm.status === "RETIRED" ? "bg-slate-100 text-slate-800" : "bg-orange-100 text-orange-800"
+                         vm?.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" :
+                         vm?.status === "RETIRED" ? "bg-slate-100 text-slate-800" : "bg-orange-100 text-orange-800"
                       }>
-                         {vm.status}
+                         {vm?.status}
                       </Badge>
                    </div>
                 </CardHeader>
                 <CardContent className="pt-6">
                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <ResourceStat icon={Cpu} label="vCPU" value={vm.currentSpec?.vcpu} unit="Cores" color="text-blue-600 bg-blue-50" />
-                      <ResourceStat icon={Database} label="RAM Allocation" value={vm.currentSpec?.ramGb} unit="GB" color="text-indigo-600 bg-indigo-50" />
-                      <ResourceStat icon={HardDrive} label="Disk Provisioned" value={vm.currentSpec?.storageGb} unit="GB" color="text-emerald-600 bg-emerald-50" />
+                      <ResourceStat icon={Cpu} label="vCPU" value={vm?.currentSpec?.vcpu} unit="Cores" color="text-blue-600 bg-blue-50" />
+                      <ResourceStat icon={Database} label="RAM Allocation" value={vm?.currentSpec?.ramGb} unit="GB" color="text-indigo-600 bg-indigo-50" />
+                      <ResourceStat icon={HardDrive} label="Disk Provisioned" value={vm?.currentSpec?.storageGb} unit="GB" color="text-emerald-600 bg-emerald-50" />
                    </div>
 
                    <div className="mt-8 pt-8 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-8">
                       <DetailItem 
                         label="Operating System" 
-                        value={`${vm.currentSpec?.osName || "Unknown"} ${vm.currentSpec?.osVersion || ""}`} 
+                        value={`${vm?.vmOsName || "Unknown"} ${vm?.vmOsVersion || ""}`} 
                       />
                       <DetailItem 
                         label="Provisioned At" 
-                        value={vm.provisionedAt ? format(new Date(vm.provisionedAt), "PPP p") : "Not recorded"} 
+                        value={vm?.provisionedAt ? format(new Date(vm?.provisionedAt || ""), "PPP p") : "Not recorded"} 
                       />
                       <DetailItem 
                         label="Original Request" 
                         value={
-                          vm.requestId ? (
-                            <Link href={`/requests/${vm.requestId}/view`} className="text-blue-600 hover:underline font-bold">
-                              REQ-{vm.requestId.slice(0,8)}
+                          vm?.request?.requestId ? (
+                            <Link href={`/requests/${vm.request.requestId}/view`} className="text-blue-600 hover:underline font-bold">
+                              REQ-{vm.request.requestId.slice(0,8)}
                             </Link>
                           ) : "Not recorded"
                         } 
                       />
                       <DetailItem 
                         label="Environment" 
-                        value={vm.request?.environment || "STAGING"} 
+                        value={vm?.request?.environment || "STAGING"} 
                       />
                    </div>
                 </CardContent>
@@ -140,7 +143,7 @@ export default async function VmDetailPage({ params }: { params: { id: string } 
                             </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-50">
-                            {vm.specHistory.map((spec: VmSpecHistory) => (
+                            {vm?.specHistory?.map((spec: VmSpecHistory) => (
                                <tr key={spec.id} className="text-xs">
                                   <td className="px-6 py-4 font-bold text-slate-700">{format(new Date(spec.createdAt), "MMM dd, yyyy")}</td>
                                   <td className="px-6 py-4">{spec.vcpu}</td>
@@ -168,8 +171,8 @@ export default async function VmDetailPage({ params }: { params: { id: string } 
                       <User className="h-5 w-5" />
                    </div>
                    <div>
-                      <p className="text-sm font-bold text-slate-800">{vm.owner?.name}</p>
-                      <p className="text-[10px] font-medium text-slate-400 uppercase">{vm.owner?.email}</p>
+                      <p className="text-sm font-bold text-slate-800">{vm?.owner?.name}</p>
+                      <p className="text-[10px] font-medium text-slate-400 uppercase">{vm?.owner?.email}</p>
                    </div>
                 </CardContent>
              </Card>
@@ -179,9 +182,9 @@ export default async function VmDetailPage({ params }: { params: { id: string } 
                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-500">Recent Security Events</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                   {vm.auditLogs.length > 0 ? (
+                   {vm?.auditLogs && vm?.auditLogs?.length > 0 ? (
                       <div className="divide-y divide-slate-50">
-                         {vm.auditLogs.map((log: VmAuditLog) => (
+                         {vm?.auditLogs?.map((log: VmAuditLog) => (
                             <div key={log.id} className="p-4 space-y-1 hover:bg-slate-50/50 transition-colors">
                                <p className="text-xs font-bold text-slate-800 leading-tight">{log.action.replace(/_/g, " ")}</p>
                                <div className="flex justify-between items-center text-[10px]">
@@ -197,7 +200,7 @@ export default async function VmDetailPage({ params }: { params: { id: string } 
                 </CardContent>
              </Card>
 
-             {vm.status === "RETIRED" && (
+             {vm?.status === "RETIRED" && (
                 <Card className="bg-red-50 border-red-100 border shadow-none">
                    <CardContent className="p-4 flex gap-3">
                       <ShieldAlert className="h-5 w-5 text-red-600 shrink-0" />

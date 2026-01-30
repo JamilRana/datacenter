@@ -134,7 +134,6 @@ export function ApproverDashboardClient({
                 <option value="CLOSED">Closed/Retired</option>
               </select>
            </div>
-
            <div className="space-y-1.5">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Request Type</p>
               <select 

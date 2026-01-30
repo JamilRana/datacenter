@@ -43,3 +43,12 @@ export async function getAdminMetrics() {
     systemStatus: "OPTIMAL"
   };
 }
+
+export async function getSettings() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.roles?.includes(ROLES.ADMIN)) throw new Error("Unauthorized");
+
+  const settings = await prisma.systemSetting.findMany();
+
+  return settings;
+}

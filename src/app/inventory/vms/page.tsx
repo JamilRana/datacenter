@@ -1,35 +1,74 @@
 // src/app/inventory/vms/page.tsx
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+"use client";
+
 import { redirect } from "next/navigation";
-import prisma from "@/lib/prisma";
-import { getInventoryMetrics } from "@/app/actions/inventory-actions";
+import { getInventoryMetrics, InventoryMetrics } from "@/app/actions/inventory-actions";
 import { VmListClient } from "@/app/inventory/components/VmListClient";
 import { CapacityDashboardClient } from "@/app/inventory/components/CapacityDashboardClient";
 import { BarChart3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useSession } from "next-auth/react";
+import { getVmList } from "@/app/actions/vm-actions";
+import { useEffect, useState } from "react";
+import { Environment, Raid, VmStatus } from "@prisma/client";
 
-export default async function VmInventoryPage() {
-  const session = await getServerSession(authOptions);
+interface vmsList {
+    request: {
+        systemName: string;
+        environment: Environment;
+    };
+    owner: {
+        name: string;
+        email: string;
+    } | null;
+    currentSpec: {
+        id: string;
+        createdAt: Date;
+        vcpu: number;
+        ramGb: number;
+        osName: string | null;
+        osVersion: string | null;
+        storageGb: number;
+        raid: Raid | null;
+        appliedById: string | null;
+        vmInstanceId: string;
+        effectiveFrom: Date;
+        sourceRequestId: string | null;
+    } | null;
+    id: string;
+    createdAt: Date;
+    updatedAt: Date;
+    status: VmStatus;
+    requestId: string;
+    subdomain: string | null;
+    currentSpecId: string | null;
+}
+
+export default function VmInventoryPage() {
+  const {data:session} = useSession();
+  const [metrics, setMetrics] = useState<InventoryMetrics | null>(null);
+  const [vms, setVms] = useState<vmsList[]>([]);
+
   if (!session?.user) redirect("/auth");
 
   const userRoles = session.user.roles;
   const isManagement = userRoles.some(r => ["ADMIN", "DCOPS", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3"].includes(r));
 
-  const [metrics, vms] = await Promise.all([
-    getInventoryMetrics(),
-    prisma.vmInstance.findMany({
-      where: isManagement 
-        ? {} 
-        : { request: { requesterId: session.user.id } },
-      include: {
-         owner: { select: { name: true, email: true } },
-         currentSpec: true,
-         request: { select: { systemName: true, environment: true } }
-      },
-      orderBy: { provisionedAt: "desc" }
-    })
-  ]);
+  useEffect(() => {
+    const fetchVmLists = async () => {
+      try{
+        const metricsRes = await getInventoryMetrics();
+        setMetrics(metricsRes);
+const vmsList = await getVmList(isManagement , session.user.id);
+setVms(vmsList);
+      }
+      catch(error){
+        console.error("Failed to fetch VM lists:", error);
+      }
+    }
+    
+    fetchVmLists();
+  }, [session]);
 
   return (
     <div className="p-6 md:p-10 space-y-8 bg-slate-50/20 min-h-screen">

@@ -16,13 +16,14 @@ import {
 import { handleApprovalDecision, executeRequest } from "@/app/actions/approval-actions";
 import {  canUserApprove } from "@/lib/roles";
 import { Request } from "@prisma/client";
+import { ApprovalRequestDetail } from "@/types/approvals";
 
 export function ApprovalActionPanel({ 
   request, 
   userRole,
    
 }: { 
-  request: Request, 
+  request: ApprovalRequestDetail, 
   userRole: string[], 
 }) {
   const router = useRouter();

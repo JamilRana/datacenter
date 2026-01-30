@@ -13,10 +13,97 @@ import {
 } from "@prisma/client";
 import { ROLES, canUserApprove } from "@/lib/roles";
 import { notifyRequester } from "@/lib/notifications"; // ✅ Add this import
+import { redirect } from "next/navigation";
+import { fetchDashboardData } from "../approvals/lib";
+import { ApprovalRequestDetail } from "@/types/approvals";
 
-/**
- * Handles L1, L2, L3 Decisions
- */
+// export async function fetchApprovalData(requestId: string) {
+//   const session = await getServerSession(authOptions);
+//   if (!session?.user) redirect("/auth");
+//   try{
+//     const request = await prisma.request.findUnique({
+//         where: { id: requestId },
+//         include: {
+//           requester: {select: {name: true, email: true, designation: true}},
+//           approvals: {
+//             include: { approver: true },
+//             orderBy: { createdAt: "asc" }
+//           },
+//           vmInstances: true,
+//           targetVm: true,
+//         }
+//       });
+
+//     if (!request) throw new Error("Request not found");
+
+//     return request;
+//   }
+//   catch(error){
+//     console.log(error);
+//     throw error;
+//   }
+// }
+
+export async function fetchApprovalData(
+  requestId: string
+): Promise<ApprovalRequestDetail | null> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return null;
+
+  try {
+    const request = await prisma.request.findUnique({
+      where: { id: requestId },
+      include: {
+        requester: { select: { name: true, email: true, designation: true } },
+        approvals: {
+          select: {
+            // ✅ MUST include these exact fields Timeline expects
+            id: true,
+            entityType: true,
+            entityId: true,
+            level: true,        // Critical for Timeline matching
+            approverId: true,
+            decision: true,     // NOT "status" - this is the approval decision
+            comments: true,
+            decidedAt: true,
+            createdAt: true,
+            // Include relation with minimal fields
+            approver: {
+              select: { 
+                id: true, 
+                name: true, 
+                email: true 
+              } 
+            }
+          },
+          orderBy: { createdAt: "asc" }
+        },
+        vmInstances: true,
+        targetVm: true,
+      }
+    });
+
+    if (!request) return null;
+    
+    // ✅ Explicitly cast to match ApprovalRequestDetail shape
+    // (Prisma payload matches our interface structure)
+    return request as unknown as ApprovalRequestDetail;
+  } catch (error) {
+    console.error("Approval fetch error:", error);
+    return null;
+  }
+}
+
+export async function getDashboardData() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) redirect("/auth");
+
+  const userRoles = session.user.roles;
+  const isAdmin = userRoles.includes(ROLES.ADMIN);
+
+  return fetchDashboardData(userRoles, isAdmin);
+}
+
 export async function handleApprovalDecision(
   requestId: string,
   decision: "APPROVED" | "REJECTED" | "RETURNED",

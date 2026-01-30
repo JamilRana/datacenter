@@ -1,8 +1,6 @@
 // src/app/inventory/assets/[id]/page.tsx
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+"use client";
 import { redirect, notFound } from "next/navigation";
-import prisma from "@/lib/prisma";
 import { ROLES } from "@/lib/roles";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
@@ -19,21 +17,32 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Asset, SoftwareLicense } from "@prisma/client";
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
+import { fetchAssetDetailsWithLicenses } from "@/app/actions/asset-actions";
 
-export default async function AssetDetailPage({ params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions);
+export default function AssetDetailPage({ params }: { params: { id: string } }) {
+   const { data: session } = useSession();
+   const [asset, setAsset] = useState<Asset & { licenses: SoftwareLicense[] } | null>(null);
   if (!session?.user) redirect("/auth");
 
   if (session.user.roles.includes(ROLES.REQUESTER)) {
     redirect("/inventory/vms");
   }
 
-  const asset = await prisma.asset.findUnique({
-    where: { id: params.id },
-    include: {
-      licenses: true,
-    },
-  }) as (Asset & { licenses: SoftwareLicense[] }) | null;
+useEffect(()=>{
+   getAsset(params.id);
+  },[session]);
+ 
+const getAsset = async (id: string) => {
+    try {
+      const res = await  fetchAssetDetailsWithLicenses(id);
+      if (!res) return;
+      setAsset(res);
+    } catch (err) {
+      console.log(err);
+    } 
+  };
 
   if (!asset) notFound();
 

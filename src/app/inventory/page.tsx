@@ -1,8 +1,7 @@
 // src/app/inventory/page.tsx
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+"use client";
 import { redirect } from "next/navigation";
-import { getInventoryMetrics } from "@/app/actions/inventory-actions";
+import { getInventoryMetrics, InventoryMetrics } from "@/app/actions/inventory-actions";
 import { ROLES } from "@/lib/roles";
 import { CapacityDashboardClient } from "./components/CapacityDashboardClient";
 import { 
@@ -18,13 +17,30 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
 
-export default async function InventoryOverviewPage() {
-  const session = await getServerSession(authOptions);
+export default function InventoryOverviewPage() {
+   const { data: session } = useSession();
+   const [metrics, setMetrics] = useState<InventoryMetrics | null>(null);
   if (!session?.user) redirect("/auth");
 
-  const metrics = await getInventoryMetrics();
-  const userRole = session.user.roles;
+  useEffect(()=>{
+   const fetchMetrics = async () => {
+   try{
+    const res = await getInventoryMetrics();
+    if(!res){
+      throw new Error("Failed to load Vm metrics");
+    }
+    setMetrics(res);
+   }catch(error){
+    console.log(error);
+   }
+  }
+  fetchMetrics();
+  },[session]);
+  
+  const userRole = session?.user?.roles;
 
   // Requesters don't get the infra overview, redirect them to their VM list
   if (userRole.includes(ROLES.REQUESTER)) {

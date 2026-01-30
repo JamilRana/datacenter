@@ -95,14 +95,16 @@ export interface VmInstance {
   status: "ACTIVE" | "SUSPENDED" | "RETIRED";
   vmOsName?: string;
   vmOsVersion?: string;
-  owner: { name: string | null; email: string | null } | null;
-  request: { environment: string | null; systemName: string | null } | null;
+  owner: { id: string; name: string | null; email: string | null } | null;
+  request: {requestId: string | null; environment: string | null; systemName: string | null } | null;
   currentSpec: {
     vcpu: number | null;
     ramGb: number | null;
     storageGb: number | null;
   } | null;
   provisionedAt: Date | string | null;
+  specHistory: VmSpecHistory[] | null;
+  auditLogs: VmAuditLog[] | null;
 }
 
 export interface PhysicalAsset {
@@ -129,7 +131,7 @@ export interface EnrollmentLicense {
   notes: string | null;
   usedSeats?: number;
   totalSeats?: number;
-  assets?: { id: string; name: string }[];
+  assets?: { id: string; name: string; type: string; serial: string | null }[];
 }
 
 export interface VmSpecHistory {
@@ -155,4 +157,16 @@ export interface ResourceChartData {
   ram: number;
   storage: number;
   network: number;
+}
+
+
+export interface  AssetTypes {
+    SERVER: "SERVER";
+    ROUTER: "ROUTER";
+    SWITCH: "SWITCH";
+    FIREWALL: "FIREWALL";
+    STORAGE: "STORAGE";
+    UPS: "UPS";
+    CONSOLE_SERVER: "CONSOLE_SERVER";
+    OTHER: "OTHER";
 }

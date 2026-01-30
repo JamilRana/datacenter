@@ -1,26 +1,41 @@
 // src/app/requests/[id]/edit/page.tsx
+"use client";
 import { RequestForm } from "@/app/requests/components/RequestForm";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
-import prisma from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
 
-export default async function EditRequestPage({
+interface Request {
+  id: string;
+  requesterId: string;
+  status: string;
+}
+
+export default function EditRequestPage({
   params,
 }: {
   params: { id: string };
 }) {
-  const session = await getServerSession(authOptions);
+     const { data: session } = useSession();
+     const [request, setRequest] = useState<Request | null>(null);
   if (!session?.user) {
     redirect("/auth");
   }
 
-  const request = await prisma.request.findUnique({
-    where: { id: params.id },
-    select: { requesterId: true, status: true },
-  });
+  useEffect(() => {
+    const fetchRequest = async () => {
+      try {
+        const response = await fetch(`/api/requests/${params.id}`);
+        const data = await response.json();
+        setRequest(data);
+      } catch (error) {
+        console.error("Error fetching request:", error);
+      }
+    };
+    fetchRequest();
+  }, [params.id]);
 
-  if (!request || request.requesterId !== session.user.id || request.status !== "DRAFT") {
+  if (!request || request.requesterId  !== session.user.id || request.status !== "DRAFT") {
     redirect("/requests");
   }
 

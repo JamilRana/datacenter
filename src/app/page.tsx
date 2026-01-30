@@ -1,14 +1,17 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+//src/app/page.tsx
+"use client";
 import { redirect } from "next/navigation";
-import prisma from "@/lib/prisma";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Server, FileText, Clock, AlertTriangle, ArrowRight, PlusCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSession } from "next-auth/react";
+import { getHomeDashboardData, HomeDashboardData } from "./actions/home-actions";
+import { useEffect, useState } from "react";
 
-export default async function Home() {
-  const session = await getServerSession(authOptions);
+export default function Home() {
+const {data: session} = useSession();
+const [homeDashboardData, setHomeDashboardData] = useState<HomeDashboardData | null>(null);
 
   if (!session) {
     redirect("/auth");
@@ -23,53 +26,18 @@ export default async function Home() {
     redirect("/approvals");
   }
 
-  // Fetch some basic stats for the user
-  // const vmCount = await prisma.vmInstance.count({
-  //   where: { ownerId: session.user.id }
-  // });
-  const activeVmCount = await prisma.vmInstance.count({
-    where: { 
-      status: "ACTIVE",
-      request: { requesterId: session.user.id } 
+useEffect(() => {
+  const fetchHomeDashboardData = async () => {
+    try {
+      const res = await getHomeDashboardData();
+setHomeDashboardData(res);
+      console.log(res);
+    } catch (error) {
+      console.error("Failed to fetch home dashboard data:", error);
     }
-  });
-
-  const decommissionedVmCount = await prisma.vmInstance.count({
-    where: { 
-      status: "RETIRED",
-      request: { requesterId: session.user.id } 
-    }
-  });
-
-  const totalRequestCount = await prisma.request.count({
-    where: { requesterId: session.user.id }
-  });
-
-  const pendingCount = await prisma.request.count({
-    where: { 
-      requesterId: session.user.id,
-      status: { in: ["PENDING_L1", "PENDING_L2", "PENDING_L3"] }
-    }
-  });
-
-  const returnedRequests = await prisma.request.findMany({
-    where: { 
-      requesterId: session.user.id,
-      status: "DRAFT",
-      approvals: { some: { decision: "RETURNED" } }
-    },
-    take: 3
-  });
-
-  const rejectedCount = await prisma.request.count({
-    where: { requesterId: session.user.id, status: "REJECTED" }
-  });
-
-  const recentRequests = await prisma.request.findMany({
-    where: { requesterId: session.user.id },
-    orderBy: { createdAt: "desc" },
-    take: 5
-  });
+  }
+  fetchHomeDashboardData();
+}, [session]);
 
   return (
     <div className="p-6 md:p-10 max-w-7xl mx-auto space-y-8">
@@ -90,8 +58,8 @@ export default async function Home() {
             <Server className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{activeVmCount}</div>
-            <p className="text-[10px] text-slate-500 mt-1">{decommissionedVmCount} decommissioned</p>
+            <div className="text-2xl font-bold text-slate-900">{homeDashboardData?.activeVmCount}</div>
+            <p className="text-[10px] text-slate-500 mt-1">{homeDashboardData?.decommissionedVmCount} decommissioned</p>
           </CardContent>
         </Card>
 
@@ -102,8 +70,8 @@ export default async function Home() {
             <FileText className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{totalRequestCount}</div>
-            <p className="text-[10px] text-slate-500 mt-1">{rejectedCount} rejected</p>
+            <div className="text-2xl font-bold text-slate-900">{homeDashboardData?.totalRequestCount}</div>
+            <p className="text-[10px] text-slate-500 mt-1">{homeDashboardData?.rejectedCount} rejected</p>
           </CardContent>
         </Card>
 
@@ -114,7 +82,7 @@ export default async function Home() {
             <Clock className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{pendingCount}</div>
+            <div className="text-2xl font-bold text-slate-900">{homeDashboardData?.pendingCount}</div>
             <p className="text-[10px] text-slate-500 mt-1">Waiting for MIS team</p>
           </CardContent>
         </Card>
@@ -126,7 +94,7 @@ export default async function Home() {
             <AlertTriangle className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{returnedRequests.length}</div>
+            <div className="text-2xl font-bold text-slate-900">{homeDashboardData?.returnedRequests.length}</div>
             <p className="text-[10px] text-slate-500 mt-1">Action required by you</p>
           </CardContent>
         </Card>
@@ -134,7 +102,7 @@ export default async function Home() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
-          {returnedRequests.length > 0 && (
+          {homeDashboardData?.returnedRequests && homeDashboardData?.returnedRequests.length > 0 && (
             <Card className="border-none shadow-sm bg-red-50 border-l-4 border-l-red-500">
               <CardHeader className="pb-2">
                 <CardTitle className="text-red-800 text-lg flex items-center gap-2">
@@ -142,7 +110,7 @@ export default async function Home() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {returnedRequests.map(req => (
+                {homeDashboardData?.returnedRequests.map(req => (
                   <div key={req.id} className="flex justify-between items-center bg-white p-3 rounded border border-red-100">
                     <div>
                       <p className="font-semibold text-sm">{req.systemName}</p>
@@ -169,9 +137,9 @@ export default async function Home() {
               </Link>
             </CardHeader>
             <CardContent>
-              {recentRequests.length > 0 ? (
+              {homeDashboardData?.recentRequests && homeDashboardData?.recentRequests.length > 0 ? (
                 <div className="space-y-4">
-                  {recentRequests.map((req,key:number) => (
+                  {homeDashboardData?.recentRequests.map((req,key:number) => (
                     <div key={req.id}  className=" p-4 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors border">
                         <Link href={`/requests/${req.id}`}>
                         <div key={key} className="flex items-center justify-between  group">

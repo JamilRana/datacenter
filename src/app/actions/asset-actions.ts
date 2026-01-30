@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { ASSET_TYPES } from "@/types/inventory";
+import { Asset, SoftwareLicense } from "@prisma/client";
 
 // Helper: safely convert empty string to undefined, and assert type
 const optionalString = (value: unknown): string | undefined => {
@@ -124,6 +125,15 @@ export async function deleteAsset(id: string) {
 
 export async function fetchAssetDetails(id: string) {
   return await prisma.asset.findUnique({ where: { id } });
+}
+
+export async function fetchAssetDetailsWithLicenses(id: string) {
+  return await prisma.asset.findUnique({
+    where: { id },
+    include: {
+      licenses: true,
+    },
+  }) as (Asset & { licenses: SoftwareLicense[] }) | null;
 }
 
 export async function fetchAllAssets() {

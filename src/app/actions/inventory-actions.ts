@@ -6,7 +6,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { ROLES } from "@/lib/roles";
 import { AssetType, VmStatus } from "@prisma/client";
-import { PhysicalAsset, EnrollmentLicense } from "@/types/inventory";
+import { PhysicalAsset, EnrollmentLicense, VmInstance } from "@/types/inventory";
+import { NextResponse } from "next/server";
 
 /**
  * Aggregates physical capacity vs logical VM allocations.
@@ -111,6 +112,32 @@ export async function getAssets(filters?: { type?: AssetType }): Promise<Physica
   return assets;
 }
 
+export async function getVmById(id: string): Promise<VmInstance | null> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles;
+  const canView = userRoles.includes(ROLES.ADMIN) || userRoles.includes(ROLES.DCOPS) || userRoles.some(r => r.startsWith("APPROVER"));
+
+  if (!canView) {
+     throw new Error("Forbidden: Assets are restricted to infrastructure roles.");
+  }
+
+  const vm = await prisma.vmInstance.findUnique({
+    where: { id: id },
+    include: {
+      owner: true,
+      currentSpec: true,
+      specHistory: { orderBy: { createdAt: "desc" } },
+      request: true,
+      customizationHistory: { orderBy: { createdAt: "desc" } },
+      auditLogs: { orderBy: { timestamp: "desc" }, take: 10 }
+    }
+  });
+
+  return vm;
+}
+
 /**
  * Fetches software licenses with expiration status.
  */
@@ -127,10 +154,36 @@ export async function getLicenses(): Promise<EnrollmentLicense[]> {
 
   const licenses = await prisma.softwareLicense.findMany({
     include: {
-      assets: { select: { id: true, name: true } }
+      assets: { select: { id: true, name: true, type: true, serial: true } }
     },
     orderBy: { expiryDate: "asc" }
   });
 
   return licenses;
+}
+
+
+export async function getLicenseById(id: string): Promise<EnrollmentLicense | null> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles;
+  const canView = userRoles.includes(ROLES.ADMIN) || userRoles.includes(ROLES.DCOPS) || userRoles.some(r => r.startsWith("APPROVER"));
+
+  if (!canView) {
+     throw new Error("Forbidden: Licenses are restricted to infrastructure roles.");
+  }
+try{
+  const license = await prisma.softwareLicense.findUnique({
+    where: { id: id },
+    include: {
+      assets: { select: { id: true, name: true, type: true, serial: true } }
+    }
+  });
+
+  return license;
+} catch (error) {
+  console.error("GET /api/inventory", error);
+  return null;
+}
 }
