@@ -1,5 +1,5 @@
 // src/app/inventory/vms/[id]/page.tsx
-
+"use client";
 import { redirect, notFound } from "next/navigation";
 
 import { ROLES } from "@/lib/roles";
