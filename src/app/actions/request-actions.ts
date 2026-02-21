@@ -17,7 +17,6 @@ import {
   RequestType, 
   ServerType, 
   SSLProvider,
-  VmStatus,
   Protocol
 } from "@prisma/client";
 import { notifyApprovers } from "@/lib/notifications";
@@ -1058,62 +1057,4 @@ export async function deleteRequest(requestId: string) {
   return { success: true };
 }
 
-export async function createRenewalRequest({
-  targetVmId,
-  renewalPeriodMonths,
-  userId,
-}: {
-  targetVmId: string;
-  renewalPeriodMonths: number;
-  userId: string;
-}) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) throw new Error("Unauthorized");
 
-  // Verify VM exists and is ACTIVE
-  const vm = await prisma.vmInstance.findUnique({
-    where: { id: targetVmId },
-    select: { id: true, status: true, environment: true }
-  });
-  
-  if (!vm) throw new Error("VM not found");
-  if (vm.status !== VmStatus.ACTIVE) throw new Error("Only ACTIVE VMs can be renewed");
-
-  // Create renewal request with CORRECT ENUM VALUES
-  const request = await prisma.request.create({
-    data: {
-      requestType: RequestType.RENEWAL,
-      status: RequestStatus.DRAFT,
-      targetVmId,
-      requesterId: userId,
-      systemName: `Renewal ${vm.id}`,
-      environment: vm.environment || Environment.PRODUCTION, // ✅ Use VM's env or fallback
-      purpose: `VM renewal for ${renewalPeriodMonths} months`,
-      quantity: 1,
-      serverType: ServerType.OTHER, // ✅ ENUM VALUE
-      requiredPublicIP: false,
-      vpnRequired: false,
-      renewalRequired: true,
-      renewalPeriodMonths,
-      // All other required fields covered by defaults/schema
-    },
-  });
-
-  // Optional: Generate approvals if auto-submitting
-  // if (request.status === RequestStatus.PENDING_L1) {
-  //   await generateApprovals(prisma, request.id, ApprovalEntityType.REQUEST, RequestType.RENEWAL);
-  // }
-
-  await prisma.auditLog.create({
-    data: {
-      actorId: userId,
-      action: "CREATE_RENEWAL_REQUEST",
-      entityType: "REQUEST",
-      entityId: request.id,
-      details: JSON.stringify({ vmId: targetVmId, renewalPeriodMonths }),
-    },
-  });
-
-  revalidatePath("/requests");
-  return request;
-}
