@@ -5,9 +5,9 @@ import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { 
+  Prisma,
   ApprovalDecision, 
-  ApprovalEntityType, 
-  ApprovalLevel, 
+  ApprovalEntityType,  
   AttachmentType, 
   Environment, 
   LicenseProvider, 
@@ -16,14 +16,29 @@ import {
   RequestStatus, 
   RequestType, 
   ServerType, 
-  SSLProvider 
+  SSLProvider,
+  VmStatus,
+  Protocol
 } from "@prisma/client";
 import { notifyApprovers } from "@/lib/notifications";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
-import { NextResponse } from "next/server";
-import { AdditionalDisk, FirewallPort } from "@/types/request-form";
+import { AdditionalDisk, FirewallPort } from "@/types/requests";
+import { detailsRequest } from "@/types/requests";
 import { ROLES, hasRole } from "@/lib/roles";
+import { User } from "@/types/users";
+
+import { Approval } from "@/types/approvals";
+
+type RequestWithRelations = Prisma.RequestGetPayload<{
+  include: {
+    vmInstances: { select: { id: true, hostname: true, ipAddress: true, status: true } },
+    approvals: { 
+      include: { approver: { select: { id: true, name: true } } } 
+    },
+    targetVm: { select: { id: true, hostname: true, status: true } }
+  }
+}>
 
 interface Attachment {
   fileName: string;
@@ -39,40 +54,53 @@ interface RequestFilters {
   search?: string;
 }
 
-interface RequestWhereInput {
-  requesterId: string;
-  status?: RequestStatus;
-  requestType?: RequestType;
-  OR?: Array<{
-    systemName?: { contains: string; mode: "insensitive" };
-    projectName?: { contains: string; mode: "insensitive" };
-  }>;
-}
-
-interface UserRoleWithRoleName {
-  role: {
-    name: string;
-  };
-}
-
 export async function createRequest(formData: FormData) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || (!hasRole(session.user.roles, ROLES.REQUESTER) && !hasRole(session.user.roles, ROLES.ADMIN))) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    const userId = session.user.id;
+    if (!session) throw new Error("Unauthorized");
 
+    const userId = session.user.id;
+    const isDeveloper = hasRole(session.user.roles, ROLES.DEVELOPER);
+    const isRequester = hasRole(session.user.roles, ROLES.REQUESTER);
+    const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
+
+    // ✅ VALIDATE ROLES
+    if (!isDeveloper && !isRequester && !isAdmin) {
+      throw new Error("Only developers, requesters, or admins can create requests");
+    }
+
+    // ✅ DEVELOPER WORKFLOW: Must assign requester + can ONLY create drafts
+    let assignedRequesterId: string | null = null;
+    if (isDeveloper) {
+      assignedRequesterId = formData.get("requesterId")?.toString() || null;
+      
+      if (!assignedRequesterId) {
+        throw new Error("Developers must assign a requester before saving draft");
+      }
+
+      // Verify assigned user has REQUESTER role
+      const assignedUser = await prisma.user.findUnique({
+        where: { id: assignedRequesterId },
+        include: { roles: { include: { role: true } } }
+      });
+
+      if (!assignedUser || !assignedUser.roles.some(r => r.role.name === ROLES.REQUESTER)) {
+        throw new Error("Assigned user must have REQUESTER role");
+      }
+
+      // Force DRAFT status for developers
+      formData.set("status", RequestStatus.DRAFT);
+    }
+
+    // ✅ EXTRACT DATA FROM FORM
     const rawAdditionalDisks = formData.get("additionalDisks")?.toString();
     const rawFirewallPorts = formData.get("firewallPorts")?.toString();
     const rawNetworkAccess = formData.get("networkAccess")?.toString();
-
     const additionalDisks = rawAdditionalDisks ? JSON.parse(rawAdditionalDisks) : [];
     const firewallPorts = rawFirewallPorts ? JSON.parse(rawFirewallPorts) : [];
     const networkAccess = rawNetworkAccess ? JSON.parse(rawNetworkAccess) : [];
     const securityFile = formData.get("securityReport") as File;
     const requestId = crypto.randomUUID();
-
     const attachments: Attachment[] = [];
 
     const env = formData.get("environment")?.toString();
@@ -80,22 +108,22 @@ export async function createRequest(formData: FormData) {
       throw new Error("Invalid environment");
     }
 
+    // Handle security report upload
     if (securityFile && securityFile.size > 0) {
       const uploadDir = path.join(process.cwd(), "uploads", requestId);
       await mkdir(uploadDir, { recursive: true });
-
       const filePath = path.join(uploadDir, securityFile.name);
       const buffer = Buffer.from(await securityFile.arrayBuffer());
       await writeFile(filePath, buffer);
-
       attachments.push({
         fileName: securityFile.name,
         filePath: `/uploads/${requestId}/${securityFile.name}`,
         attachmentType: AttachmentType.SECURITY_REPORT,
-        uploadedBy: session.user.id,
+        uploadedBy: userId,
       });
     }
 
+    // ✅ CREATE REQUEST WITH CORRECT FIELDS (schema-aligned)
     const newCreatedRequest = await prisma.$transaction(async (tx) => {
       const created = await tx.request.create({
         data: {
@@ -103,62 +131,96 @@ export async function createRequest(formData: FormData) {
           status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
           quantity: parseInt(formData.get("quantity")?.toString() || "1", 10),
           systemName: formData.get("systemName")?.toString() || "",
-          projectName: formData.get("projectName")?.toString(),
+          projectName: formData.get("projectName")?.toString() || null,
           purpose: formData.get("purpose")?.toString() || "",
           environment: env as Environment,
           expectedEndDate: formData.get("expectedEndDate")
             ? new Date(formData.get("expectedEndDate") as string)
             : null,
 
+          // ✅ CORRECT requesterId BASED ON ROLE
+          requesterId: isDeveloper && assignedRequesterId 
+            ? assignedRequesterId  // Developer assigns requester
+            : userId,              // Requester creates for self
+
+          // ✅ DEVELOPER RELATION (only set for developers)
+          ...(isDeveloper && { 
+            developerId: userId,  // ← NOW VALID - schema has this field
+            developerName: session.user.name || "",
+            developerDesignation: session.user.designation || "",
+            developerOrganization: session.user.organization || "",
+            developerContact: session.user.contact || "",
+            developerEmail: session.user.email || "",
+          }),
+
+          // VM Spec
           vcpu: parseInt(formData.get("vcpu")?.toString() || "0"),
           ramGb: parseInt(formData.get("ramGb")?.toString() || "0"),
           storageGb: parseInt(formData.get("storageGb")?.toString() || "0"),
-          serverType: formData.get("serverType") as ServerType,
-          osName: formData.get("osName")?.toString(),
-          osVersion: formData.get("osVersion")?.toString(),
-          osLicenseBy: formData.get("osLicenseBy") as LicenseProvider,
-          subdomain: formData.get("subdomain")?.toString(),
-          sslProvider: formData.get("sslProvider") as SSLProvider,
-          sslCostPaidBy: formData.get("sslCostPaidBy")?.toString(),
+          serverType: (formData.get("serverType") as ServerType) || ServerType.OTHER,
+          osName: formData.get("osName")?.toString() || null,
+          osVersion: formData.get("osVersion")?.toString() || null,
+          osLicenseBy: formData.get("osLicenseBy") as LicenseProvider || null,
+          subdomain: formData.get("subdomain")?.toString() || null,
+          sslProvider: formData.get("sslProvider") as SSLProvider || SSLProvider.MIS,
+          sslCostPaidBy: formData.get("sslCostPaidBy")?.toString() || null,
+          raid: formData.get("raid") as Raid || Raid.NONE,
           requiredPublicIP: formData.get("requiredPublicIP") === "on",
           vpnRequired: formData.get("vpnRequired") === "on",
-          raid: formData.get("raid") as Raid,
 
-          frontendTech: formData.get("frontendTech")?.toString(),
-          backendTech: formData.get("backendTech")?.toString(),
-          dataBase: formData.get("dataBase")?.toString(),
-          serverArchitecture: formData.get("serverArchitecture")?.toString(),
-          additionalTechNotes: formData.get("additionalTechNotes")?.toString(),
+          // Tech Stack
+          frontendTech: formData.get("frontendTech")?.toString() || null,
+          backendTech: formData.get("backendTech")?.toString() || null,
+          dataBase: formData.get("dataBase")?.toString() || null,
+          serverArchitecture: formData.get("serverArchitecture")?.toString() || null,
+          additionalTechNotes: formData.get("additionalTechNotes")?.toString() || null,
 
-          requesterId: userId,
-          responsiblePersonName: formData.get("responsiblePersonName")?.toString(),
-          responsiblePersonEmail: formData.get("responsiblePersonEmail")?.toString(),
+          // Alternate Person (optional backup contact)
+          alternativePersonName: formData.get("alternativePersonName")?.toString() || null,
+          alternativePersonDesignation: formData.get("alternativePersonDesignation")?.toString() || null,
+          alternativePersonOrganization: formData.get("alternativePersonOrganization")?.toString() || null,
+          alternativePersonContact: formData.get("alternativePersonContact")?.toString() || null,
+          alternativePersonEmail: formData.get("alternativePersonEmail")?.toString() || null,
 
-          additionalDisks: {
-            create: additionalDisks.map((d: AdditionalDisk, index: number) => ({
-              sizeGb: parseInt(d.sizeGb),
-              purpose: d.purpose,
-              sequence: index + 1,
-            })),
-          },
-          firewallPorts: {
-            create: firewallPorts.map((p: FirewallPort) => ({
-              port: parseInt(p.port),
-              protocol: p.protocol,
-              purpose: p.purpose,
-              source: p.source,
-            })),
-          },
-          networkAccess: {
-            create: networkAccess.map((type: string) => ({
-              accessType: type as NetworkAccess,
-            })),
-          },
+          // Compliance
           vaReportSubmitted: formData.get("vaReportSubmitted") === "true",
           justificationSubmitted: formData.get("justificationSubmitted") === "true",
+          renewalRequired: formData.get("renewalRequired") === "on",
+          renewalPeriodMonths: formData.get("renewalPeriodMonths")
+            ? parseInt(formData.get("renewalPeriodMonths") as string)
+            : null,
+
+          // Relations
+          additionalDisks: {
+            create: additionalDisks
+              .filter((d: AdditionalDisk) => d.sizeGb && d.sizeGb > 0)
+              .map((d: AdditionalDisk, index: number) => ({
+                sizeGb: d.sizeGb,
+                purpose: d.purpose || null,
+                sequence: index + 1,
+              })),
+          },
+          firewallPorts: {
+            create: firewallPorts
+              .filter((p: FirewallPort) => p.port && p.port > 0)
+              .map((p: FirewallPort) => ({
+                port: p.port,
+                protocol: p.protocol as Protocol,
+                purpose: p.purpose || null,
+                source: p.source || null,
+              })),
+          },
+          networkAccess: {
+            create: networkAccess
+              .filter((type: string) => type)
+              .map((type: string) => ({
+                accessType: type as NetworkAccess,
+              })),
+          },
         },
       });
 
+      // Attachments
       if (attachments.length > 0) {
         await tx.attachment.createMany({
           data: attachments.map((att) => ({
@@ -171,132 +233,216 @@ export async function createRequest(formData: FormData) {
         });
       }
 
-      await tx.auditLog.create({
-        data: {
-          actorId: session.user.id,
-          action: "CREATE_REQUEST",
-          entityType: "REQUEST",
-          entityId: created.id,
-          details: JSON.stringify({ systemName: created.systemName }),
-        },
-      });
-
       return created;
+    }, { timeout: 15000 });
+
+    // ✅ GENERATE APPROVALS ONLY FOR SUBMITTED REQUESTS (not drafts)
+    if (newCreatedRequest.status === RequestStatus.PENDING_L1) {
+      await generateApprovals(
+        prisma,
+        newCreatedRequest.id,
+        ApprovalEntityType.REQUEST,
+        newCreatedRequest.requestType
+      );
+      await notifyApprovers(newCreatedRequest.id, newCreatedRequest.systemName);
+    }
+
+    // Audit log
+    await prisma.auditLog.create({
+      data: {
+        actorId: userId,
+        action: "CREATE_REQUEST",
+        entityType: "REQUEST",
+        entityId: newCreatedRequest.id,
+        details: JSON.stringify({
+          systemName: newCreatedRequest.systemName,
+          status: newCreatedRequest.status,
+          isDeveloperCreated: isDeveloper,
+          ...(isDeveloper && { assignedRequesterId }),
+        }),
+      },
     });
 
-    return NextResponse.json(newCreatedRequest, { status: 201 });
+    return newCreatedRequest;
   } catch (error) {
     console.error("Error creating request:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    throw error;
   }
 }
+
+
+
 
 export async function editRequest(formData: FormData) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || !hasRole(session.user.roles, ROLES.REQUESTER)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!session) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+    const isDeveloper = hasRole(session.user.roles, ROLES.DEVELOPER);
+    const isRequester = hasRole(session.user.roles, ROLES.REQUESTER);
+    const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
+
+    if (!isDeveloper && !isRequester && !isAdmin) {
+      throw new Error("Only developers, requesters, or admins can edit requests");
     }
 
     const requestId = formData.get("requestId")?.toString();
     if (!requestId) {
-      return NextResponse.json({ error: "Request ID is required" }, { status: 400 });
+      throw new Error("Request ID is required");
     }
 
+    // Parse dynamic fields
     const rawAdditionalDisks = formData.get("additionalDisks")?.toString();
     const rawFirewallPorts = formData.get("firewallPorts")?.toString();
     const rawNetworkAccess = formData.get("networkAccess")?.toString();
-
     const additionalDisks = rawAdditionalDisks ? JSON.parse(rawAdditionalDisks) : [];
     const firewallPorts = rawFirewallPorts ? JSON.parse(rawFirewallPorts) : [];
     const networkAccess = rawNetworkAccess ? JSON.parse(rawNetworkAccess) : [];
     const securityFile = formData.get("securityReport") as File;
-
     const attachments: Attachment[] = [];
 
+    // Handle security report upload
     if (securityFile && securityFile.size > 0) {
       const uploadDir = path.join(process.cwd(), "uploads", requestId);
       await mkdir(uploadDir, { recursive: true });
-
       const filePath = path.join(uploadDir, securityFile.name);
       const buffer = Buffer.from(await securityFile.arrayBuffer());
       await writeFile(filePath, buffer);
-
       attachments.push({
         fileName: securityFile.name,
         filePath: `/uploads/${requestId}/${securityFile.name}`,
         attachmentType: AttachmentType.SECURITY_REPORT,
-        uploadedBy: session.user.id,
+        uploadedBy: userId,
       });
     }
 
     const updatedRequest = await prisma.$transaction(async (tx) => {
+      // Fetch existing request with relations
+      const original = await tx.request.findUnique({
+        where: { id: requestId },
+        include: { 
+          requester: true,
+          developer: true 
+        }
+      });
+
+      if (!original) throw new Error("Request not found");
+
+      // ✅ PERMISSION CHECK: Only requester, developer (who created draft), or admin can edit
+      const isAssignedRequester = original.requesterId === userId;
+      const isOriginalDeveloper = original.developerId === userId;
+      
+      if (!isAssignedRequester && !isOriginalDeveloper && !isAdmin) {
+        throw new Error("You can only edit requests assigned to you or created by you");
+      }
+
+      // ✅ STATUS CHECK: Only drafts or rejected requests can be edited
+      if (original.status !== RequestStatus.DRAFT && original.status !== RequestStatus.REJECTED) {
+        throw new Error(`Cannot edit request in status: ${original.status}. Only DRAFT or REJECTED requests can be edited.`);
+      }
+
+      // ✅ DEVELOPER RESTRICTION: Developers can ONLY edit their own drafts
+      if (isDeveloper && !isOriginalDeveloper) {
+        throw new Error("Developers can only edit drafts they created");
+      }
+
+      // Clean up existing related records
       await tx.additionalDisk.deleteMany({ where: { requestId } });
       await tx.firewallPort.deleteMany({ where: { requestId } });
       await tx.networkAccessEntry.deleteMany({ where: { requestId } });
 
-      const updated = await tx.request.update({
-        where: { id: requestId },
-        data: {
-          requestType: (formData.get("requestType") as RequestType) || RequestType.NEW_VM,
-          status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
-          quantity: parseInt(formData.get("quantity")?.toString() || "1", 10),
-          systemName: formData.get("systemName")?.toString() || "",
-          projectName: formData.get("projectName")?.toString(),
-          purpose: formData.get("purpose")?.toString() || "",
-          environment: formData.get("environment") as Environment,
-          expectedEndDate: formData.get("expectedEndDate")
-            ? new Date(formData.get("expectedEndDate") as string)
-            : null,
+      // ✅ CRITICAL FIX: DO NOT include requesterId/developerId in update
+      // Prisma automatically preserves existing relation values
+      // Only include fields that can actually change during edit
+      const updateData = {
+        requestType: (formData.get("requestType") as RequestType) || RequestType.NEW_VM,
+        status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
+        quantity: parseInt(formData.get("quantity")?.toString() || "1", 10),
+        systemName: formData.get("systemName")?.toString() || "",
+        projectName: formData.get("projectName")?.toString() || null,
+        purpose: formData.get("purpose")?.toString() || "",
+        environment: formData.get("environment") as Environment,
+        expectedEndDate: formData.get("expectedEndDate")
+          ? new Date(formData.get("expectedEndDate") as string)
+          : null,
 
-          vcpu: parseInt(formData.get("vcpu")?.toString() || "0"),
-          ramGb: parseInt(formData.get("ramGb")?.toString() || "0"),
-          storageGb: parseInt(formData.get("storageGb")?.toString() || "0"),
-          serverType: formData.get("serverType") as ServerType,
-          osName: formData.get("osName")?.toString(),
-          osVersion: formData.get("osVersion")?.toString(),
-          osLicenseBy: formData.get("osLicenseBy") as LicenseProvider,
-          subdomain: formData.get("subdomain")?.toString(),
-          sslProvider: formData.get("sslProvider") as SSLProvider,
-          sslCostPaidBy: formData.get("sslCostPaidBy")?.toString(),
-          requiredPublicIP: formData.get("requiredPublicIP") === "on",
-          vpnRequired: formData.get("vpnRequired") === "on",
-          raid: formData.get("raid") as Raid,
+        // VM Spec (only editable fields)
+        vcpu: parseInt(formData.get("vcpu")?.toString() || "0"),
+        ramGb: parseInt(formData.get("ramGb")?.toString() || "0"),
+        storageGb: parseInt(formData.get("storageGb")?.toString() || "0"),
+        serverType: formData.get("serverType") as ServerType || ServerType.OTHER,
+        osName: formData.get("osName")?.toString() || null,
+        osVersion: formData.get("osVersion")?.toString() || null,
+        osLicenseBy: formData.get("osLicenseBy") as LicenseProvider || null,
+        subdomain: formData.get("subdomain")?.toString() || null,
+        sslProvider: formData.get("sslProvider") as SSLProvider || SSLProvider.MIS,
+        sslCostPaidBy: formData.get("sslCostPaidBy")?.toString() || null,
+        raid: formData.get("raid") as Raid || Raid.NONE,
+        requiredPublicIP: formData.get("requiredPublicIP") === "on",
+        vpnRequired: formData.get("vpnRequired") === "on",
 
-          frontendTech: formData.get("frontendTech")?.toString(),
-          backendTech: formData.get("backendTech")?.toString(),
-          dataBase: formData.get("dataBase")?.toString(),
-          serverArchitecture: formData.get("serverArchitecture")?.toString(),
-          additionalTechNotes: formData.get("additionalTechNotes")?.toString(),
+        // Tech Stack
+        frontendTech: formData.get("frontendTech")?.toString() || null,
+        backendTech: formData.get("backendTech")?.toString() || null,
+        dataBase: formData.get("dataBase")?.toString() || null,
+        serverArchitecture: formData.get("serverArchitecture")?.toString() || null,
+        additionalTechNotes: formData.get("additionalTechNotes")?.toString() || null,
 
-          responsiblePersonName: formData.get("responsiblePersonName")?.toString(),
-          responsiblePersonEmail: formData.get("responsiblePersonEmail")?.toString(),
+        // ✅ ALTERNATE PERSON (editable backup contact)
+        alternativePersonName: formData.get("alternativePersonName")?.toString() || null,
+        alternativePersonDesignation: formData.get("alternativePersonDesignation")?.toString() || null,
+        alternativePersonOrganization: formData.get("alternativePersonOrganization")?.toString() || null,
+        alternativePersonContact: formData.get("alternativePersonContact")?.toString() || null,
+        alternativePersonEmail: formData.get("alternativePersonEmail")?.toString() || null,
 
-          additionalDisks: {
-            create: additionalDisks.map((d: AdditionalDisk, index: number) => ({
-              sizeGb: parseInt(d.sizeGb),
-              purpose: d.purpose,
+        // ✅ DEVELOPER FLAT FIELDS (preserve original values - NOT editable after creation)
+        // ⚠️ DO NOT update these on edit - they should remain as originally set
+        // developerName, developerDesignation, etc. are preserved automatically
+
+        // Relations (recreate)
+        additionalDisks: {
+          create: additionalDisks
+            .filter((d: AdditionalDisk) => d.sizeGb && d.sizeGb > 0)
+            .map((d: AdditionalDisk, index: number) => ({
+              sizeGb: d.sizeGb,
+              purpose: d.purpose || null,
               sequence: index + 1,
             })),
-          },
-          firewallPorts: {
-            create: firewallPorts.map((p: FirewallPort) => ({
-              port: parseInt(p.port),
-              protocol: p.protocol,
-              purpose: p.purpose,
-              source: p.source,
+        },
+        firewallPorts: {
+          create: firewallPorts
+            .filter((p: FirewallPort) => p.port && p.port > 0)
+            .map((p: FirewallPort) => ({
+              port: p.port,
+              protocol: p.protocol as Protocol,
+              purpose: p.purpose || null,
+              source: p.source || null,
             })),
-          },
-          networkAccess: {
-            create: networkAccess.map((type: string) => ({
+        },
+        networkAccess: {
+          create: networkAccess
+            .filter((type: string) => type)
+            .map((type: string) => ({
               accessType: type as NetworkAccess,
             })),
-          },
-          vaReportSubmitted: formData.get("vaReportSubmitted") === "true",
-          justificationSubmitted: formData.get("justificationSubmitted") === "true",
         },
+
+        // Compliance
+        vaReportSubmitted: formData.get("vaReportSubmitted") === "true",
+        justificationSubmitted: formData.get("justificationSubmitted") === "true",
+        renewalRequired: formData.get("renewalRequired") === "on",
+        renewalPeriodMonths: formData.get("renewalPeriodMonths")
+          ? parseInt(formData.get("renewalPeriodMonths") as string)
+          : null,
+      };
+
+      const updated = await tx.request.update({
+        where: { id: requestId },
+        data: updateData,
       });
 
+      // Attachments
       if (attachments.length > 0) {
         await tx.attachment.createMany({
           data: attachments.map((att) => ({
@@ -304,28 +450,57 @@ export async function editRequest(formData: FormData) {
             fileName: att.fileName,
             filePath: att.filePath,
             attachmentType: att.attachmentType,
-            uploadedBy: session.user.id,
+            uploadedBy: userId,
           })),
         });
       }
 
+      // Audit log
       await tx.auditLog.create({
         data: {
-          actorId: session.user.id,
+          actorId: userId,
           action: "EDIT_REQUEST",
           entityType: "REQUEST",
           entityId: requestId,
-          details: JSON.stringify({ systemName: updated.systemName }),
+          details: JSON.stringify({
+            systemName: updated.systemName,
+            status: updated.status,
+            previousStatus: original.status,
+            editedBy: session.user.name,
+            isDeveloperEdit: isDeveloper,
+          }),
         },
       });
 
       return updated;
-    });
+    }, { timeout: 15000 });
 
-    return NextResponse.json(updatedRequest, { status: 200 });
+    // ✅ Generate approvals ONLY if status changed to PENDING_L1
+    if (updatedRequest.status === RequestStatus.PENDING_L1) {
+      // Delete any pending approvals first
+      await prisma.approval.deleteMany({
+        where: { 
+          requestId: updatedRequest.id,  // ✅ CORRECT FIELD NAME
+          entityType: ApprovalEntityType.REQUEST,
+          decision: ApprovalDecision.PENDING 
+        },
+      });
+      
+      await generateApprovals(
+        prisma,
+        requestId,
+        ApprovalEntityType.REQUEST,
+        updatedRequest.requestType
+      );
+      
+      await notifyApprovers(requestId, updatedRequest.systemName);
+    }
+
+    revalidatePath(`/requests/${requestId}`);
+    return updatedRequest;
   } catch (error) {
     console.error("Error editing request:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    throw error;
   }
 }
 
@@ -342,20 +517,35 @@ export async function submitRequest(requestId: string) {
       requesterId: true,
       systemName: true,
       requestType: true,
+      developerId: true, // Track if developer-created
     },
   });
 
   if (!request) throw new Error("Request not found");
-  if (request.requesterId !== session.user.id) {
-    throw new Error("Only the requester can submit this request");
+  
+  // ✅ PERMISSION CHECK: Only requester OR developer (who created draft) can submit
+  const isAssignedRequester = request.requesterId === session.user.id;
+  const isOriginalDeveloper = request.developerId === session.user.id;
+  
+  if (!isAssignedRequester && !isOriginalDeveloper) {
+    throw new Error("Only the assigned requester or original developer can submit this request");
   }
 
   const allowedStatuses: RequestStatus[] = [RequestStatus.DRAFT, RequestStatus.REJECTED];
   if (!allowedStatuses.includes(request.status)) {
-    throw new Error(`Cannot submit request in status: ${request.status}`);
+    throw new Error(`Cannot submit request in status: ${request.status}. Only DRAFT or REJECTED requests can be submitted.`);
   }
 
   const updated = await prisma.$transaction(async (tx) => {
+    // ✅ DELETE PENDING APPROVALS FIRST (FIXED WHERE CLAUSE)
+    await tx.approval.deleteMany({
+      where: { 
+        requestId: requestId, // ✅ CORRECT FIELD NAME (was "id" before)
+        entityType: ApprovalEntityType.REQUEST,
+        decision: ApprovalDecision.PENDING 
+      },
+    });
+
     const updatedReq = await tx.request.update({
       where: { id: requestId },
       data: {
@@ -364,69 +554,34 @@ export async function submitRequest(requestId: string) {
       },
     });
 
-    await tx.approval.deleteMany({
-      where: { 
-        entityId: requestId, 
-        entityType: ApprovalEntityType.REQUEST,
-        decision: ApprovalDecision.PENDING 
-      },
-    });
-
-    const approvers = await tx.user.findMany({
-      where: {
-        roles: {
-          some: {
-            role: { name: { in: ["APPROVER_L1", "APPROVER_L2", "APPROVER_L3"] } },
-          },
-        },
-      },
-      select: { 
-        id: true, 
-        roles: { 
-          select: { 
-            role: { 
-              select: { name: true } 
-            } 
-          } 
-        } 
-      },
-    });
-
-    const approvalData = approvers.flatMap((user) =>
-      user.roles
-        .map((ur: UserRoleWithRoleName) => ur.role.name)
-        .filter((name: string) => {
-          if (request.requestType === RequestType.DECOMMISSION) {
-            return name === "APPROVER_L1";
-          }
-          return ["APPROVER_L1", "APPROVER_L2", "APPROVER_L3"].includes(name);
-        })
-        .map((roleName: string) => ({
-          entityId: requestId,
-          entityType: ApprovalEntityType.REQUEST,
-          approverId: user.id,
-          level: roleName.replace("APPROVER_", "") as ApprovalLevel,
-          decision: ApprovalDecision.PENDING,
-        }))
+    // ✅ GENERATE NEW APPROVALS
+    await generateApprovals(
+      tx, 
+      requestId, 
+      ApprovalEntityType.REQUEST, 
+      request.requestType as RequestType
     );
 
-    await tx.approval.createMany({ data: approvalData });
-
+    // ✅ AUDIT LOG WITH CORRECT ACTION NAME
     await tx.auditLog.create({
       data: {
         actorId: session.user.id,
-        action: "RESUBMIT_REQUEST",
+        action: request.status === RequestStatus.DRAFT 
+          ? "SUBMIT_REQUEST" 
+          : "RESUBMIT_REQUEST",
         entityType: "REQUEST",
         entityId: requestId,
         details: JSON.stringify({
           previousStatus: request.status,
           newStatus: RequestStatus.PENDING_L1,
+          submittedBy: session.user.name,
+          isDeveloperSubmission: isOriginalDeveloper,
         }),
       },
     });
 
     return updatedReq;
-  });
+  }, { timeout: 15000 });
 
   await notifyApprovers(requestId, request.systemName);
   revalidatePath(`/requests/${requestId}`);
@@ -434,604 +589,531 @@ export async function submitRequest(requestId: string) {
   return updated;
 }
 
-export async function createCustomizationRequest(formData: FormData) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) throw new Error("Unauthorized");
-
-  const { id: userId } = session.user;
-  const targetVmId = formData.get("targetVmId")?.toString();
-  const parentRequestId = formData.get("parentRequestId")?.toString() || undefined;
-
-  if (!targetVmId) throw new Error("Target VM is required");
-
-  const vm = await prisma.vmInstance.findUnique({
-    where: { id: targetVmId },
+// ✅ TRANSFORM Prisma roles → string array to match User interface
+export async function getApprovers(): Promise<User[]> {
+  const approvers = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      roles: {
+        some: {
+          role: { name: { in: ["APPROVER_L1", "APPROVER_L2", "APPROVER_L3"] } }
+        }
+      }
+    },
+    include: { roles: { include: { role: true } } }
   });
-  if (!vm || vm.ownerId !== userId) {
-    throw new Error("You can only customize VMs you own");
-  }
 
-  if (parentRequestId) {
-    const parentReq = await prisma.request.findUnique({
-      where: { id: parentRequestId },
-      select: { requesterId: true },
+  // ✅ CRITICAL: Transform to match User.roles: string[]
+  return approvers.map(user => ({
+    ...user,
+    roles: user.roles.map(ur => ur.role.name) // Extract role names
+  }));
+}
+
+// src/app/actions/request-actions.ts
+export async function generateApprovals(
+  tx: Prisma.TransactionClient | typeof prisma,
+  entityId: string,
+  entityType: ApprovalEntityType,
+  requestType: RequestType
+) {
+  const baseLevels =
+    requestType === RequestType.DECOMMISSION
+      ? [1]
+      : [1, 2, 3];
+
+  const approvalData: Prisma.ApprovalCreateManyInput[] = [];
+
+  for (const level of baseLevels) {
+    const roleName =
+      level === 1 ? "APPROVER_L1" :
+      level === 2 ? "APPROVER_L2" :
+      "APPROVER_L3";
+
+    const approver = await tx.user.findFirst({
+      where: {
+        isActive: true,
+        roles: { some: { role: { name: roleName } } }
+      },
+      orderBy: { createdAt: "asc" }
     });
-    if (!parentReq || parentReq.requesterId !== userId) {
-      throw new Error("Invalid parent request");
+
+    if (approver) {
+      approvalData.push({
+        entityType,
+        level,
+        approverId: approver.id,
+        decision: ApprovalDecision.PENDING,
+        ...(entityType === ApprovalEntityType.REQUEST
+          ? { requestId: entityId }
+          : { customizationRequestId: entityId }),
+      });
     }
   }
 
-  const customization = await prisma.customizationRequest.create({
-    data: {
-      targetVmId,
-      requesterId: userId,
-      parentRequestId: parentRequestId || null,
-      vcpu: formData.get("vcpu")
-        ? parseInt(formData.get("vcpu") as string, 10)
-        : undefined,
-      ramGb: formData.get("ramGb")
-        ? parseInt(formData.get("ramGb") as string, 10)
-        : undefined,
-      additionalDisks: formData.get("additionalDisks")
-        ? JSON.parse(formData.get("additionalDisks") as string)
-        : undefined,
-      firewallPorts: formData.get("firewallPorts")
-        ? JSON.parse(formData.get("firewallPorts") as string)
-        : undefined,
-    },
-  });
-
-  const approvers = await prisma.user.findMany({
-    where: {
-      roles: {
-        some: {
-          role: { name: { in: ["APPROVER_L1", "APPROVER_L2", "APPROVER_L3"] } },
-        },
-      },
-    },
-    select: {
-      id: true,
-      roles: { select: { role: { select: { name: true } } } },
-    },
-  });
-
-  const approvalData = approvers.flatMap((user) =>
-    user.roles.map((ur) => {
-      const levelMap: Record<string, ApprovalLevel> = {
-        APPROVER_L1: ApprovalLevel.L1,
-        APPROVER_L2: ApprovalLevel.L2,
-        APPROVER_L3: ApprovalLevel.L3,
-      };
-      const level = levelMap[ur.role.name];
-      return {
-        entityId: customization.id,
-        entityType: ApprovalEntityType.CUSTOMIZATION,
-        approverId: user.id,
-        level,
-        decision: ApprovalDecision.PENDING,
-      };
-    })
-  );
-
-  await prisma.approval.createMany({ data: approvalData });
-
-  await prisma.auditLog.create({
-    data: {
-      actorId: session.user.id,
-      action: "CREATE_CUSTOMIZATION",
-      entityType: "CUSTOMIZATION",
-      entityId: customization.id,
-      details: JSON.stringify({ targetVmId }),
-    },
-  });
-
-  revalidatePath(`/vms/${targetVmId}`);
-  return customization;
-}
-
-export async function getCopyRequestData(sourceRequestId: string) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) throw new Error("Unauthorized");
-
-  const source = await prisma.request.findUnique({
-    where: { id: sourceRequestId, requesterId: session.user.id },
-    include: {
-      additionalDisks: true,
-      firewallPorts: true,
-      networkAccess: true,
-    },
-  });
-
-  if (!source) throw new Error("Request not found or access denied");
-
-  const copyData = {
-    id: sourceRequestId,
-    requestType: source.requestType,
-    projectName: source.projectName || "",
-    systemName: `${source.systemName}`,
-    purpose: source.purpose,
-    environment: source.environment,
-    expectedEndDate: source.expectedEndDate?.toISOString().split("T")[0] || "",
-    responsiblePerson: {
-      name: source.responsiblePersonName || "",
-      designation: source.responsiblePersonDesignation || "",
-      organization: source.responsiblePersonOrganization || "",
-      contact: source.responsiblePersonContact || "",
-      email: source.responsiblePersonEmail || "",
-    },
-    alternativePerson: {
-      name: source.alternativePersonName || "",
-      designation: source.alternativePersonDesignation || "",
-      organization: source.alternativePersonOrganization || "",
-      contact: source.alternativePersonContact || "",
-      email: source.alternativePersonEmail || "",
-    },
-    developer: {
-      name: source.developerName || "",
-      address: source.developerAddress || "",
-      contact: source.developerContact || "",
-      email: source.developerEmail || "",
-    },
-    frontendTech: source.frontendTech || "",
-    backendTech: source.backendTech || "",
-    dataBase: source.dataBase || "",
-    serverArchitecture: source.serverArchitecture || "",
-    additionalTechNotes: source.additionalTechNotes || "",
-
-    quantity: source.quantity.toString(),
-    vcpu: source.vcpu?.toString() || "2",
-    ramGb: source.ramGb?.toString() || "4",
-    storageGb: source.storageGb?.toString() || "50",
-    osName: source.osName?.toString() || "",
-    osVersion: source.osVersion?.toString() || "",
-    subdomain: source.subdomain?.toString() || "",
-    raid: source.raid?.toString() || "NONE",
-    osLicenseBy: source.osLicenseBy?.toString() || "MIS",
-    sslProvider: source.sslProvider?.toString() || "MIS",
-    sslCostPaidBy: source.sslCostPaidBy?.toString() || "",
-    requiredPublicIP: source.requiredPublicIP,
-    vpnRequired: source.vpnRequired || false,
-    renewalRequired: source.renewalRequired || false,
-    renewalPeriodMonths: source.renewalPeriodMonths?.toString() || "",
-
-    additionalDisks: source.additionalDisks.map((d) => ({
-      sizeGb: d.sizeGb.toString(),
-      purpose: d.purpose || "",
-    })),
-    firewallPorts: source.firewallPorts.map((p) => ({
-      port: p.port.toString(),
-      protocol: p.protocol,
-      purpose: p.purpose || "",
-      source: p.source || "",
-    })),
-    networkAccess: source.networkAccess.map((n) => n.accessType),
-  };
-  return JSON.parse(JSON.stringify(copyData));
+  if (approvalData.length > 0) {
+    await tx.approval.createMany({
+      data: approvalData
+    });
+  }
 }
 
 
-export async function getDetailedRequest(requestId: string) {
+export async function getDetailedRequest(requestId: string): Promise<detailsRequest | null> {
   if (!requestId || requestId === "undefined") {
     console.error("getDetailedRequest received an invalid ID");
     return null;
   }
+
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
+const isAdmin = session.user.roles.includes(ROLES.ADMIN);
+const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
 
-  let request = await prisma.request.findUnique({
-    where: { id: requestId },
+  // ✅ INCLUDE ALL REQUIRED FIELDS & RELATIONS
+  const request = await prisma.request.findUnique({
+  where: {
+    id: requestId,
+    ...(isAdmin || isApprover
+      ? {}
+      : {
+          OR: [
+            { requesterId: session.user.id },
+            { developerId: session.user.id }
+          ]
+        }
+    )
+  },
     include: {
+      // ✅ Critical: Include requester relation for name/email
+      requester: {
+        select: { 
+          id: true, 
+          name: true, 
+          email: true, 
+          designation: true,
+          organization: true,
+          contact: true,
+        }
+      },
+      vmInstances: true,
+      approvals: {
+        where: { entityType: ApprovalEntityType.REQUEST },
+        include: { 
+          approver: { 
+            select: { 
+              id: true, 
+              name: true, 
+              email: true, 
+              designation: true 
+            } 
+          } 
+        },
+        orderBy: { createdAt: "asc" },
+      },
+      targetVm: true,
       additionalDisks: true,
       firewallPorts: true,
       networkAccess: true,
-      approvals: {
-        where: { entityType: ApprovalEntityType.REQUEST },
-        include: { approver: true },
-        orderBy: { createdAt: "asc" },
-      },
-      vmInstances: {
-        include: {
-          currentSpec: {
-            include: {
-              additionalDisks: true,
-              firewallPorts: true,
-              networkAccess: true,
-            },
-          },
-          owner: { select: { name: true, email: true } },
-          request: { select: { systemName: true, environment: true } },
-        },
-      },
-      targetVm: {
-        select: {
-          id: true,
-          hostname: true,
-          ipAddress: true,
-          status: true,
-          provisionedAt: true,
-          owner: { select: { name: true, email: true } },
-          request: { select: { systemName: true, environment: true } },
-        }
-      }
+      // customizations: true, // Only include if actually used in UI
     },
   });
-
-  if (!request) {
-    const cust = await prisma.customizationRequest.findUnique({
-      where: { id: requestId },
-      include: {
-        requester: true,
-        targetVm: { 
-          include: { 
-            currentSpec: {
-              select: {
-                vcpu: true,
-                ramGb: true,
-                storageGb: true,
-                osName: true,
-                osVersion: true,
-                raid: true,
-              },
-            },
-            owner: { select: { name: true, email: true } },
-            request: { select: { systemName: true, environment: true } }
-          } 
-        },
-        additionalDisks: true,
-        firewallPorts: true,
-        networkAccess: true,
-      }
-    });
-
-    if (cust) {
-      const custApprovals = await prisma.approval.findMany({
-        where: { entityId: requestId, entityType: ApprovalEntityType.CUSTOMIZATION },
-        include: { approver: true },
-        orderBy: { createdAt: "asc" }
-      });
-
-      // ✅ COMPLETE TRANSFORMATION: Map CustomizationRequest to Request structure
-      request = {
-        // Required Request fields
-        id: cust.id,
-        createdAt: cust.createdAt,
-        updatedAt: cust.updatedAt,
-        requestType: RequestType.CUSTOMIZED,
-        status: cust.status,
-        quantity: 1,
-        requestId: null,
-        projectName: "Infrastructure Update",
-        systemName: cust.targetVm?.hostname || "Customization",
-        purpose: "Standard hardware/software customization review.",
-        environment: Environment.PRODUCTION,
-        expectedEndDate: null,
-        
-        // People fields
-        requesterId: cust.requesterId || '',
-        responsiblePersonName: null,
-        responsiblePersonDesignation: null,
-        responsiblePersonOrganization: null,
-        responsiblePersonContact: null,
-        responsiblePersonEmail: null,
-        alternativePersonName: null,
-        alternativePersonDesignation: null,
-        alternativePersonOrganization: null,
-        alternativePersonContact: null,
-        alternativePersonEmail: null,
-        developerName: null,
-        developerAddress: null,
-        developerContact: null,
-        developerEmail: null,
-        
-        // Hardware specs (from customization)
-        serverType: ServerType.OTHER,
-        vcpu: cust.vcpu,
-        ramGb: cust.ramGb,
-        storageGb: cust.storageGb || null,
-        osName: cust.targetVm?.currentSpec?.osName || null,
-        osVersion: cust.targetVm?.currentSpec?.osVersion || null,
-        osLicenseBy: null,
-        subdomain: cust.targetVm?.subdomain || null,
-        sslProvider: null,
-        sslCostPaidBy: null,
-        raid: cust.targetVm?.currentSpec?.raid || null,
-        retentionPeriod: null,
-        requiredPublicIP: false,
-        vpnRequired: false,
-        vaReportSubmitted: false,
-        justificationSubmitted: false,
-        renewalRequired: false,
-        renewalPeriodMonths: null,
-        
-        // Tech stack
-        frontendTech: null,
-        backendTech: null,
-        serverArchitecture: null,
-        dataBase: null,
-        additionalTechNotes: null,
-        
-        // Timestamps
-        submittedAt: null,
-        provisionedAt: null,
-        
-        // Relations
-        vmInstances: [],
-        approvals: custApprovals,
-        additionalDisks: cust.additionalDisks.map(d => ({ 
-          id: d.id, 
-          requestId: cust.id, 
-          sizeGb: d.sizeGb, 
-          purpose: d.purpose, 
-          sequence: 0 
-        })),
-        firewallPorts: cust.firewallPorts.map(p => ({ 
-          id: p.id, 
-          requestId: cust.id, 
-          port: p.port, 
-          protocol: p.protocol, 
-          purpose: p.purpose, 
-          source: p.source 
-        })),
-        networkAccess: cust.networkAccess.map(n => ({ 
-          id: n.id, 
-          requestId: cust.id, 
-          accessType: n.accessType 
-        })),
-        
-        // Target VM
-        targetVmId: cust.targetVmId,
-        targetVm: cust.targetVm ? {
-          id: cust.targetVm.id,
-          hostname: cust.targetVm.hostname,
-          ipAddress: cust.targetVm.ipAddress,
-          status: cust.targetVm.status,
-          provisionedAt: cust.targetVm.provisionedAt,
-          owner: cust.targetVm.owner 
-            ? { name: cust.targetVm.owner.name, email: cust.targetVm.owner.email } 
-            : null,
-          request: {
-            systemName: cust.targetVm.request.systemName,
-            environment: cust.targetVm.request.environment,
-          },
-        } : null,
-    
-      };
-    }
-  }
 
   if (!request) throw new Error("Request not found");
 
-  const n = (s: string | null | undefined): string | undefined => s ?? undefined;
+  // ✅ CRITICAL FIX: Transform flat schema fields → Person interface
+  const transformed: detailsRequest = {
+    id: request.id,
+    requestType: request.requestType,
+    status: request.status,
+    quantity: request.quantity,
+    requestId: request.requestId || null,
+    projectName: request.projectName || null,
+    systemName: request.systemName,
+    purpose: request.purpose,
+    environment: request.environment,
+    expectedEndDate: request.expectedEndDate || null,
 
-  return {
-  id: request.id,
-  systemName: request.systemName,
-  projectName: n(request.projectName),
-  purpose: request.purpose,
-  environment: request.environment,
-  expectedEndDate: request.expectedEndDate?.toISOString().split("T")[0] || "",
-  
-  responsiblePerson: {
-    name: n(request.responsiblePersonName) || "",
-    designation: n(request.responsiblePersonDesignation) || "",
-    organization: n(request.responsiblePersonOrganization) || "",
-    contact: n(request.responsiblePersonContact) || "",
-    email: n(request.responsiblePersonEmail) || "",
-  },
-  alternativePerson: { name: n(request.alternativePersonName) || "",
-    designation: n(request.alternativePersonDesignation) || "",
-    organization: n(request.alternativePersonOrganization) || "",
-    contact: n(request.alternativePersonContact) || "",
-    email: n(request.alternativePersonEmail) || "", },
-  developer: { name: n(request.developerName) || "",
-    address: n(request.developerAddress) || "",
-    contact: n(request.developerContact) || "",
-    email: n(request.developerEmail) || "", },
-  
-  frontendTech: n(request.frontendTech),
-  backendTech: n(request.backendTech),
-  dataBase: n(request.dataBase),
-  serverArchitecture: n(request.serverArchitecture),
-  additionalTechNotes: n(request.additionalTechNotes),
-  
-  quantity: request.quantity ?? 1,
-  vcpu: request.vcpu ?? 0,
-  ramGb: request.ramGb ?? 0,
-  storageGb: request.storageGb ?? 0,
-  osName: n(request.osName),
-  osVersion: n(request.osVersion),
-  subdomain: n(request.subdomain),
-  raid: request.raid || Raid.NONE,
-  sslProvider: n(request.sslProvider),
-  sslCostPaidBy: n(request.sslCostPaidBy),
-  
-  requiredPublicIP: request.requiredPublicIP ?? false,
-  vpnRequired: request.vpnRequired ?? false,
-  networkAccess: request.networkAccess.map(n => n.accessType),
-  additionalDisks: request.additionalDisks.map(d => ({
-    sizeGb: d.sizeGb.toString(),
-    purpose: d.purpose || "",
-  })),
-  firewallPorts: request.firewallPorts.map(p => ({
-    port: p.port.toString(),
-    protocol: p.protocol,
-    purpose: p.purpose || "",
-    source: p.source || "",
-  })),
-  
-  vaReportSubmitted: request.vaReportSubmitted ?? false,
-  justificationSubmitted: request.justificationSubmitted ?? false,
-  renewalRequired: request.renewalRequired ?? false,
-  renewalPeriodMonths: request.renewalPeriodMonths ?? null,
-  
-  status: request.status,
-  requestType: request.requestType,
-  
-  // ✅ CRITICAL: Pass approvals UNMODIFIED (Prisma type matches Timeline)
-  approvals: request.approvals, // Already has level, decision, comments, decidedAt, etc.
-  
-vmInstances: request.vmInstances.map(vm => ({
-  id: vm.id,
-  hostname: vm.hostname,
-  ipAddress: vm.ipAddress,
-  status: vm.status as "ACTIVE" | "SUSPENDED" | "RETIRED", // Type assertion (data matches)
-  provisionedAt: vm.provisionedAt, // Date | null → matches type
-  owner: vm.owner 
-    ? { name: vm.owner.name ?? null, email: vm.owner.email ?? null } 
-    : null,
-  request: vm.request 
-    ? { 
-        environment: vm.request.environment ?? null, 
-        systemName: vm.request.systemName ?? null 
-      } 
-    : null,
-  currentSpec: vm.currentSpec 
-    ? { 
-        vcpu: vm.currentSpec.vcpu ?? null,
-        ramGb: vm.currentSpec.ramGb ?? null,
-        storageGb: vm.currentSpec.storageGb ?? null
-      } 
-    : null,
-})),
-  
-targetVm: request.targetVm 
-  ? {
-      id: request.targetVm.id,
-      hostname: request.targetVm.hostname,
-      ipAddress: request.targetVm.ipAddress,
-      status: request.targetVm.status as "ACTIVE" | "SUSPENDED" | "RETIRED",
-      provisionedAt: request.targetVm.provisionedAt,
-      owner: request.targetVm.owner 
-        ? { name: request.targetVm.owner.name ?? null, email: request.targetVm.owner.email ?? null } 
-        : null,
-      request: request.targetVm.request 
+    requesterId: request.requesterId,
+    // ✅ Transform User relation → Person interface
+    requester: request.requester 
+      ? {
+          name: request.requester.name,
+          designation: request.requester.designation || "",
+          organization: request.requester.organization || "",
+          contact: request.requester.contact || "",
+          email: request.requester.email,
+          address: request.requester.organization || null, // Map org → address
+        }
+      : {
+          name: "Unknown",
+          designation: "",
+          organization: "",
+          contact: "",
+          email: "",
+          address: null,
+        },
+
+    // ✅ Construct alternativePerson from FLAT FIELDS (schema has no relation)
+    alternativePerson: request.alternativePersonName 
+      ? {
+          name: request.alternativePersonName,
+          designation: request.alternativePersonDesignation || "",
+          organization: request.alternativePersonOrganization || "",
+          contact: request.alternativePersonContact || "",
+          email: request.alternativePersonEmail || "",
+          address: null,
+        }
+      : null,
+
+    // ✅ Construct developer from FLAT FIELDS (schema has no relation)
+    developer: request.developerName
+      ? {
+          name: request.developerName,
+          designation: request.developerDesignation || "",
+          organization: request.developerOrganization || "",
+          contact: request.developerContact || "",
+          email: request.developerEmail || "",
+        }
+      : null,
+
+    // VM Spec
+    serverType: request.serverType as ServerType,
+    vcpu: request.vcpu || null,
+    ramGb: request.ramGb || null,
+    osName: request.osName || null,
+    osVersion: request.osVersion || null,
+    osLicenseBy: request.osLicenseBy as LicenseProvider|| null,
+    storageGb: request.storageGb || null,
+    subdomain: request.subdomain || null,
+    sslProvider: request.sslProvider || null,
+    sslCostPaidBy: request.sslCostPaidBy || null,
+    raid: request.raid || null,
+    retentionPeriod: request.retentionPeriod || null,
+    requiredPublicIP: request.requiredPublicIP,
+    vpnRequired: request.vpnRequired,
+
+    // Compliance
+    vaReportSubmitted: request.vaReportSubmitted,
+    justificationSubmitted: request.justificationSubmitted,
+    renewalRequired: request.renewalRequired,
+    renewalPeriodMonths: request.renewalPeriodMonths || null,
+
+    // Timestamps
+    createdAt: request.createdAt,
+    submittedAt: request.submittedAt || null,
+    updatedAt: request.updatedAt,
+    provisionedAt: request.provisionedAt || null,
+
+    // Tech Stack
+    frontendTech: request.frontendTech || null,
+    backendTech: request.backendTech || null,
+    serverArchitecture: request.serverArchitecture || null,
+    dataBase: request.dataBase || null,
+    additionalTechNotes: request.additionalTechNotes || null,
+
+    // Relations
+    vmInstances: request.vmInstances || [],
+    approvals: (request.approvals || []).map((a: Approval) => ({
+      id: a.id,
+      entityType: a.entityType,
+      requestId: a.requestId,
+      customizationRequestId: a.customizationRequestId,
+      
+      // ✅ Ensure level is treated as a number
+      level: Number(a.level), 
+      
+      approverId: a.approverId,
+      decision: a.decision,
+      comments: a.comments || null,
+      decidedAt: a.decidedAt || null,
+      createdAt: a.createdAt,
+      approver: a.approver 
         ? { 
-            environment: request.targetVm.request.environment ?? null, 
-            systemName: request.targetVm.request.systemName ?? null 
+            id: a.approver.id, 
+            name: a.approver.name,
+            email: a.approver.email,
+            designation: a.approver.designation || "",
           } 
-        : null,
-      currentSpec: null, // Not selected in Prisma query - explicitly null to satisfy type
-    }
-  : null,
+        : { id: "", name: "Unknown", email: "", designation: "" },
+    })),
+    customizations: [], // Empty array (not included in query - add include if needed)
+    additionalDisks: (request.additionalDisks || []).map((d) => ({
+      sizeGb: d.sizeGb,
+      purpose: d.purpose || undefined,
+      sequence: d.sequence,
+    })),
+    firewallPorts: (request.firewallPorts || []).map((p) => ({
+      port: p.port,
+      protocol: p.protocol,
+      purpose: p.purpose,
+      source: p.source || undefined,
+    })),
+    networkAccess: (request.networkAccess || []).map((n) => ({
+      accessType: n.accessType,
+    })),
+    targetVm: request.targetVm || null,
+  };
 
+  return transformed;
+}
+
+export async function getRequests(
+  filters: RequestFilters = {}, 
+  page: number = 1, 
+  pageSize: number = 10
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
   
-  // ✅ FIX submittedAt type mismatch
-  submittedAt: request.submittedAt?.toISOString(), // Date → ISO string or undefined
+  const userId = session.user.id;
+  const userRoles = session.user.roles;
+  const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
+  const isAdmin = userRoles.includes(ROLES.ADMIN);
+  
+  
+  const skip = (page - 1) * pageSize;
+  const andConditions: Prisma.RequestWhereInput[] = [];
+  if (!isApprover && !isAdmin) {
+  andConditions.push({
+    OR: [
+      { requesterId: userId },
+      { developerId: userId }
+    ]
+  });
+}
+if (filters.search?.trim()) {
+  andConditions.push({
+    OR: [
+      { systemName: { contains: filters.search, mode: "insensitive" } },
+      { projectName: { contains: filters.search, mode: "insensitive" } }
+    ]
+  });
+}
+  // ✅ BUILD QUERY WITH PROPER VISIBILITY RULES
+    const whereClause: Prisma.RequestWhereInput = {
+    // Regular users: only their own requests
+
+    AND: andConditions,
+    // Status filter with role-based enforcement
+    ...(filters.status && filters.status !== "ALL"
+      ? { status: filters.status as RequestStatus }
+      : !isApprover || isAdmin
+        ? {} 
+        : {
+            status: {
+              in: userRoles.flatMap(role => {
+                if (role === "APPROVER_L1") return [RequestStatus.PENDING_L1];
+                if (role === "APPROVER_L2") return [RequestStatus.PENDING_L2];
+                if (role === "APPROVER_L3") return [RequestStatus.PENDING_L3];
+                if (role === ROLES.L4_APPROVER) return [RequestStatus.PENDING_L4];
+                return [];
+              }).filter(Boolean)
+            }
+          }
+    ),
+    
+    // Type & search filters (same as before)
+    ...(filters.type && filters.type !== "ALL" && {
+      requestType: filters.type as RequestType
+    }),
+
+  };
+
+  // ✅ CRITICAL FIX: Approvers ONLY see requests with PENDING approval assigned to THEM
+// ✅ CRITICAL FIX: Approvers ONLY see requests with PENDING approval assigned to THEM
+if (isApprover && !isAdmin) {
+  // 1. Map roles to their integer levels
+  const levelMapping: Record<string, number> = {
+    "APPROVER_L1": 1,
+    "APPROVER_L2": 2,
+    "APPROVER_L3": 3,
+    [ROLES.L4_APPROVER]: 4,
+  };
+
+  const myActionableLevels = userRoles
+    .map(role => levelMapping[role])
+    .filter((lvl): lvl is number => lvl !== undefined);
+
+  // 2. Get request IDs where CURRENT USER has a PENDING approval record
+  const pendingApprovals = await prisma.approval.findMany({
+    where: {
+      approverId: userId,
+      decision: ApprovalDecision.PENDING,
+      entityType: ApprovalEntityType.REQUEST,
+      level: { in: myActionableLevels } // ✅ Matches numeric level
+    },
+    select: { requestId: true },
+    take: 1000
+  });
+
+  const requestIdsForApprover = pendingApprovals
+    .map(a => a.requestId)
+    .filter((id): id is string => id !== null);
+
+  // 3. Restrict whereClause to only these IDs
+  // If the user has no pending items, we force an empty set
+  whereClause.id = { in: requestIdsForApprover };
+}
+const [requests, total] = await Promise.all([
+  prisma.request.findMany({
+    where: whereClause,
+    orderBy: { createdAt: "desc" },
+    skip,
+    take: pageSize,
+    include: {
+      vmInstances: { 
+        select: { id: true, hostname: true, ipAddress: true, status: true } 
+      },
+      approvals: { 
+        where: { entityType: ApprovalEntityType.REQUEST },
+        include: { approver: { select: { id: true, name: true } } },
+        orderBy: { createdAt: "asc" },
+      },
+      // Include this for all so the Type remains consistent
+      targetVm: { 
+        select: { id: true, hostname: true, status: true } 
+      },
+    },
+  }),
+  prisma.request.count({ where: whereClause })
+]);
+  
+  const totalPages = Math.ceil(total / pageSize);
+  
+  return { 
+    requests: requests.map(r => transformRequestListItem(r)), 
+    total, 
+    totalPages, 
+    currentPage: page 
+  };
 }
 
-
-  // return {
-  //   ...request,
-  //   projectName: n(request.projectName),
-  //   frontendTech: n(request.frontendTech),
-  //   backendTech: n(request.backendTech),
-  //   dataBase: n(request.dataBase),
-  //   serverArchitecture: n(request.serverArchitecture),
-  //   additionalTechNotes: n(request.additionalTechNotes),
-  //   osName: n(request.osName),
-  //   osVersion: n(request.osVersion),
-  //   subdomain: n(request.subdomain),
-  //   sslProvider: n(request.sslProvider),
-  //   sslCostPaidBy: n(request.sslCostPaidBy),
-  //   raid: request.raid || Raid.NONE,
-
-  //   quantity: request.quantity ?? 1,
-  //   vcpu: request.vcpu ?? 0,
-  //   ramGb: request.ramGb ?? 0,
-  //   storageGb: request.storageGb ?? 0,
-
-  //   requiredPublicIP: request.requiredPublicIP ?? false,
-  //   vpnRequired: request.vpnRequired ?? false,
-  //   vaReportSubmitted: request.vaReportSubmitted ?? false,
-  //   justificationSubmitted: request.justificationSubmitted ?? false,
-  //   renewalRequired: request.renewalRequired ?? false,
-
-  //   expectedEndDate: request.expectedEndDate?.toISOString().split("T")[0] || "",
-
-  //   responsiblePerson: {
-  //     name: n(request.responsiblePersonName) || "",
-  //     designation: n(request.responsiblePersonDesignation) || "",
-  //     organization: n(request.responsiblePersonOrganization) || "",
-  //     contact: n(request.responsiblePersonContact) || "",
-  //     email: n(request.responsiblePersonEmail) || "",
-  //   },
-  //   alternativePerson: {
-  //     name: n(request.alternativePersonName) || "",
-  //     designation: n(request.alternativePersonDesignation) || "",
-  //     organization: n(request.alternativePersonOrganization) || "",
-  //     contact: n(request.alternativePersonContact) || "",
-  //     email: n(request.alternativePersonEmail) || "",
-  //   },
-  //   developer: {
-  //     name: n(request.developerName) || "",
-  //     address: n(request.developerAddress) || "",
-  //     contact: n(request.developerContact) || "",
-  //     email: n(request.developerEmail) || "",
-  //   },
-
-  //   networkAccess: request.networkAccess.map((n) => n.accessType),
-  //   additionalDisks: request.additionalDisks.map((d) => ({
-  //     sizeGb: d.sizeGb.toString(),
-  //     purpose: d.purpose || "",
-  //   })),
-  //   firewallPorts: request.firewallPorts.map((p) => ({
-  //     port: p.port.toString(),
-  //     protocol: p.protocol,
-  //     purpose: p.purpose || "",
-  //     source: p.source || "",
-  //   })),
-
-  //   approvals: request.approvals,
-  //   vmInstances: request.vmInstances,
-  //   targetVm: request.targetVm,
-  // };
+function transformRequestListItem(r: RequestWithRelations) {
+  return {
+    id: r.id,
+    requestType: r.requestType,
+    status: r.status,
+    systemName: r.systemName,
+    environment: r.environment,
+    purpose: r.purpose,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    submittedAt: r.submittedAt ?? undefined,
+    approvals: (r.approvals || []).map(a => ({
+      id: a.id,
+      level: a.level,
+      decision: a.decision,
+      approver: { 
+        id: a.approver.id, 
+        name: a.approver.name || "Unknown" 
+      },
+    })),
+    vmInstances: r.vmInstances,
+    targetVm: r.targetVm 
+      ? { 
+          id: r.targetVm.id, 
+          hostname: r.targetVm.hostname, 
+          status: r.targetVm.status 
+        }
+      : undefined,
+  };
 }
 
-export async function getRequests(filters: RequestFilters = {}) {
+export async function deleteRequest(requestId: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
 
-  const { id: userId } = session.user;
+  // ✅ ONLY delete Request records - NO customization handling
+  const request = await prisma.request.findUnique({
+    where: { id: requestId },
+    select: { id: true, requesterId: true, status: true, requestType: true }
+  });
 
-  const where: RequestWhereInput = {
-    requesterId: userId,
-  };
-
-  if (filters.status && filters.status !== "ALL") {
-    where.status = filters.status as RequestStatus;
-  }
-  if (filters.type && filters.type !== "ALL") {
-    where.requestType = filters.type as RequestType;
-  }
-  if (filters.search) {
-    const search = { contains: filters.search, mode: "insensitive" as const };
-    where.OR = [
-      { systemName: search },
-      { projectName: search },
-    ];
+  if (!request) {
+    throw new Error("Request not found");
   }
 
-  const requests = await prisma.request.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    include: {
-      vmInstances: {
-        select: {
-          id: true,
-          hostname: true,
-          ipAddress: true,
-          status: true,
-        },
-      },
-      approvals: {
-        include: {
-          approver: {
-            select: { id: true, name: true },
-          },
-        },
-      },
+  if (request.requesterId !== session.user.id) {
+    throw new Error("Unauthorized: You can only delete your own requests");
+  }
+
+  // Prevent deletion of non-DRAFT requests
+  if (request.status !== RequestStatus.DRAFT) {
+    throw new Error("Only DRAFT requests can be deleted");
+  }
+
+  await prisma.request.delete({ where: { id: requestId } });
+
+  await prisma.auditLog.create({
+    data: {
+      actorId: session.user.id,
+      action: "DELETE_REQUEST",
+      entityType: "REQUEST",
+      entityId: requestId,
     },
   });
 
-  return JSON.parse(JSON.stringify(requests));
+  revalidatePath("/requests");
+  return { success: true };
+}
+
+export async function createRenewalRequest({
+  targetVmId,
+  renewalPeriodMonths,
+  userId,
+}: {
+  targetVmId: string;
+  renewalPeriodMonths: number;
+  userId: string;
+}) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  // Verify VM exists and is ACTIVE
+  const vm = await prisma.vmInstance.findUnique({
+    where: { id: targetVmId },
+    select: { id: true, status: true, environment: true }
+  });
+  
+  if (!vm) throw new Error("VM not found");
+  if (vm.status !== VmStatus.ACTIVE) throw new Error("Only ACTIVE VMs can be renewed");
+
+  // Create renewal request with CORRECT ENUM VALUES
+  const request = await prisma.request.create({
+    data: {
+      requestType: RequestType.RENEWAL,
+      status: RequestStatus.DRAFT,
+      targetVmId,
+      requesterId: userId,
+      systemName: `Renewal ${vm.id}`,
+      environment: vm.environment || Environment.PRODUCTION, // ✅ Use VM's env or fallback
+      purpose: `VM renewal for ${renewalPeriodMonths} months`,
+      quantity: 1,
+      serverType: ServerType.OTHER, // ✅ ENUM VALUE
+      requiredPublicIP: false,
+      vpnRequired: false,
+      renewalRequired: true,
+      renewalPeriodMonths,
+      // All other required fields covered by defaults/schema
+    },
+  });
+
+  // Optional: Generate approvals if auto-submitting
+  // if (request.status === RequestStatus.PENDING_L1) {
+  //   await generateApprovals(prisma, request.id, ApprovalEntityType.REQUEST, RequestType.RENEWAL);
+  // }
+
+  await prisma.auditLog.create({
+    data: {
+      actorId: userId,
+      action: "CREATE_RENEWAL_REQUEST",
+      entityType: "REQUEST",
+      entityId: request.id,
+      details: JSON.stringify({ vmId: targetVmId, renewalPeriodMonths }),
+    },
+  });
+
+  revalidatePath("/requests");
+  return request;
 }

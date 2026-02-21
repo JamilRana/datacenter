@@ -2,7 +2,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { VmStatus } from "@prisma/client";
+import { VmStatus } from "@/types/enums";
 import { useCallback } from "react";
 
 export default function VmFilters({
@@ -28,28 +28,26 @@ export default function VmFilters({
     [searchParams, pathname]
   );
 
-  const statuses: (VmStatus | "all")[] = [
-    "all",
-    "ACTIVE",
-    "SUSPENDED",
-    "RETIRED",
+  const statuses: { label: string; value: VmStatus | "all" }[] = [
+    { label: "All VMs", value: "all" },
+    { label: "Active", value: "ACTIVE" as VmStatus },
+    { label: "Suspended", value: "SUSPENDED" as VmStatus },
+    { label: "Retired", value: "RETIRED" as VmStatus },
   ];
 
   return (
     <div className="flex flex-wrap gap-2 mb-6">
-      {statuses.map((status) => (
+      {statuses.map((statusOption) => (
         <button
-          key={status}
-          onClick={() => router.push(createFilterUrl(status))}
-          className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-            currentStatus === status
-              ? "bg-indigo-600 text-white"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          key={statusOption.value}
+          onClick={() => router.push(createFilterUrl(statusOption.value))}
+          className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+            currentStatus === statusOption.value
+              ? "bg-blue-600 text-white shadow-md shadow-blue-100"
+              : "bg-white text-slate-400 hover:text-slate-600 border border-slate-100"
           }`}
         >
-          {status === "all"
-            ? "All VMs"
-            : status.charAt(0) + status.slice(1).toLowerCase()}
+          {statusOption.label}
         </button>
       ))}
     </div>

@@ -2,17 +2,20 @@
 "use client";
 
 import { createAsset } from "@/app/actions/asset-actions";
-import { ASSET_TYPES } from "@/types/inventory";
+import { AssetType } from "@prisma/client"; // ✅ Import the enum directly
 import { useState } from "react";
 
 export default function CreateAssetModal() {
   const [isOpen, setIsOpen] = useState(false);
-  const [assetType, setAssetType] =
-    useState<(typeof ASSET_TYPES)[number]>("SERVER");
+  // ✅ Initialize with a valid enum value
+  const [assetType, setAssetType] = useState<AssetType>(AssetType.SERVER);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    
+    // ✅ Form data doesn't automatically handle the "false" hidden input 
+    // logic for checkboxes well. Let's ensure types are correct.
     await createAsset(formData);
     setIsOpen(false);
     window.location.reload();
@@ -53,7 +56,7 @@ export default function CreateAssetModal() {
               onChange={(e) => setAssetType(e.target.value as typeof assetType)}
               className="w-full border rounded px-3 py-2"
             >
-              {ASSET_TYPES.map((type) => (
+              {Object.values(AssetType).map((type) => (
                 <option key={type} value={type}>
                   {type.replace(/_/g, " ")}
                 </option>

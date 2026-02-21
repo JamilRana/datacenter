@@ -15,13 +15,14 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
-import { getLicenseById } from "@/app/actions/inventory-actions";
-import { EnrollmentLicense } from "@/types/inventory";
+import { SoftwareLicense } from "@/types/inventory";
+import { fetchAssetDetailsWithLicenses } from "@/app/actions/asset-actions";
+
 
 export default function LicenseDetailPage({ params }: { params: { id: string } }) {
 
    const { data: session } = useSession();
-   const [license, setLicense] = useState<EnrollmentLicense>();
+   const [license, setLicense] = useState<SoftwareLicense>();
 
   if (!session?.user) redirect("/auth");
 
@@ -36,7 +37,7 @@ export default function LicenseDetailPage({ params }: { params: { id: string } }
 const getLicense = async (id: string) => {
 
     try {
-      const res = await  getLicenseById(id);
+      const res = await  fetchAssetDetailsWithLicenses(id);
       if (!res) return;
       setLicense(res);
     } catch (err) {

@@ -4,17 +4,92 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
-import { VmStatus,  Prisma, ApprovalEntityType, ApprovalDecision } from "@prisma/client";
+import {
+  Prisma,
+  RequestType,
+  RequestStatus,
+  ApprovalEntityType,
+} from "@prisma/client";
 
-// ==============
-// Helper: Create Audit Log
-// ==============
+import { VmStatus as FrontendVmStatus,   Raid as FrontendRaid,
+  Environment as FrontendEnvironment } from "@/types/enums";
+import { generateApprovals } from "./request-actions";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/authOptions";
+import { SerializedVmInstance, SerializedVmInstanceDetail } from "@/types/vm";
+import { CustomizationStatus } from "@/types/enums";
+import { isAdmin } from "@/lib/utils";
+
+const vmBaseSchema = z.object({
+  requestId: z.string().uuid().nullable().optional(),
+  sequenceNumber: z.number().int().min(1),
+  ownerId: z.string().uuid().nullable().optional(),
+  hostname: z.string().nullable().optional(),
+  subdomain: z.string().nullable().optional(),
+  ipAddress: z.string().nullable().optional(),
+  publicIpAddress: z.string().nullable().optional(),
+  status: z.nativeEnum(FrontendVmStatus),
+  renewalDate: z.string().nullable().optional(),
+  decommissionedAt: z.string().nullable().optional(),
+  hasRemoteAccess: z.boolean(),
+  vpnRequired: z.boolean(),
+});
+
+const vmSpecSchema = z.object({
+  vcpu: z.number().int().min(1),
+  ramGb: z.number().int().min(1),
+  storageGb: z.number().int().min(1),
+  osName: z.string().nullable().optional(),
+  osVersion: z.string().nullable().optional(),
+  raid: z.enum(["RAID0", "RAID1", "RAID5", "RAID10", "NONE"]).nullable().optional(),
+});
+
+/* ------------------------------------------------------------------ */
+/* Shared Prisma Includes (NO duplication) */
+/* ------------------------------------------------------------------ */
+
+const VM_LIGHT_INCLUDE = {
+  owner: { select: { name: true, email: true } },
+  request: { select: {requestId: true, systemName: true, environment: true } },
+} satisfies Prisma.VmInstanceInclude;
+
+const VM_FULL_INCLUDE = {
+  owner: true,
+  currentSpec: true,
+  specHistory: { orderBy: { createdAt: "desc" } },
+  request: true,
+  customizationHistory: { orderBy: { createdAt: "desc" } },
+  auditLogs: { orderBy: { timestamp: "desc" }, take: 10 },
+} satisfies Prisma.VmInstanceInclude;
+
+const SERIALIZED_VM_FULL_INCLUDE = {
+  owner: true,
+  currentSpec: true,
+  specHistory: { orderBy: { createdAt: "desc" } },
+  request: true,
+  customizationHistory: { orderBy: { createdAt: "desc" } },
+  // ✅ CRITICAL FIX: Include actor with minimal fields
+  auditLogs: { 
+    include: { 
+      actor: { 
+        select: { 
+          name: true, 
+          email: true 
+        } 
+      } 
+    }, 
+    orderBy: { timestamp: "desc" }, 
+    take: 10 
+  },
+} satisfies Prisma.VmInstanceInclude;
+
+
 async function createAuditLog(
   actorId: string,
   action: string,
   entityType: string,
   entityId: string,
-  details?: Record<string, unknown>,
+  details?: unknown,
   vmId?: string
 ) {
   await prisma.auditLog.create({
@@ -29,67 +104,80 @@ async function createAuditLog(
   });
 }
 
-// ==============
-// Schemas
-// ==============
-
-const vmBaseSchema = z.object({
-  requestId: z.string().uuid(),
-  sequenceNumber: z.number().int().min(1),
-  ownerId: z.string().uuid().optional().nullable(),
-  hostname: z.string().optional().nullable(),
-  subdomain: z.string().optional().nullable(),
-  ipAddress: z.string().optional().nullable(),
-  publicIpAddress: z.string().optional().nullable(),
-  status: z.nativeEnum(VmStatus),
-  renewalDate: z.string().optional().nullable(),
-  decommissionedAt: z.string().optional().nullable(),
-  hasRemoteAccess: z.boolean(),
-  vpnRequired: z.boolean(),
-});
-
-const vmSpecSchema = z.object({
-  vcpu: z.number().int().min(1),
-  ramGb: z.number().int().min(1),
-  storageGb: z.number().int().min(1),
-  osName: z.string().optional().nullable(),
-  osVersion: z.string().optional().nullable(),
-  raid: z
-    .enum(["RAID0", "RAID1", "RAID5", "RAID10", "NONE"])
-    .optional()
-    .nullable(),
-});
-
-// ==============
-// Actions
-// ==============
-
-export async function getVmList(where:boolean,id:string){
-
-        const vmsList = prisma.vmInstance.findMany({
-          where: where 
-            ? {} 
-            : { request: { requesterId: id } },
-          include: {
-             owner: { select: { name: true, email: true } },
-             currentSpec: true,
-             request: { select: { systemName: true, environment: true } }
-          },
-          orderBy: { provisionedAt: "desc" }
-        })
-
-        return vmsList;
+export async function getVmList({
+  isAdmin,
+  userId,
+}: {
+  isAdmin: boolean;
+  userId: string;
+}) {
+  return await prisma.vmInstance.findMany({
+    where: isAdmin ? {} : { ownerId: userId },
+    include: {
+      ...VM_LIGHT_INCLUDE,
+      currentSpec: true,
+    },
+    orderBy: { provisionedAt: "desc" },
+  });
 }
 
-// 1. CREATE VM + INITIAL SPEC + AUDIT
+export async function getVmListWithRequests({
+  isAdmin,
+  userId,
+}: {
+  isAdmin: boolean;
+  userId: string;
+}) {
+  const vms = await prisma.vmInstance.findMany({
+    where: isAdmin ? {} : { ownerId: userId },
+    include: {
+      ...VM_LIGHT_INCLUDE,
+      currentSpec: true,
+    },
+    orderBy: { provisionedAt: "desc" },
+  });
+
+  // ✅ CRITICAL: Only query requests for THESE VMs
+  const vmIds = vms.map(vm => vm.id);
+  
+  const [customizations, decommissions] = await Promise.all([
+    prisma.customizationRequest.findMany({
+      where: { 
+        targetVmId: { in: vmIds }, // ← FILTER BY VM IDS
+        status: { in: [RequestStatus.DRAFT, RequestStatus.PENDING_L1, RequestStatus.APPROVED] } 
+      },
+      select: { targetVmId: true },
+    }),
+    prisma.request.findMany({
+      where: {
+        targetVmId: { in: vmIds },// ← FILTER BY VM IDS
+        requestType: RequestType.DECOMMISSION,
+        status: { in: [RequestStatus.DRAFT, RequestStatus.PENDING_L1, RequestStatus.APPROVED] },
+      },
+      select: { targetVmId: true },
+    }),
+  ]);
+
+  const customizationVmSet = new Set(customizations.map(c => c.targetVmId));
+  const decommissionVmSet = new Set(decommissions.map(d => d.targetVmId));
+
+  return vms.map(vm => ({
+    ...vm,
+    hasCustomizationRequest: customizationVmSet.has(vm.id),
+    hasDecommissionRequest: decommissionVmSet.has(vm.id),
+  }));
+}
+
+
 export async function createVm(formData: FormData, actorId: string) {
   const vmData = vmBaseSchema.parse(Object.fromEntries(formData));
   const specData = vmSpecSchema.parse(Object.fromEntries(formData));
 
   const vm = await prisma.$transaction(async (tx) => {
-    const vm = await tx.vmInstance.create({
+    const createdVm = await tx.vmInstance.create({
       data: {
         ...vmData,
+        requestId: vmData.requestId ?? null,
         renewalDate: vmData.renewalDate ? new Date(vmData.renewalDate) : null,
         decommissionedAt: vmData.decommissionedAt
           ? new Date(vmData.decommissionedAt)
@@ -97,45 +185,48 @@ export async function createVm(formData: FormData, actorId: string) {
       },
     });
 
-    await tx.vmSpec.create({
+    const spec = await tx.vmSpec.create({
       data: {
         ...specData,
-        vmInstanceId: vm.id,
+        vmInstanceId: createdVm.id,
         effectiveFrom: new Date(),
       },
     });
 
-    return vm;
-  });
+    await tx.vmInstance.update({
+      where: { id: createdVm.id },
+      data: { currentSpecId: spec.id },
+    });
 
-  await createAuditLog(
-    actorId,
-    "VM_CREATED",
-    "VmInstance",
-    vm.id,
-    vmData,
-    vm.id
-  );
+    return createdVm;
+  }, { timeout: 15000 });
+
+  await createAuditLog(actorId, "VM_CREATED", "VmInstance", vm.id, vmData, vm.id);
   revalidatePath("/inventory/vms");
   return vm;
 }
 
-// 2. UPDATE VM METADATA + AUDIT
-export async function updateVm(formData: FormData, actorId: string) {
-  const validated = vmBaseSchema
+export async function updateVm(formData: FormData) {
+  const data = vmBaseSchema
     .extend({ id: z.string().uuid() })
     .parse(Object.fromEntries(formData));
 
-  const { id, ...data } = validated;
-  const oldVm = await prisma.vmInstance.findUnique({ where: { id } });
+  const { id, ...payload } = data;
 
+  const oldVm = await prisma.vmInstance.findUnique({ where: { id } });
+    if (!oldVm) throw new Error("VM not found");
+  const session = await getServerSession(authOptions);
+  if (!session?.user || (!isAdmin(session.user.roles) && oldVm.ownerId !== session.user.id)) {
+    throw new Error("Unauthorized");
+  }
+  const actorId = session.user.id;
   await prisma.vmInstance.update({
     where: { id },
     data: {
-      ...data,
-      renewalDate: data.renewalDate ? new Date(data.renewalDate) : null,
-      decommissionedAt: data.decommissionedAt
-        ? new Date(data.decommissionedAt)
+      ...payload,
+      renewalDate: payload.renewalDate ? new Date(payload.renewalDate) : null,
+      decommissionedAt: payload.decommissionedAt
+        ? new Date(payload.decommissionedAt)
         : null,
     },
   });
@@ -145,281 +236,212 @@ export async function updateVm(formData: FormData, actorId: string) {
     "VM_UPDATED",
     "VmInstance",
     id,
-    { old: oldVm, new: data },
+    { old: oldVm, new: payload },
     id
   );
+
   revalidatePath("/inventory/vms");
 }
 
-// 3. UPDATE RESOURCES VIA CUSTOMIZATION REQUEST OR DIRECT
 export async function updateVmResources(
   formData: FormData,
-  actorId: string,
-  viaCustomization: boolean = false
+  viaCustomization = false
 ) {
   const vmId = formData.get("vmId") as string;
   if (!vmId) throw new Error("VM ID is required");
+  const customizationRequestId = formData.get("customizationRequestId") as string | null; // ← ADD THIS
 
   const specData = vmSpecSchema.parse(Object.fromEntries(formData));
   const sourceRequestId = formData.get("sourceRequestId") as string | null;
 
-  await prisma.$transaction(async (tx) => {
-    const newSpec = await tx.vmSpec.create({
-      data: {
+    const session = await getServerSession(authOptions);
+  if (!session?.user || (!isAdmin(session.user.roles))) {
+    throw new Error("Unauthorized");
+  }
+  const actorId = session.user.id;
+  
+
+    await prisma.$transaction(async (tx) => {
+    const spec = await tx.vmSpec.create({
+       data:{
         ...specData,
         vmInstanceId: vmId,
-        sourceRequestId: sourceRequestId || undefined,
+        sourceRequestId: viaCustomization ? null : (sourceRequestId || undefined),
+        customizationRequestId: viaCustomization ? customizationRequestId || undefined : null, // ← CRITICAL LINK
         effectiveFrom: new Date(),
       },
     });
 
     await tx.vmInstance.update({
       where: { id: vmId },
-      data: { currentSpecId: newSpec.id },
+       data:{ currentSpecId: spec.id },
     });
+    
+    // ✅ Update customization request status if applicable
+    if (viaCustomization && customizationRequestId) {
+  await tx.customizationRequest.update({
+    where: { id: customizationRequestId },
+    data: { 
+      status: CustomizationStatus.APPLIED
+    },
   });
-
-  const action = viaCustomization
-    ? "VM_RESOURCES_UPDATED_VIA_CUSTOMIZATION"
-    : "VM_RESOURCES_UPDATED";
-  await createAuditLog(actorId, action, "VmSpec", vmId, specData, vmId);
-  revalidatePath("/inventory/vms");
 }
-
-// 4. REQUEST DECOMMISSION (Creates a formal request)
-export async function createDecommissionRequest(vmId: string, actorId: string, reason: string) {
-  const vm = await prisma.vmInstance.findUnique({
-    where: { id: vmId },
-    include: { request: true, currentSpec: true }
-  });
-
-  if (!vm) throw new Error("VM not found");
-  if (vm.ownerId !== actorId) throw new Error("Unauthorized");
-
-  const decommissionRequest = await prisma.request.create({
-    data: {
-      requestType: "DECOMMISSION",
-      status: "PENDING_L1",
-      systemName: vm.request?.systemName || "Decommission Request",
-      purpose: `Decommission for VM ${vm.hostname || vmId}. Reason: ${reason}`,
-      environment: vm.request?.environment || "PRODUCTION",
-      serverType: vm.request?.serverType || "APPLICATION",
-      requesterId: actorId,
-      vcpu: vm.currentSpec?.vcpu || 0,
-      ramGb: vm.currentSpec?.ramGb || 0,
-      storageGb: vm.currentSpec?.storageGb || 0,
-      osName: vm.currentSpec?.osName || "",
-      osVersion: vm.currentSpec?.osVersion || "",
-      submittedAt: new Date(),
-    },
-  });
-
-  // Create initial approvals
-  const approvers = await prisma.user.findMany({
-    where: {
-      roles: {
-        some: {
-          role: { name: { in: ["APPROVER_L1", "APPROVER_L2", "APPROVER_L3"] } },
-        },
-      },
-    },
-    select: {
-      id: true,
-      roles: { select: { role: { select: { name: true } } } },
-    },
-  });
-
-  // ✅ Fixed approval creation
-  const approvalData: Prisma.ApprovalCreateManyInput[] = [];
-  for (const user of approvers) {
-    for (const ur of user.roles) {
-      const levelMap: Record<string, "L1" | "L2" | "L3"> = {
-        APPROVER_L1: "L1",
-        APPROVER_L2: "L2",
-        APPROVER_L3: "L3",
-      };
-      const level = levelMap[ur.role.name];
-      if (level) {
-        approvalData.push({
-          entityId: decommissionRequest.id,
-          entityType: ApprovalEntityType.REQUEST,
-          approverId: user.id,
-          level,
-          decision: ApprovalDecision.PENDING,
-        });
-      }
-    }
-  }
-
-  await prisma.approval.createMany({ data: approvalData });
-
-  await createAuditLog(actorId, "DECOMMISSION_REQUESTED", "Request", decommissionRequest.id, { vmId, reason }, vmId);
-  revalidatePath("/requests");
-  revalidatePath("/inventory/vms");
-  return decommissionRequest;
-}
-
-// 4. DECOMMISSION VM (DC Ops / Admin only - final action)
-export async function decommissionVm(
-  vmId: string,
-  actorId: string,
-  reason?: string
-) {
-  await prisma.$transaction(async (tx) => {
-    // Update VM status and timestamp
-    await tx.vmInstance.update({
-      where: { id: vmId },
-      data: {
-        status: "RETIRED",
-        decommissionedAt: new Date(),
-      },
-    });
-
-    // Optionally close related customization requests
-    await tx.customizationRequest.updateMany({
-      where: {
-        targetVmId: vmId,
-        status: { in: ["PENDING_L1", "PENDING_L2", "PENDING_L3"] },
-      },
-      data: { status: "CLOSED" },
-    });
-  });
+  }, { timeout: 15000 });
 
   await createAuditLog(
     actorId,
-    "VM_DECOMMISSIONED",
-    "VmInstance",
+    viaCustomization
+      ? "VM_RESOURCES_UPDATED_VIA_CUSTOMIZATION"
+      : "VM_RESOURCES_UPDATED",
+    "VmSpec",
     vmId,
-    { reason },
+    specData,
     vmId
   );
+
   revalidatePath("/inventory/vms");
 }
 
-// 5. CREATE CUSTOMIZATION REQUEST (linked to VM)
-export async function createCustomizationRequest(
-  formData: FormData,
-  requesterId: string
-) {
-  const schema = z.object({
-    targetVmId: z.string().uuid(),
-    vcpu: z.number().int().optional(),
-    ramGb: z.number().int().optional(),
-    storageGb: z.number().int().optional(),
-    // Optional structured inputs can be added later
-  });
 
-  const data = schema.parse(Object.fromEntries(formData));
-
-  // Ensure at least one resource is requested
-  if (!data.vcpu && !data.ramGb && !data.storageGb) {
-    throw new Error("At least one resource change must be specified");
-  }
-
-  const customization = await prisma.customizationRequest.create({
-    data: {
-      ...data,
-      requesterId,
-      status: "PENDING_L1",
-    },
-  });
-
-  await createAuditLog(
-    requesterId,
-    "CUSTOMIZATION_REQUESTED",
-    "CustomizationRequest",
-    customization.id,
-    data,
-    data.targetVmId
-  );
-
-  revalidatePath(`/vms/${data.targetVmId}`);
-  revalidatePath("/requests/customizations");
-}
-
-// 6. FETCH SINGLE VM WITH FULL CONTEXT
 export async function fetchVmDetails(id: string) {
-  return await prisma.vmInstance.findUnique({
-    where: { id },
-    include: {
-      currentSpec: true,
-      owner: { select: { name: true, email: true } },
-      request: {
+    const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const vm = await prisma.vmInstance.findFirst({
+  where: isAdmin(session.user.roles)
+    ? { id }
+    : { id, ownerId: session.user.id },
+  include: VM_FULL_INCLUDE,
+});
+
+  return vm;
+}
+
+export async function fetchAllVms(): Promise<SerializedVmInstance[]> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const where = isAdmin(session.user.roles) 
+    ? {} 
+    : { ownerId: session.user.id };
+
+  const vms = await prisma.vmInstance.findMany({
+    where,
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      hostname: true,
+      ipAddress: true,
+      publicIpAddress: true,
+      status: true,
+      renewalDate: true,
+      hasRemoteAccess: true,
+      vpnRequired: true,
+      subdomain: true,
+      updatedAt: true,
+      provisionedAt: true,
+      currentSpec: {
         select: {
-          systemName: true,
-          environment: true,
-          requestId: true,
-          purpose: true,
-          requester: { select: { name: true, email: true } },
+          vcpu: true,
+          ramGb: true,
+          storageGb: true,
+          osName: true,
+          osVersion: true,
+          raid: true,
         },
       },
-      customizationRequests: {
-        where: { status: { not: "CLOSED" } },
-        orderBy: { createdAt: "desc" },
-      },
+      owner: { select: {id: true, name: true, email: true } },  
+      request: { select: { requestId: true, systemName: true, environment: true } }, 
     },
+  });
+  return vms.map(vm => {
+    // Transform nested objects with explicit enum casting
+    const currentSpec = vm.currentSpec ? {
+      vcpu: vm.currentSpec.vcpu,
+      ramGb: vm.currentSpec.ramGb,
+      storageGb: vm.currentSpec.storageGb,
+      osName: vm.currentSpec.osName,
+      osVersion: vm.currentSpec.osVersion,
+      // CRITICAL: Cast nested enum via unknown
+      raid: (vm.currentSpec.raid as unknown) as FrontendRaid | null,
+    } : null;
+
+    const request = vm.request ? {
+      requestId: vm.request.requestId,
+      systemName: vm.request.systemName,
+      // CRITICAL: Cast nested enum via unknown
+      environment: (vm.request.environment as unknown) as FrontendEnvironment | null,
+    } : null;
+
+    // Build final object with explicit field mapping
+    return {
+      id: vm.id,
+      hostname: vm.hostname,
+      ipAddress: vm.ipAddress,
+      publicIpAddress: vm.publicIpAddress,
+      // CRITICAL: Cast top-level enum via unknown
+      status: (vm.status as unknown) as FrontendVmStatus,
+      renewalDate: vm.renewalDate?.toISOString() ?? null,
+      hasRemoteAccess: vm.hasRemoteAccess,
+      vpnRequired: vm.vpnRequired,
+      subdomain: vm.subdomain,
+      updatedAt: vm.updatedAt.toISOString(),
+      provisionedAt: vm.provisionedAt?.toISOString() ?? null,
+      currentSpec,
+      owner: vm.owner, // Already matches shape { name, email }
+      request,
+    };
   });
 }
 
-// 7. FETCH VM LIST FOR DASHBOARD
-export async function fetchAllVms({
-  page = 1,
-  perPage = 10,
-  search,
-  statusFilter,
-  userId,
-  role,
-}: {
-  page?: number;
-  perPage?: number;
-  search?: string;
-  statusFilter?: VmStatus | "all";
-  userId?: string;
-  role?: string;
-}) {
-  const skip = (page - 1) * perPage;
 
-  const where: Prisma.VmInstanceWhereInput = {};
 
-  // Data Isolation: Requesters only see their own VMs
-  if (role === "REQUESTER" && userId) {
-    where.ownerId = userId;
-  }
+export async function renewVmRequest(vmId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+const requesterId = session.user.id;
+  const vm = await prisma.vmInstance.findUnique({
+    where: { id: vmId },
+    include: { request: true },
+  });
 
-  // Status filter
-  if (statusFilter && statusFilter !== "all") {
-    where.status = statusFilter;
-  }
+  if (!vm) throw new Error("VM not found");
 
-  // Search
-  if (search) {
-    where.OR = [
-      { hostname: { contains: search, mode: Prisma.QueryMode.insensitive } },
-      { ipAddress: { contains: search, mode: Prisma.QueryMode.insensitive } },
-      {
-        request: {
-          systemName: { contains: search, mode: Prisma.QueryMode.insensitive },
-        },
+  const renewalRequest = await prisma.$transaction(async (tx) => {
+    const created = await tx.request.create({
+      data: {
+        requestType: RequestType.RENEWAL,
+        status: RequestStatus.PENDING_L1,
+        targetVmId: vmId,
+        requesterId: requesterId,
+        systemName: vm.request?.systemName || "VM Renewal",
+        environment: vm.request?.environment || "PRODUCTION",
+        purpose: `Renewal request for VM ${vm.hostname}`,
+        quantity: 1,
+        serverType: vm.request?.serverType || "OTHER",
+        vcpu: vm.request?.vcpu || 0,
+        ramGb: vm.request?.ramGb || 0,
+        storageGb: vm.request?.storageGb || 0,
       },
-    ];
-  }
+    });
 
-  const [vms, total] = await Promise.all([
-    prisma.vmInstance.findMany({
-      where,
-      skip,
-      take: perPage,
-      orderBy: { createdAt: "desc" },
-      include: {
-        currentSpec: true,
-        owner: { select: { name: true, email: true } },
-        request: { select: { systemName: true, environment: true } },
+    await generateApprovals(tx, created.id, ApprovalEntityType.REQUEST, RequestType.RENEWAL);
+
+    await tx.auditLog.create({
+      data: {
+        actorId: requesterId,
+        action: "CREATE_RENEWAL",
+        entityType: "REQUEST",
+        entityId: created.id,
+        details: JSON.stringify({ vmId, hostname: vm.hostname }),
       },
-    }),
-    prisma.vmInstance.count({ where }),
-  ]);
+    });
 
-  return { vms, total, totalPages: Math.ceil(total / perPage) };
+    return created;
+  }, { timeout: 15000 });
+
+  revalidatePath("/requests");
+  return renewalRequest;
 }
 
 export async function fetchVmAuditLogs(vmId: string) {
@@ -430,79 +452,81 @@ export async function fetchVmAuditLogs(vmId: string) {
   });
 }
 
-// 8. RENEW VM (Creates a Renewal Request)
-export async function renewVmRequest(vmId: string, actorId: string, durationMonths: number = 12) {
+
+// ADD THIS NEW FUNCTION AT END OF FILE
+export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVmInstanceDetail | null> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const where = isAdmin(session.user.roles) 
+    ? { id } 
+    : { id, ownerId: session.user.id };
+
   const vm = await prisma.vmInstance.findUnique({
-    where: { id: vmId },
-    include: { 
-      request: true,
-      currentSpec: true
-    },
+    where,
+    include: SERIALIZED_VM_FULL_INCLUDE,
   });
 
-  if (!vm) throw new Error("VM not found");
+  if (!vm) return null;
 
-  const newRequest = await prisma.request.create({
-    data: {
-      requestType: "RENEWAL",
-      status: "PENDING_L1",
-      systemName: vm.request?.systemName || "VM Renewal",
-      purpose: `Renewal for VM ${vm.hostname || vmId}`,
-      environment: vm.request?.environment || "DEVELOPMENT",
-      serverType: vm.request?.serverType || "APPLICATION",
-      requesterId: actorId,
-      vcpu: vm.currentSpec?.vcpu ?? 0,
-      ramGb: vm.currentSpec?.ramGb ?? 0,
-      storageGb: vm.currentSpec?.storageGb ?? 0,
-      osName: vm.currentSpec?.osName ?? "",
-      osVersion: vm.currentSpec?.osVersion ?? "",
-      renewalRequired: true,
-      renewalPeriodMonths: durationMonths,
-      submittedAt: new Date(),
-    },
-  });
+  // Serialize currentSpec
+  const currentSpec = vm.currentSpec ? {
+    vcpu: vm.currentSpec.vcpu,
+    ramGb: vm.currentSpec.ramGb,
+    storageGb: vm.currentSpec.storageGb,
+    osName: vm.currentSpec.osName,
+    osVersion: vm.currentSpec.osVersion,
+    raid: (vm.currentSpec.raid as unknown) as FrontendRaid | null,
+  } : null;
 
-  // Create initial approvals for renewal
-  const approvers = await prisma.user.findMany({
-    where: {
-      roles: {
-        some: {
-          role: { name: { in: ["APPROVER_L1", "APPROVER_L2", "APPROVER_L3"] } },
-        },
-      },
-    },
-    select: {
-      id: true,
-      roles: { select: { role: { select: { name: true } } } },
-    },
-  });
+  // Serialize request
+  const request = vm.request ? {
+    requestId: vm.request.requestId,
+    systemName: vm.request.systemName,
+    environment: (vm.request.environment as unknown) as FrontendEnvironment | null,
+  } : null;
 
-  // ✅ Fixed approval creation
-  const approvalData: Prisma.ApprovalCreateManyInput[] = [];
-  for (const user of approvers) {
-    for (const ur of user.roles) {
-      const levelMap: Record<string, "L1" | "L2" | "L3"> = {
-        APPROVER_L1: "L1",
-        APPROVER_L2: "L2",
-        APPROVER_L3: "L3",
-      };
-      const level = levelMap[ur.role.name];
-      if (level) {
-        approvalData.push({
-          entityId: newRequest.id,
-          entityType: ApprovalEntityType.REQUEST,
-          approverId: user.id,
-          level,
-          decision: ApprovalDecision.PENDING,
-        });
-      }
-    }
-  }
+  // Serialize specHistory
+  const specHistory = vm.specHistory.map(spec => ({
+    id: spec.id,
+    vcpu: spec.vcpu,
+    ramGb: spec.ramGb,
+    storageGb: spec.storageGb,
+    osName: spec.osName,
+    osVersion: spec.osVersion,
+    raid: (spec.raid as unknown) as FrontendRaid | null,
+    effectiveFrom: spec.effectiveFrom.toISOString(),
+    sourceRequestId: spec.sourceRequestId,
+    customizationRequestId: spec.customizationRequestId,
+  }));
 
-  await prisma.approval.createMany({ data: approvalData });
+  // Serialize auditLogs
+  const auditLogs = vm.auditLogs.map(log => ({
+    id: log.id,
+    timestamp: log.timestamp.toISOString(),
+    action: log.action,
+    actorId: log.actorId,
+    actor: log.actor ? { name: log.actor.name, email: log.actor.email } : null,
+    details: log.details as Record<string, unknown> | null,
+  }));
 
-  await createAuditLog(actorId, "VM_RENEWAL_REQUESTED", "Request", newRequest.id, { vmId }, vmId);
-  
-  revalidatePath("/requests");
-  return newRequest;
+  return {
+    id: vm.id,
+    hostname: vm.hostname,
+    ipAddress: vm.ipAddress,
+    publicIpAddress: vm.publicIpAddress,
+    status: (vm.status as unknown) as FrontendVmStatus,
+    renewalDate: vm.renewalDate?.toISOString() ?? null,
+    hasRemoteAccess: vm.hasRemoteAccess,
+    vpnRequired: vm.vpnRequired,
+    subdomain: vm.subdomain,
+    updatedAt: vm.updatedAt.toISOString(),
+    provisionedAt: vm.provisionedAt?.toISOString() ?? null,
+    decommissionedAt: vm.decommissionedAt?.toISOString() ?? null,
+    currentSpec,
+    owner: vm.owner ? { id: vm.owner.id, name: vm.owner.name, email: vm.owner.email } : null,
+    request,
+    specHistory,
+    auditLogs,
+  };
 }

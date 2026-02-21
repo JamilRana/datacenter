@@ -20,7 +20,7 @@ import { exportToCsv } from "@/lib/export-utils";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { Environment, RequestStatus } from "@prisma/client";
+import { Environment, RequestStatus } from "@/types/enums";
 import type { ReactNode } from "react";
 
 // ✅ Define proper types
@@ -71,7 +71,7 @@ export function ReportsDashboardClient({ initialData }: { initialData: ReportDat
     startTransition(async () => {
       try {
         const newData = await getSystemReportData(filters);
-        setData(newData);
+        setData(newData as unknown as ReportData);
         toast.success("Metrics synchronized");
       } catch (error) {
         if (error instanceof Error) {

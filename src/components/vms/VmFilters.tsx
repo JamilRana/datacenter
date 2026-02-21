@@ -2,8 +2,9 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { VmStatus } from "@prisma/client";
 import { useCallback } from "react";
+
+type VmStatus = "ACTIVE" | "SUSPENDED" | "RETIRED"
 
 export default function VmFilters({
   currentStatus,

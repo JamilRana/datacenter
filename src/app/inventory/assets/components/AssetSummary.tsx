@@ -1,14 +1,20 @@
 // src/app/inventory/assets/components/AssetSummary.tsx
 "use client";
 
-import { Asset } from "@prisma/client";
+interface Asset {
+  type: string;
+  cpuCores: number | null;
+  ramGb: number | null;
+  capacityTb: number | null;
+}
+
 
 export default function AssetSummary({ assets }: { assets: Asset[] }) {
   // Compute totals
   const totalAssets = assets.length;
   const totalCpu = assets.reduce((sum, a) => sum + (a.cpuCores || 0), 0);
   const totalRam = assets.reduce((sum, a) => sum + (a.ramGb || 0), 0);
-  const totalStorage = assets.reduce((sum, a) => sum + (a.storageGb || 0), 0);
+  const totalStorage = assets.reduce((sum, a) => sum + (a.capacityTb || 0), 0);
   const totalCapacity = assets.reduce((sum, a) => sum + (a.capacityTb || 0), 0);
 
   return (

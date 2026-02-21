@@ -1,3 +1,4 @@
+//src/app/approvals/components/ApproverDashboardClient.tsx
 "use client";
 
 import { useState, useTransition } from "react";
@@ -14,21 +15,54 @@ import {
   Zap,
   Calendar,
   Loader2,
-  MessageSquare
+  MessageSquare,
+  ArrowUpDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
-import {  canUserApprove } from "@/lib/roles";
+import { canUserApprove } from "@/lib/roles";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { handleApprovalDecision,  executeRequest } from "@/app/actions/approval-actions";
+import { handleApprovalDecision, executeRequest } from "@/app/actions/approval-actions";
 import { DashboardRequest } from "@/types/approvals";
 
 interface ApproverRequest extends Omit<DashboardRequest, "createdAt"> {
-  createdAt: string | Date; // Handle serialization
+  createdAt: string | Date;
 }
+
+// ✅ TYPE BADGE CONFIGURATION
+const REQUEST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: JSX.Element | null }> = {
+  NEW_VM: { 
+    label: "New VM", 
+    color: "bg-blue-50 text-blue-700 border-blue-200", 
+    icon: <HardDrive className="h-3 w-3 mr-1" /> 
+  },
+  CUSTOMIZED: { 
+    label: "Customization", 
+    color: "bg-purple-50 text-purple-700 border-purple-200", 
+    icon: <Zap className="h-3 w-3 mr-1" /> 
+  },
+  DECOMMISSION: { 
+    label: "Decommission", 
+    color: "bg-red-50 text-red-700 border-red-200", 
+    icon: <Activity className="h-3 w-3 mr-1" /> 
+  },
+  RENEWAL: { 
+    label: "Renewal", 
+    color: "bg-green-50 text-green-700 border-green-200", 
+    icon: <ArrowUpDown className="h-3 w-3 mr-1" /> 
+  },
+  UNKNOWN: { // ✅ CRITICAL ADDITION
+    label: "Unknown Type", 
+    color: "bg-slate-50 text-slate-700 border-slate-200", 
+    icon: null 
+  },
+};
+
+
+
 
 export function ApproverDashboardClient({ 
   initialRequests, 
@@ -48,6 +82,18 @@ export function ApproverDashboardClient({
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
   const [quickComments, setQuickComments] = useState("");
 
+  // ✅ DETERMINE CURRENT APPROVAL LEVEL FROM STATUS
+  const getCurrentLevel = (status: string): string | null => {
+    if (status.startsWith("PENDING_L")) return status.split("_")[1];
+    if (status === "APPROVED") return "DCOPS";
+    return null;
+  };
+
+  const getEntityType = (requestType?: string): "REQUEST" | "CUSTOMIZATION" => {
+    return requestType === "CUSTOMIZED" ? "CUSTOMIZATION" : "REQUEST";
+  };
+
+
   const filteredRequests = initialRequests.filter(req => {
     const matchesSearch = 
       req.systemName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -65,23 +111,32 @@ export function ApproverDashboardClient({
 
     return matchesSearch && matchesStatus && matchesType && matchesDate;
   });
-
-  async function onQuickAction(requestId: string, decision: "APPROVED" | "REJECTED") {
-    if (decision === "REJECTED" && !quickComments) {
+  async function onQuickAction(
+    requestId: string, 
+    entityType: "REQUEST" | "CUSTOMIZATION", 
+    decision: "APPROVED" | "REJECTED"
+  ) {
+    if (decision === "REJECTED" && !quickComments.trim()) {
       toast.error("Comments are required for rejection");
       return;
     }
 
     startTransition(async () => {
       try {
-        await handleApprovalDecision(requestId, decision, quickComments);
+        // ✅ PASS ALL 4 REQUIRED PARAMETERS
+await handleApprovalDecision(
+  requestId,
+  decision,
+  quickComments
+);
         toast.success(`Request ${decision.toLowerCase()} successfully`);
         setActiveActionId(null);
         setQuickComments("");
         router.refresh();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error) {
-        toast.error(`Action failed: ${error}`);
+        const message = error instanceof Error ? error.message : "Unknown error";
+        toast.error(`Action failed: ${message}`);
+        console.error("Approval error:", error);
       }
     });
   }
@@ -92,9 +147,10 @@ export function ApproverDashboardClient({
         await executeRequest(requestId, "Executed via dashboard quick action");
         toast.success("Request executed successfully");
         router.refresh();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error) {
-        toast.error(`Execution failed: ${error}`);
+        const message = error instanceof Error ? error.message : "Unknown error";
+        toast.error(`Execution failed: ${message}`);
+        console.error("Execution error:", error);
       }
     });
   }
@@ -184,181 +240,205 @@ export function ApproverDashboardClient({
       </div>
 
       {/* Requests Table */}
-      <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden transition-all duration-500">
+            <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-[#f8fafc] border-b border-slate-200">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">System & Project</th>
-                <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Requester</th>
-                <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Type</th>
-                <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Current Status</th>
-                <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Submitted</th>
-                <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] text-right">Quick Actions</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">System</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Type</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Requester</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Created</th>
+                <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredRequests.map((req) => {
-                let currentLevel = "";
-                if (req.status === "PENDING_L1") currentLevel = "L1";
-                else if (req.status === "PENDING_L2") currentLevel = "L2";
-                else if (req.status === "PENDING_L3") currentLevel = "L3";
-                else if (req.status === "APPROVED") currentLevel = "DCOPS";
+              {filteredRequests.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                    <div className="flex flex-col items-center gap-2">
+                      <Search className="h-8 w-8 text-slate-300" />
+                      <p className="text-sm font-medium">No requests match your filters</p>
+                      <p className="text-xs text-slate-400">Try adjusting your search or filters</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredRequests.map((req) => {
+                  // ✅ CRITICAL FIX: Safe requestType handling
+                  const requestType = req.requestType || "UNKNOWN";
+                  const isCustomization = requestType === "CUSTOMIZED";
+                  const entityType = getEntityType(requestType); // ✅ DERIVE ENTITY TYPE
+                  const currentLevel = getCurrentLevel(req.status);
+                  const canActHere = currentLevel && canUserApprove(userRoles, currentLevel);
+                  
+                  // ✅ SAFE CONFIG LOOKUP
+                  const typeConfig = REQUEST_TYPE_CONFIG[requestType] || REQUEST_TYPE_CONFIG.UNKNOWN;
+                  
+                  // Format date safely
+                  const createdAtDate = new Date(req.createdAt);
+                  const formattedDate = isNaN(createdAtDate.getTime()) 
+                    ? "Invalid Date" 
+                    : format(createdAtDate, 'MMM dd, yyyy HH:mm');
 
-                const canAct = canUserApprove(userRoles, currentLevel);
-                const isDcOps = currentLevel === "DCOPS";
-
-                return (
-                  <tr key={req.id} className={`hover:bg-slate-50/50 transition-all group ${activeActionId === req.id ? "bg-blue-50/30" : ""}`}>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-4">
-                         <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-white to-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 group-hover:border-blue-200 group-hover:text-blue-500 transition-all shadow-sm">
-                            <HardDrive className="h-5 w-5" />
-                         </div>
-                         <div>
-                            <p className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors leading-tight">{req.systemName}</p>
-                            <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">{req.projectName || "Generic Project"}</p>
-                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                         <div className="h-7 w-7 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200/50">
-                            <UserIcon className="h-3.5 w-3.5 text-slate-400" />
-                         </div>
-                         <p className="text-sm font-bold text-slate-600 truncate max-w-[120px]">{req.requester?.name}</p>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <Badge variant="outline" className="font-black bg-white border-slate-200 text-[9px] uppercase tracking-tighter text-slate-500 px-2 py-0">
-                         {req.requestType.replace(/_/g, " ")}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4">
-                       <StatusBadge status={req.status} />
-                    </td>
-                    <td className="px-6 py-4">
-                      <p className="text-xs text-slate-500 font-bold">
-                         {format(new Date(req.createdAt), "MMM dd, yyyy")}
-                      </p>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end items-center gap-2">
-                        {canAct && activeActionId !== req.id && (
-                           <div className="flex gap-1 animate-in fade-in slide-in-from-right-2">
-                              {!isDcOps ? (
-                                 <>
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm" 
-                                      className="h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                                      onClick={() => setActiveActionId(req.id)}
-                                    >
-                                       Quick Reject
-                                    </Button>
-                                    <Button 
-                                      size="sm" 
-                                      className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                                      onClick={() => {
-                                         setActiveActionId(req.id);
-                                         setQuickComments("Approved via dashboard shortcut");
-                                      }}
-                                    >
-                                       Approve Now
-                                    </Button>
-                                 </>
-                              ) : (
-                                 <Button 
-                                   size="sm" 
-                                   className="h-9 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-100 gap-2 font-bold px-4"
-                                   onClick={() => onQuickExecute(req.id)}
-                                   disabled={isPending}
-                                 >
-                                    {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-                                    Execute
-                                 </Button>
-                              )}
-                           </div>
-                        )}
-
-                        <Link href={`/approvals/${req.id}`}>
-                           <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:text-blue-600 transition-colors">
-                              <Eye className="h-4 w-4" />
-                           </Button>
-                        </Link>
-                      </div>
-                      
-                      {/* Expanded Quick Action Area */}
-                      {activeActionId === req.id && (
-                         <div className="mt-3 p-3 bg-white border border-blue-100 rounded-lg shadow-inner space-y-3 text-left animate-in zoom-in-95 duration-200">
-                            <div className="flex items-center gap-2 text-blue-800">
-                               <MessageSquare className="h-3.5 w-3.5" />
-                               <span className="text-[10px] font-bold uppercase tracking-widest">Adding context for decision</span>
+                  return (
+                    <tr 
+                      key={req.id} 
+                      className={`hover:bg-slate-50/50 transition-all ${
+                        activeActionId === req.id ? 'bg-blue-50/30' : ''
+                      }`}
+                    >
+                        {/* System Name */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div>
+                            <div className="text-sm font-bold text-slate-900">{req.systemName || 'Unnamed System'}</div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {req.projectName || 'No project'}
                             </div>
-                            <Textarea 
-                               placeholder="Add your comments here..."
-                               className="min-h-[60px] text-xs bg-slate-50/50"
-                               value={quickComments}
-                               onChange={(e) => setQuickComments(e.target.value)}
-                            />
-                            <div className="flex justify-end gap-2">
-                               <Button variant="ghost" size="sm" className="h-8 text-[10px] uppercase font-black" onClick={() => {setActiveActionId(null); setQuickComments("");}}>Cancel</Button>
-                               {quickComments === "Approved via dashboard shortcut" ? (
-                                  <Button 
-                                    size="sm" 
-                                    className="h-8 bg-emerald-600 hover:bg-emerald-700 text-[10px] uppercase font-black" 
-                                    onClick={() => onQuickAction(req.id, "APPROVED")}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Request Type */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Badge className={`font-black border px-2.5 py-1 shadow-none text-[10px] uppercase tracking-tight flex items-center ${typeConfig.color}`}>
+                          {typeConfig.icon}
+                          {typeConfig.label}
+                        </Badge>
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <StatusBadge status={req.status} />
+                      </td>
+
+                      {/* Requester */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                            <UserIcon className="h-4 w-4 text-blue-600" />
+                          </div>
+                          <div className="ml-3">
+                            <div className="text-sm font-medium text-slate-900">{req.requester?.name || 'Unknown'}</div>
+                            <div className="text-xs text-slate-500">{req.requester?.email || ''}</div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Created At */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                        {formattedDate}
+                      </td>
+
+
+                      {/* Actions Column - CRITICAL FIXES BELOW */}
+                      <td className="px-6 py-4">
+                        <div className="flex justify-end items-center gap-2">
+                          {/* ✅ CONDITIONAL QUICK ACTIONS WITH ENTITY TYPE */}
+                          {canActHere && currentLevel !== "DCOPS" && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-xs text-emerald-700 hover:bg-emerald-50"
+                                onClick={() => onQuickAction(req.id, entityType, "APPROVED")} // ✅ PASS entityType
+                                disabled={isPending || activeActionId === req.id}
+                              >
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Approve
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-xs text-red-700 hover:bg-red-50"
+                                onClick={() => {
+                                  setActiveActionId(req.id);
+                                  setQuickComments("");
+                                }}
+                                disabled={isPending}
+                              >
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Reject
+                              </Button>
+                            </>
+                          )}
+
+                          {canActHere && currentLevel === "DCOPS" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 bg-blue-600 hover:bg-blue-700 text-white border-blue-600 text-xs shadow"
+                              onClick={() => onQuickExecute(req.id)}
+                              disabled={isPending}
+                            >
+                              <Zap className="h-3 w-3 mr-1" />
+                              Execute
+                            </Button>
+                          )}
+
+                          {/* View Details */}
+                          <Link href={`/approvals/${req.id}?type=${isCustomization ? 'customization' : 'request'}`}>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-9 w-9 text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                        </div>
+
+                        {/* ✅ INLINE COMMENT INPUT - PASS entityType IN SCOPE */}
+                        {activeActionId === req.id && currentLevel !== "DCOPS" && (
+                          <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                            <div className="flex items-start gap-2">
+                              <MessageSquare className="h-4 w-4 text-orange-500 mt-1 flex-shrink-0" />
+                              <div className="flex-1">
+                                <Textarea
+                                  placeholder="Required: Explain reason for rejection..."
+                                  value={quickComments}
+                                  onChange={(e) => setQuickComments(e.target.value)}
+                                  className="min-h-[60px] text-sm border-orange-200 focus:border-orange-400"
+                                />
+                                <div className="flex justify-end gap-2 mt-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setActiveActionId(null);
+                                      setQuickComments("");
+                                    }}
                                     disabled={isPending}
                                   >
-                                     {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />} 
-                                     Confirm Approval
+                                    Cancel
                                   </Button>
-                               ) : (
-                                  <Button 
-                                    size="sm" 
-                                    className="h-8 bg-red-600 hover:bg-red-700 text-[10px] uppercase font-black" 
-                                    onClick={() => onQuickAction(req.id, "REJECTED")}
-                                    disabled={isPending || !quickComments}
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    // ✅ PASS entityType FROM JSX SCOPE (available in map iteration)
+                                    onClick={() => onQuickAction(req.id, entityType, "REJECTED")}
+                                    disabled={isPending || !quickComments.trim()}
                                   >
-                                     {isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <XCircle className="h-3 w-3 mr-1" />} 
-                                     Confirm Rejection
+                                    {isPending ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      'Confirm Reject'
+                                    )}
                                   </Button>
-                               )}
+                                </div>
+                              </div>
                             </div>
-                         </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {filteredRequests.length === 0 && (
-                <tr>
-                   <td colSpan={6} className="px-6 py-20 text-center">
-                      <div className="flex flex-col items-center gap-3 opacity-20 group">
-                         <Activity className="h-12 w-12 group-hover:scale-110 transition-transform duration-500" />
-                         <div className="space-y-1">
-                            <p className="font-black text-xl uppercase tracking-tighter">Queue is Empty</p>
-                            <p className="text-sm font-medium">All tasks at your clearance level are processed</p>
-                         </div>
-                      </div>
-                   </td>
-                </tr>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
-        </div>
-
-        {/* Legend / Info Footer */}
-        <div className="bg-slate-50/50 px-6 py-3 border-t border-slate-100 flex items-center justify-between">
-           <div className="flex gap-4">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase">
-                 <div className="h-2 w-2 rounded-full bg-orange-400" /> Approval Required
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase">
-                 <div className="h-2 w-2 rounded-full bg-blue-500" /> Execution Pending
-              </div>
-           </div>
-           <p className="text-[10px] text-slate-300 font-medium italic">Data automatically synced with Neon Cloud Database</p>
         </div>
       </div>
     </div>
@@ -374,11 +454,14 @@ function StatusBadge({ status }: { status: string }) {
     REJECTED: "bg-red-50 text-red-700 border-red-200",
     PROVISIONED: "bg-blue-50 text-blue-700 border-blue-200",
     CLOSED: "bg-slate-50 text-slate-700 border-slate-200",
+    APPLIED: "bg-purple-50 text-purple-700 border-purple-200", // ✅ CRITICAL ADDITION
   };
 
   return (
-    <Badge className={`font-black border px-2 shadow-none text-[9px] uppercase tracking-tighter ${configs[status] || "bg-slate-50"}`}>
-       {status.replace(/_/g, " ")}
+    <Badge className={`font-black border px-2 shadow-none text-[9px] uppercase tracking-tighter ${
+      configs[status] || "bg-slate-50 text-slate-700 border-slate-200"
+    }`}>
+      {status.replace(/_/g, " ")}
     </Badge>
   );
 }

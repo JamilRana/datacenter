@@ -1,4 +1,3 @@
-// src/types/audit.ts
 export interface AuditLogDetails {
   [key: string]: string | number | boolean | null | undefined | AuditLogDetails | AuditLogDetails[];
 }
@@ -17,4 +16,13 @@ export interface AuditLog {
   details?: AuditLogDetails;
   entityType?: string | null;
   entityId?: string | null;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  type: string;
+  message: string;
+  isRead: boolean;
+  createdAt: Date;
 }

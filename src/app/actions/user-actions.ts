@@ -9,11 +9,51 @@ import { ROLES } from "@/lib/roles";
 import { hash } from "bcryptjs";
 import { Role } from "@prisma/client";
 
+export async function getRequesters() {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        roles: {
+          some: {
+            role: {
+              name: ROLES.REQUESTER,
+            },
+          },
+        },
+        isActive: true, // Only fetch active users who can actually approve
+      },
+      include: {
+      roles: {
+        include: { role: true },
+      },
+    },
+      orderBy: { 
+        name: "asc" 
+      },
+    });
+
+      return users.map((user) => ({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    contact: user.contact,
+    designation: user.designation,
+    organization: user.organization,
+    isActive: user.isActive,
+    roles: user.roles.map((r) => r.role.name), // <-- FIX
+  }));
+  } catch (error) {
+    console.error("Error fetching requesters:", error);
+    return [];
+  }
+}
+
 export async function getAllUsers() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.roles?.includes(ROLES.ADMIN)) throw new Error("Unauthorized");
 
-  const users = await prisma.user.findMany({
+const users = await prisma.user.findMany({
+    where: { isActive: true },
     include: {
       roles: {
         include: { role: true },
@@ -21,8 +61,16 @@ export async function getAllUsers() {
     },
     orderBy: { name: "asc" },
   });
-
-  return users;
+  return users.map((user) => ({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    contact: user.contact,
+    designation: user.designation,
+    organization: user.organization,
+    isActive: user.isActive,
+    roles: user.roles.map((r) => r.role.name), // <-- FIX
+  }));
 }
 
 export async function getUserById(id: string) {
@@ -258,6 +306,65 @@ export async function toggleUserStatus(userId: string, currentStatus: boolean) {
         entityId: userId,
         details: JSON.stringify({ active: !currentStatus }),
      }
+  });
+
+  revalidatePath("/admin/users");
+}
+
+
+
+export async function createRole(name: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.roles?.includes(ROLES.ADMIN)) {
+    throw new Error("Unauthorized");
+  }
+
+  const trimmed = name.trim().toUpperCase();
+  if (!trimmed) throw new Error("Role name required");
+
+  const exists = await prisma.role.findUnique({
+    where: { name: trimmed },
+  });
+
+  if (exists) throw new Error("Role already exists");
+
+  await prisma.role.create({
+    data: { name: trimmed },
+  });
+
+  revalidatePath("/admin/users");
+}
+
+export async function updateRole(id: string, name: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.roles?.includes(ROLES.ADMIN)) {
+    throw new Error("Unauthorized");
+  }
+
+  await prisma.role.update({
+    where: { id },
+    data: { name: name.trim().toUpperCase() },
+  });
+
+  revalidatePath("/admin/users");
+}
+
+export async function deleteRole(id: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.roles?.includes(ROLES.ADMIN)) {
+    throw new Error("Unauthorized");
+  }
+
+  const roleInUse = await prisma.userRole.findFirst({
+    where: { roleId: id },
+  });
+
+  if (roleInUse) {
+    throw new Error("Cannot delete role in use");
+  }
+
+  await prisma.role.delete({
+    where: { id },
   });
 
   revalidatePath("/admin/users");

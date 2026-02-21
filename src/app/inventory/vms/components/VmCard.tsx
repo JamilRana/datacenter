@@ -1,14 +1,23 @@
 // src/app/inventory/vms/components/VmCard.tsx
 "use client";
 
-import { VmInstance } from "@prisma/client";
+import { VmStatus } from "@/types/enums";
+
+interface BaseVmInstance {
+  id: string;
+  hostname: string | null;
+  ipAddress: string | null;
+  publicIpAddress: string | null;
+  status: VmStatus;
+}
+
 import Link from "next/link";
 import { RenewButton } from "@/app/requests/components/RenewButton";
 import { Settings, Trash2, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface VmCardProps {
-  vm: VmInstance & {
+  vm: BaseVmInstance & {
     currentSpec: {
       vcpu: number;
       ramGb: number;
@@ -21,7 +30,7 @@ interface VmCardProps {
 
 export default function VmCard({ vm }: VmCardProps) {
 
-  const getStatusColor = (status: VmInstance["status"]) => {
+  const getStatusColor = (status: VmStatus) => {
     switch (status) {
       case "ACTIVE":
         return "bg-green-100 text-green-800";

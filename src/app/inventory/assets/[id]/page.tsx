@@ -16,7 +16,9 @@ import {
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Asset, SoftwareLicense } from "@prisma/client";
+import { Asset, SoftwareLicense } from "@/types/inventory";
+
+
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { fetchAssetDetailsWithLicenses } from "@/app/actions/asset-actions";

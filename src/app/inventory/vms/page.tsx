@@ -1,4 +1,3 @@
-// src/app/inventory/vms/page.tsx
 "use client";
 
 import { redirect } from "next/navigation";
@@ -8,64 +7,35 @@ import { CapacityDashboardClient } from "@/app/inventory/components/CapacityDash
 import { BarChart3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useSession } from "next-auth/react";
-import { getVmList } from "@/app/actions/vm-actions";
+import { fetchAllVms } from "@/app/actions/vm-actions"; // ✅ Use serialized fetch
 import { useEffect, useState } from "react";
-import { Environment, Raid, VmStatus } from "@prisma/client";
-
-interface vmsList {
-    request: {
-        systemName: string;
-        environment: Environment;
-    };
-    owner: {
-        name: string;
-        email: string;
-    } | null;
-    currentSpec: {
-        id: string;
-        createdAt: Date;
-        vcpu: number;
-        ramGb: number;
-        osName: string | null;
-        osVersion: string | null;
-        storageGb: number;
-        raid: Raid | null;
-        appliedById: string | null;
-        vmInstanceId: string;
-        effectiveFrom: Date;
-        sourceRequestId: string | null;
-    } | null;
-    id: string;
-    createdAt: Date;
-    updatedAt: Date;
-    status: VmStatus;
-    requestId: string;
-    subdomain: string | null;
-    currentSpecId: string | null;
-}
+import { SerializedVmInstance } from "@/types/vm"; // ✅ Correct type
 
 export default function VmInventoryPage() {
-  const {data:session} = useSession();
+  const { data: session } = useSession();
   const [metrics, setMetrics] = useState<InventoryMetrics | null>(null);
-  const [vms, setVms] = useState<vmsList[]>([]);
+  const [vms, setVms] = useState<SerializedVmInstance[]>([]); // ✅ Correct type
 
   if (!session?.user) redirect("/auth");
 
   const userRoles = session.user.roles;
-  const isManagement = userRoles.some(r => ["ADMIN", "DCOPS", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3"].includes(r));
+  const isManagement = userRoles.some(r => 
+    ["ADMIN", "DCOPS", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3"].includes(r)
+  );
 
   useEffect(() => {
     const fetchVmLists = async () => {
-      try{
-        const metricsRes = await getInventoryMetrics();
+      try {
+        const [metricsRes, vmsRes] = await Promise.all([
+          getInventoryMetrics(),
+          fetchAllVms() // ✅ Already handles auth + serialization
+        ]);
         setMetrics(metricsRes);
-const vmsList = await getVmList(isManagement , session.user.id);
-setVms(vmsList);
-      }
-      catch(error){
+        setVms(vmsRes);
+      } catch (error) {
         console.error("Failed to fetch VM lists:", error);
       }
-    }
+    };
     
     fetchVmLists();
   }, [session]);
@@ -76,9 +46,9 @@ setVms(vmsList);
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">VM Inventory</h1>
           <p className="text-slate-500 mt-1">
-             {!isManagement 
-               ? "Authoritative list of virtual machines provisioned under your ownership."
-               : "System-wide inventory of all provisioned virtual instances across the cluster."}
+            {!isManagement 
+              ? "Authoritative list of virtual machines provisioned under your ownership."
+              : "System-wide inventory of all provisioned virtual instances across the cluster."}
           </p>
         </div>
       </div>
@@ -101,7 +71,7 @@ setVms(vmsList);
       )}
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-         <VmListClient initialVms={JSON.parse(JSON.stringify(vms))}  />
+        <VmListClient initialVms={vms} /> {/* ✅ Directly pass serialized data */}
       </div>
     </div>
   );

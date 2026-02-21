@@ -2,7 +2,30 @@
 "use client";
 
 import { deleteAsset } from "@/app/actions/asset-actions";
-import { Asset } from "@prisma/client";
+import { AssetType } from "@/types/enums";
+
+interface Asset {
+  id: string;
+  name: string;
+  type: AssetType;
+  model: string | null;
+  vendor: string | null;
+  serial: string | null;
+  location: string | null;
+  warrantyExpiry: Date | string | null;
+  cpuCores: number | null;
+  ramGb: number | null;
+  storageGb: number | null;
+  graphicsCardModel: string | null;
+  graphicsCardSpec: string | null;
+  interfaces: number | null;
+  throughputGbps: number | null;
+  vlanSupport: boolean | null;
+  capacityTb: number | null;
+  noOfDisks: number | null;
+  createdAt: Date | string;
+}
+
 import { format } from "date-fns";
 import { useState } from "react";
 import CreateAssetModal from "./CreateAssetModal";

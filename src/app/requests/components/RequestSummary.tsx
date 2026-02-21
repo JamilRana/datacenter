@@ -1,11 +1,12 @@
+// src/app/requests/components/RequestSummary.tsx
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { RequestDetailsData } from "@/types/requests";
+import { detailsRequest } from "@/types/requests";
 import { FileText, Clock, CheckCircle2, XCircle, HardDrive } from "lucide-react";
 
 interface RequestSummaryProps {
-  requests: RequestDetailsData[];
+  requests: detailsRequest[];
 }
 
 export function RequestSummary({ requests }: RequestSummaryProps) {

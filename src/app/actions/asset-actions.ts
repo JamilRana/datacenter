@@ -4,8 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
-import { ASSET_TYPES } from "@/types/inventory";
-import { Asset, SoftwareLicense } from "@prisma/client";
+import { AssetType } from "@/types/enums";
 
 // Helper: safely convert empty string to undefined, and assert type
 const optionalString = (value: unknown): string | undefined => {
@@ -26,7 +25,7 @@ const optionalBoolean = (value: unknown): boolean | undefined => {
 
 const assetBaseSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  type: z.enum(ASSET_TYPES, { message: "Invalid asset type" }), // ✅ valid syntax
+  type: z.enum(AssetType, { message: "Invalid asset type" }), // ✅ valid syntax
 
   vendor: z.string().optional().transform(optionalString),
   model: z.string().optional().transform(optionalString),
@@ -79,8 +78,6 @@ const updateAssetSchema = assetBaseSchema.extend({
   id: z.string().uuid("Invalid asset ID"),
 });
 
-// --- Actions ---
-
 export async function createAsset(formData: FormData) {
   const validated = createAssetSchema.parse(Object.fromEntries(formData));
   await prisma.asset.create({
@@ -128,12 +125,23 @@ export async function fetchAssetDetails(id: string) {
 }
 
 export async function fetchAssetDetailsWithLicenses(id: string) {
-  return await prisma.asset.findUnique({
+  const asset = await prisma.asset.findUnique({
     where: { id },
-    include: {
-      licenses: true,
-    },
-  }) as (Asset & { licenses: SoftwareLicense[] }) | null;
+    include: { licenses: true },
+  });
+
+  if (!asset) return null;
+
+  return {
+    ...asset,
+    warrantyExpiry: asset.warrantyExpiry?.toISOString() ?? null,
+    licenses: asset.licenses.map((license) => ({
+      ...license,
+      expiryDate: license.expiryDate?.toISOString() ?? null,
+      maintenanceExpiry:
+        license.maintenanceExpiry?.toISOString() ?? null,
+    })),
+  };
 }
 
 export async function fetchAllAssets() {

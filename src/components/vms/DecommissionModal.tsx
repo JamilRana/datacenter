@@ -1,84 +1,133 @@
-// src/app/components/vms/DecommissionModal.tsx
+// src/components/vms/DecommissionModal.tsx
 "use client";
 
-// import { decommissionVm } from "@/app/actions/vm-actions";
-import { useSession } from "next-auth/react"; // or your auth method
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { createDecommissionRequest } from "@/app/actions/decommission-actions";
 
 interface DecommissionModalProps {
   isOpen: boolean;
   onClose: () => void;
   vmId: string;
+  hostname?: string;
+  onSuccess?: () => void;
 }
 
 export default function DecommissionModal({
   isOpen,
   onClose,
   vmId,
+  hostname,
+  onSuccess,
 }: DecommissionModalProps) {
-  const { data: session } = useSession(); // Adjust based on your auth
   const router = useRouter();
   const [reason, setReason] = useState("");
-  const [isDecommissioning, setIsDecommissioning] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleDecommission = async () => {
-    if (!session?.user?.id) {
-      alert("You must be logged in to decommission a VM.");
+  const handleSubmit = async () => {
+    if (!reason.trim()) {
+      toast.error("Reason is required");
+      return;
+    }
+    if (reason.trim().length < 20) {
+      toast.error("Reason must be at least 20 characters");
       return;
     }
 
-    setIsDecommissioning(true);
+    setIsSubmitting(true);
     try {
-      // Import this from vm-actions
-      const { createDecommissionRequest } = await import("@/app/actions/vm-actions");
-      await createDecommissionRequest(vmId, session.user.id, reason);
+      const decommissionFormData = new FormData();
+      decommissionFormData.append("targetVmId", vmId);
+      decommissionFormData.append("reason", reason.trim());
+      decommissionFormData.append("status", "PENDING_L1");
+      
+      await createDecommissionRequest(decommissionFormData);
+      
+      toast.success("Decommission request submitted successfully");
       onClose();
-      toast.success("Decommission request submitted for approval");
+      onSuccess?.();
       router.push("/requests");
     } catch (error) {
-      console.error("Failed to submit decommission request:", error);
-      toast.error("Failed to submit decommission request.");
+      toast.error("Failed to submit decommission request");
+      console.error("Decommission error:", error);
     } finally {
-      setIsDecommissioning(false);
+      setIsSubmitting(false);
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6">
-        <h3 className="font-semibold text-lg">Decommission VM?</h3>
-        <p className="text-gray-600 mt-2">
-          This will retire the VM and close any pending customization requests.
-        </p>
-
-        <textarea
-          placeholder="Optional reason..."
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          className="w-full border rounded px-3 py-2 mt-3"
-          rows={2}
-        />
-
-        <div className="mt-6 flex gap-3">
-          <button
-            onClick={handleDecommission}
-            disabled={isDecommissioning}
-            className="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
-          >
-            {isDecommissioning ? "Decommissioning..." : "Confirm Decommission"}
-          </button>
-          <button
-            onClick={onClose}
-            className="flex-1 bg-gray-200 text-gray-800 py-2 rounded-lg"
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Decommission Virtual Machine</DialogTitle>
+          <DialogDescription>
+            This will initiate the decommissioning process for{" "}
+            <span className="font-bold">{hostname || "this VM"}</span>.
+            This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="py-4 space-y-4">
+          <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-sm font-medium text-red-800 flex items-start gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              Warning: All data on this VM will be permanently deleted after approval.
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="reason" className="text-sm font-medium">
+              Reason for Decommission <span className="text-red-500">*</span>
+            </Label>
+            <Textarea 
+              id="reason" 
+              placeholder="Required: Explain why this VM is being decommissioned (minimum 20 characters)..." 
+              rows={4}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="resize-none"
+              minLength={20}
+            />
+            <p className="text-xs text-slate-500">
+              Provide a clear business justification (min 20 characters).
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex justify-end gap-3 pt-2">
+          <Button 
+            variant="outline" 
+            onClick={() => {
+              setReason("");
+              onClose();
+            }}
+            disabled={isSubmitting}
           >
             Cancel
-          </button>
+          </Button>
+          <Button 
+            variant="destructive"
+            onClick={handleSubmit}
+            disabled={isSubmitting || reason.trim().length < 20}
+            className="bg-red-600 hover:bg-red-700"
+          >
+            {isSubmitting ? "Submitting..." : "Submit Decommission Request"}
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

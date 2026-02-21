@@ -2,7 +2,7 @@
 "use client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
-import { VmInstance } from "@/types/inventory";
+import { VmInstance } from "@/types/vm";
 
 export function VmTableSection({ vms }: { vms: VmInstance[] }) {
   return (
@@ -29,7 +29,7 @@ export function VmTableSection({ vms }: { vms: VmInstance[] }) {
                   {vm.hostname || `VM #${(vm as VmInstance).sequenceNumber || '?'}`}
                 </span>
                 <span className="text-muted-foreground">
-                  {vm.ipAddress || "—"} • {vm.request?.systemName || 'No Request Context'}
+                  {vm.ipAddress || "—"} • {vm.hostname || 'No Request Context'}
                 </span>
               </div>
             ))}

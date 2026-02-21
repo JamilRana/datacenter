@@ -1,12 +1,35 @@
 // src/types/approvals.ts
-import { Approval, RequestStatus, RequestType } from "@prisma/client";
+//import { RequestStatus, RequestType, CustomizationStatus } from "./enums";
 
-// ✅ Make requester optional to match Prisma schema
+import { CustomizationStatus, RequestStatus, RequestType } from "@prisma/client";
+
+export interface Approval {
+  id: string;
+  entityType: string;
+  requestId: string|null;
+  customizationRequestId: string|null;
+  level: number;
+  approverId: string;
+  approver: { id: string; name: string; email: string; designation: string | null };
+  decision: string;
+  comments: string | null;
+  decidedAt: Date | string | null;
+  createdAt: Date | string;
+}
+
+// ✅ SEPARATE BASE INTERFACES FOR DIFFERENT ENUMS
 export interface BaseRequest {
   id: string;
   createdAt: Date;
-  status: RequestStatus;
-  requester: Requester | null; // ✅ Nullable
+  status: RequestStatus; // For Request model
+  requester: Requester | null;
+}
+
+export interface BaseCustomizationRequest {
+  id: string;
+  createdAt: Date;
+  status: CustomizationStatus; // For CustomizationRequest model
+  requester: Requester | null;
 }
 
 export interface VmInstance {
@@ -19,38 +42,27 @@ export interface RequestItem extends BaseRequest {
   projectName: string | null;
 }
 
-export interface CustomizationRequestItem extends BaseRequest {
+export interface CustomizationRequestItem extends BaseCustomizationRequest {
   targetVm: VmInstance | null;
+  vcpu?: number | null;
+  ramGb?: number | null;
+  storageGb?: number | null;
+  purpose?: string | null;
 }
-
 
 export interface Requester {
   name: string;
   email: string;
+  designation?: string | null;
 }
 
 export interface DashboardRequest {
   id: string;
   createdAt: Date;
-  status: RequestStatus;
-  requestType: RequestType;
+  status:string;
+  requestType?: string;
   systemName: string;
   projectName: string | null;
   requester: Requester | null;
-  
-  // Optional fields that may exist on some request types
-  targetVm?: {
-    hostname: string | null;
-  } | null;
-}
-
-export interface ApprovalRequestDetail extends BaseRequest {
-  requestType: RequestType;
-  systemName: string;
-  projectName: string | null;
-  // Explicitly define included relations with correct nullability
-  requester: (Requester & { designation: string | null }) | null;
-  approvals: Approval[];
-  vmInstances: Array<{ /* define minimal shape if used */ }>;
-  targetVm: VmInstance | null;
+  targetVm?: { hostname: string | null } | null;
 }

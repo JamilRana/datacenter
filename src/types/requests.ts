@@ -1,141 +1,202 @@
-// src/types/requests.ts
-import { 
-  RequestStatus, 
-  RequestType, 
-  Environment, 
+//types/requests.ts
+import { Approval } from "./approvals";
+import { CustomizationRequest } from "./customization";
+// import {
+//   RequestType,
+//   RequestStatus,
+//   Environment,
+//   ServerType,
+//   LicenseProvider,
+//   SSLProvider,
+//   Raid,
+//   NetworkAccess,
+//   Protocol,
+//   CustomizationStatus,
+// } from "./enums";
+
+import {
+  RequestType,
+  RequestStatus,
+  Environment,
+  ServerType,
+  LicenseProvider,
+  SSLProvider,
+  Raid,
   NetworkAccess,
-  Raid,Approval as PrismaApproval,
-  VmInstance as PrismaVmInstance,
+  Protocol,
+  CustomizationStatus,
 } from "@prisma/client";
 
-export interface Approval {
-  id: string;
-  level: string;
-  approverId: string;
-  decision: string;
-  comments: string | null;
-  approver?: {
-     name: string;
-  };
-}
+import { VmInstance } from "./vm";
 
+// Person interfaces (reusable)
 export interface Person {
   name: string;
   designation: string;
   organization: string;
   contact: string;
   email: string;
+  address?: string | null;
 }
 
+// Sub-entity types
 export interface AdditionalDisk {
-  sizeGb: string;
-  purpose: string;
+  sizeGb: number;
+  purpose?: string;
+  sequence: number;
 }
 
 export interface FirewallPort {
-  port: string;
-  protocol: "TCP" | "UDP" | "OTHER";
+  port: number;
+  protocol: Protocol;
   purpose: string;
   source?: string;
 }
 
-export interface Developer {
-  name: string;
-  address: string;
-  contact: string;
-  email: string;
+export interface NetworkAccessEntry {
+  accessType: NetworkAccess;
 }
 
-export interface RequestDetailsData {
+// Main request interface
+export interface detailsRequest {
   id: string;
-  systemName: string;
+  requestType: RequestType;
+  status: RequestStatus;
+  quantity: number;
+  requestId?: string | null;
   projectName?: string | null;
+  systemName: string;
   purpose: string;
   environment: Environment;
-  expectedEndDate?: string;
-  
-  // People
-  responsiblePerson: Person;
-  alternativePerson: Person;
-  developer: Developer;
-  
-  // Tech Stack
-  frontendTech?: string | null;
-  backendTech?: string | null;
-  dataBase?: string | null;
-  serverArchitecture?: string | null;
-  additionalTechNotes?: string | null;
-  
+  expectedEndDate?: Date | null;
+
+  requesterId: string;
+  requester: Person;
+
+  alternativePerson: Person | null;
+  developer: Person | null;
+
   // VM Spec
-  quantity: number;
-  vcpu?: number | null;        // ✅
-  ramGb?: number | null;       // ✅
-  storageGb?: number | null;    // ✅
+  serverType: ServerType;
+  vcpu?: number | null;
+  ramGb?: number | null;
   osName?: string | null;
   osVersion?: string | null;
+  osLicenseBy?: LicenseProvider | null;
+  storageGb?: number | null;
   subdomain?: string | null;
-  raid: Raid;
-  sslProvider?: string | null;
+  sslProvider?: SSLProvider | null;
   sslCostPaidBy?: string | null;
-  
-  // Network & Security
+  raid?: Raid | null;
+  retentionPeriod?: string | null;
   requiredPublicIP: boolean;
   vpnRequired: boolean;
-  networkAccess: NetworkAccess[];
-  additionalDisks: AdditionalDisk[];
-  firewallPorts: FirewallPort[];
-  
+
   // Compliance
   vaReportSubmitted: boolean;
   justificationSubmitted: boolean;
   renewalRequired: boolean;
-  renewalPeriodMonths?: number | null; // ✅
-  
-  // Status
-  status: RequestStatus;
-  requestType: RequestType;
-  
+  renewalPeriodMonths?: number | null;
+
+  // Timestamps
+  createdAt: Date;
+  submittedAt?: Date | null;
+  updatedAt: Date;
+  provisionedAt?: Date | null;
+
+  // Tech Stack
+  frontendTech?: string | null;
+  backendTech?: string | null;
+  serverArchitecture?: string | null;
+  dataBase?: string | null;
+  additionalTechNotes?: string | null;
+
   // Relations
-  approvals: PrismaApproval[];
-    vmInstances: Array<
-    Pick<PrismaVmInstance, 
-      'id' | 'hostname' | 'ipAddress' | 'status' | 'provisionedAt'
-    > & {
-      owner: { name: string | null; email: string | null } | null;
-      request: { environment: string | null; systemName: string | null } | null;
-      currentSpec: { vcpu: number | null; ramGb: number | null; storageGb: number | null } | null;
-    }
-  >;
-  targetVm: TargetVmSummary | null;  
-  submittedAt?: string;
+  vmInstances: VmInstance[] | null;
+  approvals: Approval[] | null;
+  customizations: CustomizationRequest[] | null;
+  additionalDisks: AdditionalDisk[] | null;
+  firewallPorts: FirewallPort[] | null;
+  networkAccess: NetworkAccessEntry[] | null;
+  targetVm?: VmInstance | null;
 }
 
-
-export interface TargetVmSummary {
+export interface Request {
   id: string;
-  hostname: string | null;
-  ipAddress: string | null;
-  status: "ACTIVE" | "SUSPENDED" | "RETIRED";
-  provisionedAt: Date | null;
-  owner: {
-    name: string | null;
-    email: string | null;
-  } | null;
-  request: {
-    environment: string | null;
-    systemName: string | null;
-  } | null;
-  currentSpec: {
-    vcpu: number | null;
-    ramGb: number | null;
-    storageGb: number | null;
-  } | null;
+  requestType: RequestType;
+  status: RequestStatus;
+  quantity: number;
+  requestId?: string | null;
+  projectName?: string | null;
+  systemName: string;
+  purpose: string;
+  environment: Environment;
+  expectedEndDate?: Date | null;
+
+  requesterId: string;
+  requester: Requester | null;
+
+  alternativePerson: Person | null;
+  developer: Person | null;
+
+  developerId?: string | null;
+  requiresL4Approval?: boolean;
+
+  // VM Spec
+  serverType: ServerType;
+  vcpu?: number | null;
+  ramGb?: number | null;
+  osName?: string | null;
+  osVersion?: string | null;
+  osLicenseBy?: LicenseProvider | null;
+  storageGb?: number | null;
+  subdomain?: string | null;
+  sslProvider?: SSLProvider | null;
+  sslCostPaidBy?: string | null;
+  raid?: Raid | null;
+  retentionPeriod?: string | null;
+  requiredPublicIP: boolean;
+  vpnRequired: boolean;
+
+  // Compliance
+  vaReportSubmitted: boolean;
+  justificationSubmitted: boolean;
+  renewalRequired: boolean;
+  renewalPeriodMonths?: number | null;
+
+  // Timestamps
+  createdAt: Date;
+  submittedAt?: Date | null;
+  updatedAt: Date;
+  provisionedAt?: Date | null;
+
+  // Tech Stack
+  frontendTech?: string | null;
+  backendTech?: string | null;
+  serverArchitecture?: string | null;
+  dataBase?: string | null;
+  additionalTechNotes?: string | null;
+
+  // Relations
+  approvals: Approval[];
+  additionalDisks: AdditionalDisk[];
+  firewallPorts: FirewallPort[];
+  networkAccess: NetworkAccessEntry[];
 }
 
-
-export interface VmInstance {
+export interface Requester {
   id: string;
-  hostname: string | null;
-  ipAddress: string | null;
-  status?: string;
+  name: string;
+  email: string;
+  designation?: string | null;
 }
+
+export interface RequestListItem extends Pick<Request, 
+  "id" | "systemName" | "projectName" | "status" | "environment" | "createdAt"> {
+  requester: Pick<Requester, "name"> | null;
+  vmCount: number;
+}
+
+// Helper functions
+export const canEdit = (status: RequestStatus |CustomizationStatus | string) => status === RequestStatus.DRAFT;
+export const canSubmit = (status: RequestStatus |CustomizationStatus | string) => status === RequestStatus.DRAFT;

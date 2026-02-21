@@ -2,9 +2,9 @@
 "use client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
-import { EnrollmentLicense } from "@/types/inventory";
+import { License } from "@/types/inventory";
 
-export function LicenseTableSection({ licenses }: { licenses: EnrollmentLicense[] }) {
+export function LicenseTableSection({ licenses }: { licenses: License[] }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -27,7 +27,7 @@ export function LicenseTableSection({ licenses }: { licenses: EnrollmentLicense[
               <div key={license.id} className="flex justify-between text-sm">
                 <span className="font-medium">{license.name}</span>
                 <span className="text-muted-foreground">
-                  {license.usedSeats}/{license.totalSeats} seats
+                  Expires on {license.expiryDate?.toDateString()} | {license.type}
                 </span>
               </div>
             ))}

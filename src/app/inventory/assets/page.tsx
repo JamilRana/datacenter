@@ -1,7 +1,6 @@
 // src/app/inventory/assets/page.tsx
 "use client";
 import { redirect } from "next/navigation";
-import { getAssets } from "@/app/actions/inventory-actions";
 import { ROLES } from "@/lib/roles";
 import { AssetListClient } from "../components/AssetListClient";
 import {  Plus } from "lucide-react";
@@ -10,6 +9,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { PhysicalAsset } from "@/types/inventory";
+import { fetchAllAssets } from "@/app/actions/asset-actions";
 
 export default function AssetsPage() {
    const { data: session } = useSession();
@@ -24,7 +24,7 @@ export default function AssetsPage() {
   useEffect(()=>{
    const fetchAssets = async () => {
    try{
-    const res = await getAssets();
+    const res = await fetchAllAssets();
     if(!res){
       throw new Error("Failed to load Vm metrics");
     }

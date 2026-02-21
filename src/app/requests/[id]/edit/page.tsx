@@ -9,6 +9,8 @@ interface Request {
   id: string;
   requesterId: string;
   status: string;
+  type?: "REQUEST";
+  targetVmId?: string;
 }
 
 export default function EditRequestPage({
@@ -16,33 +18,44 @@ export default function EditRequestPage({
 }: {
   params: { id: string };
 }) {
-     const { data: session } = useSession();
-     const [request, setRequest] = useState<Request | null>(null);
+  const { data: session } = useSession();
+  const [request, setRequest] = useState<Request | null>(null);
+  const [loading, setLoading] = useState(true);
+
   if (!session?.user) {
     redirect("/auth");
   }
 
   useEffect(() => {
-    const fetchRequest = async () => {
+    const fetchData = async () => {
       try {
-        const response = await fetch(`/api/requests/${params.id}`);
-        const data = await response.json();
-        setRequest(data);
+        const [reqRes] = await Promise.all([
+          fetch(`/api/requests/${params.id}`),
+        ]);
+        
+        const reqData = await reqRes.json();
+        setRequest(reqData);
       } catch (error) {
-        console.error("Error fetching request:", error);
+        console.error("Error fetching data:", error);
+      } finally {
+        setLoading(false);
       }
     };
-    fetchRequest();
-  }, [params.id]);
+    fetchData();
+  }, [params.id, session.user.id]);
 
-  if (!request || request.requesterId  !== session.user.id || request.status !== "DRAFT") {
+  if (loading) return <div className="p-6">Loading...</div>;
+
+  if (!request || request.requesterId !== session.user.id || request.status !== "DRAFT") {
     redirect("/requests");
   }
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6 text-slate-800">Edit Request</h1>
-      <RequestForm userId={session.user.id} editId={params.id} />
+      <h1 className="text-2xl font-bold mb-6 text-slate-800">
+        Edit 
+      </h1>
+        <RequestForm userId={session.user.id} editId={params.id} />
     </div>
   );
 }

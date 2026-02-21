@@ -2,7 +2,7 @@
 import { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
-import { createDecommissionRequest } from "@/app/actions/vm-actions";
+import { createDecommissionRequest } from "@/app/actions/decommission-actions";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -16,7 +16,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await createDecommissionRequest(vmId, session.user.id, reason);
+    const decommissionFormData = new FormData();
+    decommissionFormData.append("targetVmId", vmId);
+    decommissionFormData.append("reason", reason);
+    decommissionFormData.append("status", "PENDING_L1");
+    
+    await createDecommissionRequest(decommissionFormData);
     return Response.json({ success: true });
   } catch (err) {
     return Response.json({ error: err }, { status: 400 });

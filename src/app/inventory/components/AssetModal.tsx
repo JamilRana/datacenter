@@ -22,7 +22,28 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { createAsset, updateAsset } from "@/app/actions/asset-actions";
 import { useState, useEffect } from "react";
-import type { Asset } from "@prisma/client";
+import { AssetType } from "@/types/enums";
+
+interface Asset {
+  id: string;
+  name: string;
+  type: AssetType;
+  vendor: string | null;
+  model: string | null;
+  serial: string | null;
+  location: string | null;
+  warrantyExpiry: Date | string | null;
+  cpuCores: number | null;
+  ramGb: number | null;
+  storageGb: number | null;
+  graphicsCardModel: string | null;
+  graphicsCardSpec: string | null;
+  interfaces: number | null;
+  throughputGbps: number | null;
+  vlanSupport: boolean | null;
+  capacityTb: number | null;
+}
+
 
 const assetTypes = [
   "SERVER",

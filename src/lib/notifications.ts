@@ -1,5 +1,6 @@
 // src/lib/notifications.ts
 import prisma from "./prisma";
+import { ROLES } from "./roles";
 
 export async function createNotification(userId: string, type: string, message: string) {
   try {
@@ -8,24 +9,28 @@ export async function createNotification(userId: string, type: string, message: 
         userId,
         type,
         message,
+        isRead: false,
       },
     });
 
-    // Stub for email notification [cite: 17, 42, 67]
-    console.log(`[EMAIL STUB] Sending email to User ${userId}: ${message}`);
+    // Optional: Email/SMS integration stub
+    console.log(`[NOTIFICATION] User ${userId}: ${message}`);
   } catch (error) {
     console.error("Failed to create notification:", error);
   }
 }
 
 export async function notifyApprovers(requestId: string, systemName: string) {
-  // Find all approvers for the next level (e.g. L1 if just submitted)
-  // For simplicity, we'll notify all users with any APPROVER role
   const approvers = await prisma.user.findMany({
     where: {
+      isActive: true,
       roles: {
         some: {
-          role: { name: { startsWith: "APPROVER_" } },
+          role: { 
+            name: { 
+              in: ["APPROVER_L1", "APPROVER_L2", "APPROVER_L3"] 
+            } 
+          },
         },
       },
     },
@@ -35,7 +40,7 @@ export async function notifyApprovers(requestId: string, systemName: string) {
     await createNotification(
       approver.id,
       "APPROVAL_REQUIRED",
-      `New request for ${systemName} requires your approval.`
+      `New request "${systemName}" requires your approval (ID: ${requestId})`
     );
   }
 }
@@ -44,6 +49,31 @@ export async function notifyRequester(userId: string, systemName: string, status
   await createNotification(
     userId,
     "STATUS_UPDATE",
-    `Your request for ${systemName} is now ${status}.`
+    `Your request "${systemName}" status updated to: ${status.replace(/_/g, " ")}`
   );
+}
+
+// ✅ NEW: Notify Director for escalated requests
+export async function notifyDirector(userId: string, systemName: string, requestId: string) {
+  await createNotification(
+    userId,
+    "DIRECTOR_ESCALATION",
+    `Request "${systemName}" (ID: ${requestId}) escalated to you for final approval`
+  );
+}
+
+// ✅ NEW: Get director user (for escalation workflow)
+export async function getDirector(): Promise<{ id: string; name: string; email: string } | null> {
+  const director = await prisma.user.findFirst({
+    where: { 
+      isActive: true,
+      roles: { 
+        some: { 
+          role: { name: ROLES.L4_APPROVER } 
+        } 
+      } 
+    },
+    select: { id: true, name: true, email: true }
+  });
+  return director;
 }

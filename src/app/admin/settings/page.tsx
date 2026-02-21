@@ -4,18 +4,21 @@ import SettingsForm from "./SettingsForm";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { getSettings } from "@/app/actions/settings-actions";
-import { SystemSetting } from "@prisma/client";
+interface SystemSetting {
+  key: string;
+  value: string;
+  label?: string | null;
+  description?: string | null;
+}
 
 
-export default async function AdminSettings() {
+export default function AdminSettings() {
   const {data:session} = useSession();
   const [settings, setSettings] = useState<SystemSetting []>([]);
 
   if (!session?.user?.id) {
     throw new Error("Unauthorized");
   }
-
-  const userId = session.user.id;
 
   useEffect(() => {
     const fetchSettings = async () => {

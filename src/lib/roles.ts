@@ -1,8 +1,10 @@
 // src/lib/roles.ts
 export const ROLES = {
+  DEVELOPER: "DEVELOPER",
   L1_APPROVER: "APPROVER_L1",
   L2_APPROVER: "APPROVER_L2",
   L3_APPROVER: "APPROVER_L3",
+  L4_APPROVER: "APPROVER_L4",
   DCOPS: "DCOPS",
   REQUESTER: "REQUESTER",
   ADMIN: "ADMIN",
@@ -25,6 +27,7 @@ export function canUserApprove(userRoles: string[], level: string) {
   if (level === "L1" && hasRole(userRoles, ROLES.L1_APPROVER)) return true;
   if (level === "L2" && hasRole(userRoles, ROLES.L2_APPROVER)) return true;
   if (level === "L3" && hasRole(userRoles, ROLES.L3_APPROVER)) return true;
+  if (level === "L4" && hasRole(userRoles, ROLES.L4_APPROVER)) return true;
   if (level === "DCOPS" && hasRole(userRoles, ROLES.DCOPS)) return true;
   return false;
 }

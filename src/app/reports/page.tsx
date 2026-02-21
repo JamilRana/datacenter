@@ -7,10 +7,11 @@ import { ReportsDashboardClient } from "./components/ReportsDashboardClient";
 import { LayoutDashboard } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { SystemReportData } from "@/types/reports";
 
 export default function ReportsPage() {
   const { data: session } = useSession();
-  const [initialData, setInitialData] = useState<any>(null);
+  const [initialData, setInitialData] = useState<SystemReportData | null>(null);
   if (!session?.user) redirect("/auth");
 
   const isAdmin = session.user.roles.includes(ROLES.ADMIN);

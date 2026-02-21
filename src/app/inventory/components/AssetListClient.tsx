@@ -16,8 +16,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
-import { AssetType } from "@prisma/client";
 import { PhysicalAsset } from "@/types/inventory";
+import { AssetType } from "@/types/enums";
 
 export function AssetListClient({ initialAssets }: { initialAssets: PhysicalAsset[] }) {
   const [searchTerm, setSearchTerm] = useState("");

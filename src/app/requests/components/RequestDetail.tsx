@@ -9,7 +9,6 @@ import { useEffect, useState } from "react";
 import { 
   Check, 
   Copy, 
-
   Server, 
   Users, 
   Code,  
@@ -21,11 +20,9 @@ import {
 import { ApprovalPanel } from "./ApprovalPanel";
 import { VmInstanceList } from "./VmInstanceList";
 import { getDetailedRequest, submitRequest } from "@/app/actions/request-actions";
-// import { Person } from "@/types/request-form"; // REMOVED: Use type from requests.ts to avoid mismatch
-import { RequestDetailsData, Person, Developer } from "@/types/requests";
+import { detailsRequest, Person } from "@/types/requests";
 import { toast } from "sonner";
 import type { ReactNode } from "react";
-
 
 export function RequestDetails({
   requestId,
@@ -34,8 +31,8 @@ export function RequestDetails({
   requestId: string;
   userId: string;
 }) {
-const [data, setData] = useState<RequestDetailsData | null>(null);
-const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<detailsRequest | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const fetchRequestData = async () => {
     setLoading(true);
@@ -49,19 +46,10 @@ const [loading, setLoading] = useState(true);
     }
   };
 
-useEffect(() => {
-  if (!requestId) return;
-
-  async function load() {
-    setLoading(true);
-    const res = await getDetailedRequest(requestId);
-    setData(res);
-    setLoading(false);
-  }
-
-  load();
-}, [requestId]);
-
+  useEffect(() => {
+    if (!requestId) return;
+    fetchRequestData();
+  }, [requestId]);
 
   const handleSubmit = async () => {
     if (!data) return;
@@ -130,7 +118,7 @@ useEffect(() => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
           {/* Target VM Link (for customizations/decommissions) */}
-          {(data.targetVm || data.vmInstances?.[0]) && (
+          {(data.targetVm || (data.vmInstances && data.vmInstances.length > 0)) && (
             <Card title="Target Virtual Machine" icon={HardDrive}>
               <div className="flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
                 <div>
@@ -185,11 +173,37 @@ useEffect(() => {
 
           {/* People */}
           <Card title="Responsible Personnel" icon={Users}>
-             <div className="space-y-6">
-                <PersonSection title="Primary Contact" person={data.responsiblePerson} />
-                <PersonSection title="Alternative Contact" person={data.alternativePerson} />
-                <PersonSection title="Technical Developer" person={data.developer} />
-             </div>
+            <div className="space-y-6">
+              {/* ✅ FIX 1: Proper requester display (Requester type, not Person) */}
+              {data.requester && (
+                <PersonSection 
+                  title="Primary Contact (Requester)" 
+                  person={{
+                    name: data.requester.name,
+                    designation: data.requester.designation || "Requester",
+                    organization: data.requester.email?.split('@')[1] || "DGHS",
+                    contact: data.alternativePerson?.contact || "",
+                    email: data.requester.email,
+                  }} 
+                />
+              )}
+              
+              {/* ✅ FIX 2: Null-safe alternative person */}
+              {data.alternativePerson?.name && (
+                <PersonSection 
+                  title="Alternative Contact" 
+                  person={data.alternativePerson} 
+                />
+              )}
+              
+              {/* ✅ FIX 3: Null-safe developer */}
+              {data.developer?.name && (
+                <PersonSection 
+                  title="Technical Developer" 
+                  person={data.developer} 
+                />
+              )}
+            </div>
           </Card>
         </div>
 
@@ -217,21 +231,21 @@ useEffect(() => {
 
           {/* Security & Compliance */}
           <Card title="Security & Network" icon={Shield}>
-             <div className="space-y-2">
-                <ComplianceItem label="Public IP" status={data.requiredPublicIP} />
-                <ComplianceItem label="VPN Required" status={data.vpnRequired} />
-                <ComplianceItem label="VA Report" status={data.vaReportSubmitted} />
-                <ComplianceItem label="Renewal" status={data.renewalRequired} />
-                {data.renewalPeriodMonths && (
-                   <div className="pt-2 text-xs text-slate-500 border-t mt-2">Renew every {data.renewalPeriodMonths} months</div>
-                )}
-             </div>
+            <div className="space-y-2">
+              <ComplianceItem label="Public IP" status={data.requiredPublicIP} />
+              <ComplianceItem label="VPN Required" status={data.vpnRequired} />
+              <ComplianceItem label="VA Report" status={data.vaReportSubmitted} />
+              <ComplianceItem label="Renewal" status={data.renewalRequired} />
+              {data.renewalPeriodMonths && (
+                <div className="pt-2 text-xs text-slate-500 border-t mt-2">Renew every {data.renewalPeriodMonths} months</div>
+              )}
+            </div>
           </Card>
         </div>
       </div>
 
-      {/* Provisioned VMs */}
-      {data.vmInstances.length > 0 && (
+      {/* ✅ FIX 4: Null-safe vmInstances check */}
+      {data.vmInstances && data.vmInstances.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <Server className="h-5 w-5 text-blue-600" /> Provisioned Instances
@@ -241,13 +255,13 @@ useEffect(() => {
       )}
 
       {/* Approval Flow */}
+      {data.approvals && data.approvals.length > 0 && (
       <ApprovalPanel
-        // ✅ Removed unused requestId
         approvals={data.approvals}
         currentStatus={data.status}
         currentUserId={userId}
       />
-
+      )}
       {/* Bottom Action Bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t p-4 shadow-2xl flex justify-between items-center z-50">
         <Button asChild variant="ghost">
@@ -256,12 +270,12 @@ useEffect(() => {
         
         {isDraft && (
           <div className="flex gap-3">
-             <Button variant="outline" asChild>
-                <Link href={`/requests/${data.id}/edit`}>Edit Content</Link>
-             </Button>
-             <Button onClick={handleSubmit} className="bg-blue-600 hover:bg-blue-700">
-                Submit for Approval
-             </Button>
+            <Button variant="outline" asChild>
+              <Link href={`/requests/${data.id}/edit`}>Edit Content</Link>
+            </Button>
+            <Button onClick={handleSubmit} className="bg-blue-600 hover:bg-blue-700">
+              Submit for Approval
+            </Button>
           </div>
         )}
       </div>
@@ -269,7 +283,7 @@ useEffect(() => {
   );
 }
 
-// Subcomponents (same as before, but with proper types)
+// Subcomponents
 interface CardProps {
   title: string;
   icon: LucideIcon;
@@ -318,19 +332,21 @@ function ComplianceItem({ label, status }: { label: string; status: boolean }) {
   );
 }
 
-function PersonSection({ title, person }: { title: string; person: Person | Developer }) {
+// ✅ FIX 5: Handle all Person fields as potentially undefined
+function PersonSection({ title, person }: { title: string; person: Partial<Person> }) {
   if (!person?.name) return null;
   
-  const designation = 'designation' in person ? person.designation : 'External Developer';
-  const organization = 'organization' in person ? person.organization : ('address' in person ? person.address : '');
-
   return (
     <div className="space-y-2">
       <p className="text-xs font-bold text-slate-900 border-l-2 border-blue-500 pl-2">{title}</p>
       <div className="pl-2 space-y-0.5">
         <p className="text-sm font-semibold text-slate-800">{person.name}</p>
-        <p className="text-xs text-slate-500">{designation} • {organization}</p>
-        <p className="text-xs text-slate-400">{person.email} • {person.contact}</p>
+        <p className="text-xs text-slate-500">
+          {person.designation || "—"} • {person.organization || "—"}
+        </p>
+        <p className="text-xs text-slate-400">
+          {person.email || "—"} • {person.contact || "—"}
+        </p>
       </div>
     </div>
   );

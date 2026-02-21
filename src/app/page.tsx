@@ -141,7 +141,7 @@ setHomeDashboardData(res);
                 <div className="space-y-4">
                   {homeDashboardData?.recentRequests.map((req,key:number) => (
                     <div key={req.id}  className=" p-4 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors border">
-                        <Link href={`/requests/${req.id}`}>
+                        <Link href={`/requests/${req.id}/view/`}>
                         <div key={key} className="flex items-center justify-between  group">
                       <div className="flex items-center gap-4">
                         <div className="bg-white p-2 rounded border group-hover:border-blue-200 transition-colors">

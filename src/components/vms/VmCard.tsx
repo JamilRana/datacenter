@@ -1,11 +1,11 @@
 // src/app/components/vms/VmCard.tsx
 "use client";
 
-import { VmInstance } from "@prisma/client";
 import Link from "next/link";
 import { useState } from "react";
 import DecommissionModal from "./DecommissionModal";
 import { RenewButton } from "@/app/requests/components/RenewButton";
+import { VmInstance } from "@/types/vm";
 
 interface VmCardProps {
   vm: VmInstance & {

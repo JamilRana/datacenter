@@ -2,82 +2,85 @@
 "use client";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
-
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { RequestList } from "./components/RequestList";
-import {  Search } from "lucide-react";
 import { RequestSummary } from "./components/RequestSummary";
 import { getRequests } from "@/app/actions/request-actions";
-
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+import { 
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { RequestDetailsData } from "@/types/requests";
+import { Search, Loader2 } from "lucide-react";
+import { Pagination } from "@/components/Pagination";
+import { detailsRequest } from "@/types/requests";
 
 export default function MyRequestsPage() {
   const { data: session, status } = useSession();
-  const [loading, setLoading] = useState(true);
-  const [requests, setRequests] = useState<RequestDetailsData[]>([]);
-  const [filteredRequests, setFilteredRequests] = useState<RequestDetailsData[]>([]);
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
-  const [typeFilter, setTypeFilter] = useState<string>("ALL");
-  const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(() => {
+    const pageParam = searchParams.get("page");
+    return pageParam ? parseInt(pageParam, 10) : 1;
+  });
+  
+  const [loading, setLoading] = useState(true);
+  const [requestsData, setRequestsData] = useState<{
+    requests: detailsRequest[];
+    total: number;
+    totalPages: number;
+    currentPage: number;
+  } | null>(null);
+  
+  const [filters, setFilters] = useState({
+    status: "ALL",
+    type: "ALL",
+    search: "",
+  });
 
+  // Fetch data when filters or page changes
   useEffect(() => {
-    if (status === "loading") return;
-    if (!session) {
-      router.push("/auth");
-      return;
-    }
-  }, [session, status, router]);
+    if (status === "loading" || !session) return;
+    
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const data = await getRequests(filters, currentPage, 10);
+        setRequestsData({
+          ...data,
+          requests: data.requests as unknown as detailsRequest[]
+        });
+      } catch (err) {
+        console.error("Failed to fetch requests", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, [session, status, filters, currentPage]);
 
- useEffect(() => {
-   if (!session) return;
-   const fetchData = async () => {
-     setLoading(true);
-     try {
-       const data = await getRequests({
-         status: statusFilter === "ALL" ? undefined : statusFilter,
-         type: typeFilter === "ALL" ? undefined : typeFilter,
-         search: searchQuery
-       });
-       setRequests(data);
-     } catch (err) {
-       console.error("Failed to fetch requests", err);
-     } finally {
-       setLoading(false);
-     }
-   };
-   fetchData();
- }, [session, statusFilter, typeFilter, searchQuery]);
+  // Update URL when page changes
   useEffect(() => {
-    let result = [...requests];
-
-    if (statusFilter !== "ALL") {
-      result = result.filter((r) => r.status === statusFilter);
+    if (currentPage === 1 && !searchParams.toString()) return;
+    
+    const params = new URLSearchParams(searchParams.toString());
+    if (currentPage > 1) {
+      params.set("page", currentPage.toString());
+    } else {
+      params.delete("page");
     }
+    
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [currentPage, pathname, router, searchParams]);
 
-    if (typeFilter !== "ALL") {
-      result = result.filter((r) => r.requestType === typeFilter);
-    }
-
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(
-        (r) =>
-          r.systemName.toLowerCase().includes(query) ||
-          (r.projectName && r.projectName.toLowerCase().includes(query))
-      );
-    }
-
-    setFilteredRequests(result);
-  }, [requests, statusFilter, typeFilter, searchQuery]);
+  // Handle filter changes
+  const handleFilterChange = (key: string, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setCurrentPage(1); // Reset to first page on filter change
+  };
 
   if (status === "loading" || loading) {
     return (
@@ -91,10 +94,15 @@ export default function MyRequestsPage() {
     );
   }
 
+  if (!session) {
+    router.push("/auth");
+    return null;
+  }
+
   return (
     <div className="p-6 md:p-10 max-w-7xl mx-auto space-y-8">
-      <RequestSummary requests={requests} />
-
+      <RequestSummary requests={requestsData?.requests || []} />
+      
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1 relative">
@@ -102,12 +110,16 @@ export default function MyRequestsPage() {
             <Input
               placeholder="Search by system or project name..."
               className="pl-9 bg-slate-50 border-slate-200"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={filters.search}
+              onChange={(e) => handleFilterChange("search", e.target.value)}
             />
           </div>
+          
           <div className="w-full md:w-48">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select 
+              value={filters.status} 
+              onValueChange={(v) => handleFilterChange("status", v)}
+            >
               <SelectTrigger className="bg-slate-50 border-slate-200">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
@@ -117,14 +129,19 @@ export default function MyRequestsPage() {
                 <SelectItem value="PENDING_L1">Pending L1</SelectItem>
                 <SelectItem value="PENDING_L2">Pending L2</SelectItem>
                 <SelectItem value="PENDING_L3">Pending L3</SelectItem>
+                <SelectItem value="PENDING_L4">Pending Director</SelectItem>
                 <SelectItem value="APPROVED">Approved</SelectItem>
                 <SelectItem value="REJECTED">Rejected</SelectItem>
                 <SelectItem value="PROVISIONED">Provisioned</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          
           <div className="w-full md:w-48">
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <Select 
+              value={filters.type} 
+              onValueChange={(v) => handleFilterChange("type", v)}
+            >
               <SelectTrigger className="bg-slate-50 border-slate-200">
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
@@ -140,7 +157,23 @@ export default function MyRequestsPage() {
         </div>
       </div>
 
-      <RequestList requests={filteredRequests} />
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+        </div>
+      ) : (
+        <>
+          <RequestList requests={requestsData?.requests || []} />
+          
+          {requestsData && requestsData.totalPages > 1 && (
+            <div className="mt-6 flex justify-center">
+              <Pagination  
+                totalPages={requestsData.totalPages}
+              />
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

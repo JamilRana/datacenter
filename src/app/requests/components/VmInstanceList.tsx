@@ -1,6 +1,8 @@
-import { VmInstance } from "@/types/inventory";
-
 // src/app/requests/components/VmInstanceList.tsx
+
+import {  VmInstance } from "@/types/vm";
+
+
 export function VmInstanceList({ vms }: { vms: VmInstance[] }) {
   return (
     <div>

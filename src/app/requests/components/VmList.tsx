@@ -1,14 +1,25 @@
 // src/app/requests/components/VmList.tsx
-import Link from "next/link";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RenewButton } from "./RenewButton";
-import { VmInstance } from "@/types/inventory";
+import { useState } from "react";
+import { useSession } from "next-auth/react";
+import {  SerializedVmInstanceDetail } from "@/types/vm";
+import { CustomizationModal } from "../customize/components/CustomizationModal";
 
-export function VmList({ vms }: { vms: VmInstance[] }) {
+export function VmList({ vms }: { vms: SerializedVmInstanceDetail [] }) {
+  const {data:session} = useSession();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  if(!session?.user) return null;
+
   if (vms.length === 0) {
     return <p className="text-muted-foreground">No VMs provisioned yet.</p>;
   }
+
+    const handleOpenModal = () => {
+      setIsModalOpen(true);
+    };
 
   return (
     <div className="border rounded-md">
@@ -30,7 +41,7 @@ export function VmList({ vms }: { vms: VmInstance[] }) {
               <td className="p-3">{vm.hostname || "—"} </td>
               <td className="p-3">{vm.ipAddress || "—"}</td>
               <td className="p-3">
-                {vm.vmOsName} {vm.vmOsVersion}
+                {vm.currentSpec?.osName} {vm.currentSpec?.osVersion}
               </td>
               <td className="p-3">
                 {vm.currentSpec?.vcpu} vCPU / {vm.currentSpec?.ramGb} GB
@@ -45,11 +56,11 @@ export function VmList({ vms }: { vms: VmInstance[] }) {
               </td>
               <td className="p-3">
                 <div className="flex gap-2">
-                  <Link href={`/requests/customize/${vm.id}`}>
-                    <Button size="sm" variant="outline">
+
+                    <Button size="sm" variant="outline" onClick={handleOpenModal}>
                       Customize
                     </Button>
-                  </Link>
+
                   <RenewButton vmId={vm.id} />
                 </div>
               </td>
@@ -57,6 +68,12 @@ export function VmList({ vms }: { vms: VmInstance[] }) {
           ))}
         </tbody>
       </table>
+      <CustomizationModal
+  open={isModalOpen}
+  onOpenChange={setIsModalOpen}
+  vms={vms}
+  mode="create"
+/>
     </div>
   );
 }

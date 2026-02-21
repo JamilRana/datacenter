@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { VmInstance, Asset as PrismaAsset, AssetType, VmStatus } from "@prisma/client";
+import { AssetType, VmStatus } from "@/types/enums";
 import { AssetFilters } from "./AssetFilters";
 import { AssetTableSection } from "./AssetTableSection";
 import { 
@@ -12,19 +12,8 @@ import {
   PaginationNext,
   PaginationPrevious 
 } from "@/components/ui/pagination";
+import { FilterState } from "@/types/inventory";
 
-// ✅ LOCAL TYPES (avoids import errors + schema alignment)
-type FilterAssetType = 
-  | "all" 
-  | "vm" 
-  | "physical" 
-  | AssetType; // Includes SERVER, ROUTER, etc.
-
-interface LocalFilterState {
-  assetType: FilterAssetType;
-  status: VmStatus | "all";
-  search: string;
-}
 
 interface DisplayAsset {
   id: string;
@@ -36,14 +25,25 @@ interface DisplayAsset {
 }
 
 interface InventoryClientProps {
-  vms: Array<Pick<VmInstance, "id" | "hostname" | "ipAddress" | "status"> & { 
-    request?: { systemName: string } | null 
+  vms: Array<{
+    id: string;
+    hostname: string | null;
+    ipAddress: string | null;
+    status: VmStatus;
+    request?: { systemName: string } | null;
   }>;
-  physicalAssets: Array<Pick<PrismaAsset, "id" | "name" | "model" | "serial" | "type" | "vendor">>;
+  physicalAssets: Array<{
+    id: string;
+    name: string;
+    model: string | null;
+    serial: string | null;
+    type: AssetType;
+    vendor: string | null;
+  }>;
 }
 
 export function InventoryClient({ vms, physicalAssets }: InventoryClientProps) {
-  const [filters, setFilters] = useState<LocalFilterState>({
+  const [filters, setFilters] = useState<FilterState>({
     assetType: "all",
     status: "all",
     search: "",
@@ -73,11 +73,11 @@ export function InventoryClient({ vms, physicalAssets }: InventoryClientProps) {
     }));
 
     // ✅ FILTER LOGIC: Map UI concepts to schema reality
-    let combined = filters.assetType === "vm" 
+    let combined = filters.assetType.includes("vm") 
       ? vmItems 
-      : filters.assetType === "physical"
+      : filters.assetType.includes("physical")
         ? physicalItems
-        : filters.assetType === "all"
+        : filters.assetType.includes("all")
           ? [...vmItems, ...physicalItems]
           : physicalItems.filter(item => item.physicalType === filters.assetType); // Specific physical type
 
@@ -105,7 +105,7 @@ export function InventoryClient({ vms, physicalAssets }: InventoryClientProps) {
     }
 
     // Status filter: ONLY apply to VMs (Physical assets have NO status field per schema)
-    if (filters.status !== "all" && filters.assetType !== "physical" && !Object.values(AssetType).includes(filters.assetType as AssetType)) {
+    if (filters.status !== "all" && !filters.assetType.includes("physical") && !Object.values(AssetType).includes(filters.assetType as AssetType)) {
       combined = combined.filter(item => 
         item.category === "physical" || item.status === filters.status
       );

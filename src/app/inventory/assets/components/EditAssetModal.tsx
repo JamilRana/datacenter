@@ -2,8 +2,28 @@
 "use client";
 
 import { updateAsset } from "@/app/actions/asset-actions";
-import { ASSET_TYPES } from "@/types/inventory";
-import { Asset } from "@prisma/client";
+import { AssetType } from "@prisma/client";
+interface Asset {
+  id: string;
+  name: string;
+  vendor: string | null;
+  model: string | null;
+  serial: string | null;
+  type: string;
+  location: string | null;
+  warrantyExpiry: Date | string | null;
+  cpuCores: number | null;
+  ramGb: number | null;
+  storageGb: number | null;
+  graphicsCardModel: string | null;
+  graphicsCardSpec: string | null;
+  interfaces: number | null;
+  throughputGbps: number | null;
+  vlanSupport: boolean | null;
+  capacityTb: number | null;
+  noOfDisks: number | null;
+}
+
 import { useState, useEffect } from "react";
 
 interface EditAssetModalProps {
@@ -89,7 +109,7 @@ export default function EditAssetModal({
               disabled
               className="w-full border rounded px-3 py-2 bg-gray-100 cursor-not-allowed"
             >
-              {ASSET_TYPES.map((type) => (
+{Object.values(AssetType).map((type) => (
                 <option key={type} value={type}>
                   {type.replace(/_/g, " ")}
                 </option>

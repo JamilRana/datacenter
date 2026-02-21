@@ -1,556 +1,417 @@
-//prisma/schema.prisma
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "postgresql"
 }
 
-// ======================
-// Core Identity & Roles
-// ======================
-
 model User {
-  id                   String                 @id @default(uuid())
-  name                 String
-  email                String                 @unique
-  designation          String?
-  organization         String?
-  contact              String?
-  isActive             Boolean                @default(true)
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  password             String
-
-  roles                UserRole[]
-  requests             Request[]              @relation("Requester")
-  approvals            Approval[]
-  ownedVms             VmInstance[]           @relation("VmOwner")
-  customizationRequests CustomizationRequest[] @relation("CustomizationRequester")
-  customizationHistory CustomizationHistory[]
-  uploadedAttachments  Attachment[]
-  auditLogs            AuditLog[]
-  appliedSpecs          VmSpec[]               @relation("VmSpecApplier")
+  id                    String                 @id @default(uuid())
+  name                  String
+  email                 String                 @unique
+  designation           String?
+  organization          String?
+  contact               String?
+  isActive              Boolean                @default(true)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  password              String
+  approvals             Approval[]
+  uploadedAttachments   Attachment[]
+  auditLogs             AuditLog[]
+  customizationHistory  CustomizationHistory[]
+  customizationRequests CustomizationRequest[] @relation("CustomizationRequester")
   notifications         Notification[]
+  roles                 UserRole[]
+  appliedSpecs          VmSpec[]               @relation("VmSpecApplier")
+  developedRequests     Request[]              @relation("Developer")
+  requests              Request[]              @relation("Requester")
+  ownedVms              VmInstance[]           @relation("VmOwner")
 }
 
 model Role {
-  id    String     @id @default(cuid())
-  name  String     @unique
-  users UserRole[]
+  id    String     @id @default(cuid())
+  name  String     @unique
+  users UserRole[]
 }
 
 model UserRole {
-  userId    String
-  roleId    String
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  @@id([userId, roleId])
-}
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-// ======================
-// Requests & Development Stack
-// ======================
-
-enum RequestType {
-  NEW_VM
-  CUSTOMIZED
-  RENEWAL
-  DECOMMISSION
-}
-
-enum RequestStatus {
-  DRAFT
-  PENDING_L1
-  PENDING_L2
-  PENDING_L3
-  APPROVED
-  REJECTED
-  PROVISIONED
-  CLOSED
+  @@id([userId, roleId])
 }
 
 model Request {
-  id                        String        @id @default(uuid())
-  requestType               RequestType
-  status                    RequestStatus @default(DRAFT)
-  quantity                  Int           @default(1)
-  requestId                 String?       @unique
-  projectName               String?
-  systemName                String
-  purpose                   String
-  environment               Environment
-  expectedEndDate           DateTime?
-
-  requesterId               String
-  requester                 User          @relation("Requester", fields: [requesterId], references: [id])
-
-  responsiblePersonName         String?
-  responsiblePersonDesignation  String?
-  responsiblePersonOrganization String?
-  responsiblePersonContact      String?
-  responsiblePersonEmail        String?
-  alternativePersonName         String?
-  alternativePersonDesignation  String?
-  alternativePersonOrganization String?
-  alternativePersonContact      String?
-  alternativePersonEmail        String?
-
-  developerName             String?
-  developerAddress          String?
-  developerContact          String?
-  developerEmail            String?
-
-  serverType                ServerType
-  vcpu                      Int?
-  ramGb                     Int?
-  osName                    String?
-  osVersion                 String?
-  osLicenseBy               LicenseProvider?
-  storageGb                 Int?
-  subdomain                 String?
-  sslProvider               SSLProvider?
-  sslCostPaidBy             String?
-  raid                      Raid?
-  retentionPeriod           String?
-  requiredPublicIP          Boolean        @default(false)
-  vpnRequired               Boolean   @default(false)
-  vaReportSubmitted         Boolean        @default(false)
-  justificationSubmitted    Boolean        @default(false)
-  renewalRequired           Boolean        @default(false)
-  renewalPeriodMonths       Int?
-
-  createdAt                 DateTime       @default(now())
-  submittedAt               DateTime?
-  updatedAt                 DateTime       @updatedAt
-  provisionedAt             DateTime?      @map("provisioned_at")
-
-  // Development Stack (NEW)
-  frontendTech              String?
-  backendTech               String?
-  serverArchitecture        String?        // e.g., "Kubernetes", "Docker", "Monolith"
-  dataBase                  String?
-  additionalTechNotes       String?
-
-  // Relations
-  vmInstances               VmInstance[]           @relation("RequestVms")
-  attachments               Attachment[]
-  specs                     VmSpec[]
-  approvals Approval[] @relation("RequestApprovals")
-  customizations            CustomizationRequest[] @relation("CustomizationParent")
-  additionalDisks           AdditionalDisk[]
-  firewallPorts             FirewallPort[]
-  networkAccess             NetworkAccessEntry[]
-
-  targetVmId String?
-  targetVm   VmInstance? @relation("DecommissionTarget",fields: [targetVmId],references: [id])
+  id                            String                 @id @default(uuid())
+  requestType                   RequestType
+  status                        RequestStatus          @default(DRAFT)
+  quantity                      Int                    @default(1)
+  requestId                     String?                @unique
+  projectName                   String?
+  systemName                    String
+  purpose                       String
+  environment                   Environment
+  expectedEndDate               DateTime?
+  requesterId                   String
+  alternativePersonName         String?
+  alternativePersonDesignation  String?
+  alternativePersonOrganization String?
+  alternativePersonContact      String?
+  alternativePersonEmail        String?
+  developerName                 String?
+  developerContact              String?
+  developerEmail                String?
+  serverType                    ServerType
+  vcpu                          Int?
+  ramGb                         Int?
+  osName                        String?
+  osVersion                     String?
+  osLicenseBy                   LicenseProvider?
+  storageGb                     Int?
+  subdomain                     String?
+  sslProvider                   SSLProvider?
+  sslCostPaidBy                 String?
+  retentionPeriod               String?
+  requiredPublicIP              Boolean                @default(false)
+  vaReportSubmitted             Boolean                @default(false)
+  justificationSubmitted        Boolean                @default(false)
+  renewalRequired               Boolean                @default(false)
+  renewalPeriodMonths           Int?
+  createdAt                     DateTime               @default(now())
+  submittedAt                   DateTime?
+  updatedAt                     DateTime               @updatedAt
+  provisionedAt                 DateTime?              @map("provisioned_at")
+  frontendTech                  String?
+  backendTech                   String?
+  serverArchitecture            String?
+  additionalTechNotes           String?
+  dataBase                      String?
+  raid                          Raid?
+  vpnRequired                   Boolean                @default(false)
+  targetVmId                    String?
+  developerDesignation          String?
+  developerId                   String?
+  developerOrganization         String?
+  additionalDisks               AdditionalDisk[]
+  approvals                     Approval[]             @relation("RequestApprovals")
+  attachments                   Attachment[]
+  customizations                CustomizationRequest[] @relation("CustomizationParent")
+  firewallPorts                 FirewallPort[]
+  networkAccess                 NetworkAccessEntry[]
+  specs                         VmSpec[]               @relation("RequestSpecs")
+  developer                     User?                  @relation("Developer", fields: [developerId], references: [id])
+  requester                     User                   @relation("Requester", fields: [requesterId], references: [id])
+  targetVm                      VmInstance?            @relation("DecommissionTarget", fields: [targetVmId], references: [id])
+  vmInstances                   VmInstance[]           @relation("RequestVms")
 
   @@index([targetVmId])
-  @@map("requests")
-  @@index([requesterId])
-  @@index([status])
-  @@index([environment])
+  @@index([requesterId])
+  @@index([status])
+  @@index([environment])
+  @@index([requesterId, status])
+  @@index([environment, status])
+  @@index([submittedAt])
+  @@index([requestType, targetVmId])
+  @@map("requests")
 }
 
-// Normalized Sub-Entities (replacing Json)
 model AdditionalDisk {
-  id           String   @id @default(uuid())
-  requestId    String
-  request      Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  sizeGb       Int
-  purpose      String?
-  sequence     Int
+  id        String  @id @default(uuid())
+  requestId String
+  sizeGb    Int
+  purpose   String?
+  sequence  Int
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-  @@index([requestId])
+  @@index([requestId])
 }
 
 model FirewallPort {
-  id           String   @id @default(uuid())
-  requestId    String
-  request      Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  port         Int
-  protocol     Protocol
-  purpose      String
-  source       String?
+  id        String   @id @default(uuid())
+  requestId String
+  port      Int
+  protocol  Protocol
+  purpose   String
+  source    String?
+  request   Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-  @@index([requestId])
-}
-
-enum Protocol {
-  TCP
-  UDP
-  OTHER
+  @@index([requestId])
 }
 
 model NetworkAccessEntry {
-  id           String        @id @default(uuid())
-  requestId    String
-  request      Request       @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  accessType   NetworkAccess
+  id         String        @id @default(uuid())
+  requestId  String
+  accessType NetworkAccess
+  request    Request       @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-  @@index([requestId])
-}
-
-enum ServerType {
-  APPLICATION
-  MAIL
-  DATABASE
-  FTP
-  OTHER
-}
-
-enum Environment {
-  DEVELOPMENT
-  STAGING
-  PRODUCTION
-  TESTING
-}
-
-enum LicenseProvider {
-  REQUESTER
-  PARTNER
-  OPEN_SOURCE
-}
-
-enum SSLProvider {
-  REQUESTER
-  MIS
-}
-
-enum NetworkAccess {
-  LOCAL
-  INTERNET
-  REMOTE
-}
-
-enum Raid {
-  RAID0
-  RAID1
-  RAID5
-  RAID10
-  NONE
-}
-
-// ======================
-// Approvals
-// ======================
-
-enum ApprovalLevel {
-  L1
-  L2
-  L3
-}
-
-enum ApprovalDecision {
-  PENDING
-  APPROVED
-  REJECTED
-  RETURNED
-}
-
-enum ApprovalEntityType {
-  REQUEST
-  CUSTOMIZATION
+  @@index([requestId])
 }
 
 model Approval {
-  id         String              @id @default(uuid())
-  entityType ApprovalEntityType
-  entityId   String
-  level      ApprovalLevel
-  approverId String
-  decision   ApprovalDecision    @default(PENDING)
-  comments   String?
-  decidedAt  DateTime?
-  createdAt  DateTime            @default(now())
-  approver   User                @relation(fields: [approverId], references: [id])
-  request    Request?           @relation("RequestApprovals", fields: [entityId], references: [id], map: "ApprovalToRequest", onDelete: Cascade, onUpdate: NoAction)
-  @@index([entityType, entityId])
-}
+  id                     String                @id @default(uuid())
+  entityType             ApprovalEntityType
+  level                  Int
+  approverId             String
+  decision               ApprovalDecision      @default(PENDING)
+  comments               String?
+  decidedAt              DateTime?
+  createdAt              DateTime              @default(now())
+  customizationRequestId String?
+  requestId              String?
+  approver               User                  @relation(fields: [approverId], references: [id])
+  customizationRequest   CustomizationRequest? @relation("CustomizationApprovals", fields: [customizationRequestId], references: [id], onDelete: Cascade)
+  request                Request?              @relation("RequestApprovals", fields: [requestId], references: [id], onDelete: Cascade)
 
-// ======================
-// VM Instance & Versioned Spec
-// ======================
+  @@index([requestId])
+  @@index([customizationRequestId])
+  @@index([approverId, decision])
+  @@index([entityType, decision])
+}
 
 model VmInstance {
-  id                String    @id @default(uuid())
-  requestId         String
-  request           Request   @relation("RequestVms", fields: [requestId], references: [id], onDelete: Cascade)
-  sequenceNumber    Int
+  id                    String                 @id @default(uuid())
+  requestId             String?
+  sequenceNumber        Int
+  ownerId               String?
+  hostname              String?
+  ipAddress             String?
+  publicIpAddress       String?
+  status                VmStatus               @default(ACTIVE)
+  renewalDate           DateTime?
+  decommissionedAt      DateTime?
+  hasRemoteAccess       Boolean                @default(false)
+  vpnRequired           Boolean                @default(false)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  provisionedAt         DateTime?              @map("provisioned_at")
+  currentSpecId         String?                @unique
+  subdomain             String?
+  environment           Environment?
+  auditLogs             AuditLog[]             @relation("VmAudit")
+  customizationHistory  CustomizationHistory[]
+  customizationRequests CustomizationRequest[] @relation("CustomizationTarget")
+  specHistory           VmSpec[]               @relation("VmSpecHistory")
+  decommissionRequests  Request[]              @relation("DecommissionTarget")
+  currentSpec           VmSpec?                @relation("CurrentVmSpec", fields: [currentSpecId], references: [id])
+  owner                 User?                  @relation("VmOwner", fields: [ownerId], references: [id])
+  request               Request?               @relation("RequestVms", fields: [requestId], references: [id])
 
-  ownerId           String?
-  owner             User?     @relation("VmOwner", fields: [ownerId], references: [id])
-
-  hostname          String?
-  subdomain         String?
-  ipAddress         String?
-  publicIpAddress   String?
-
-  status            VmStatus  @default(ACTIVE)
-  renewalDate       DateTime?
-  decommissionedAt  DateTime?
-
-  hasRemoteAccess   Boolean   @default(false)
-  vpnRequired       Boolean   @default(false)
-
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  provisionedAt     DateTime? @map("provisioned_at")
-
-  // Current active spec
-  currentSpecId     String?   @unique
-  currentSpec       VmSpec?   @relation("CurrentVmSpec", fields: [currentSpecId], references: [id])
-
-  // Relations
-  specHistory       VmSpec[]  @relation("VmSpecHistory")
-  customizationRequests CustomizationRequest[] @relation("CustomizationTarget")
-  customizationHistory CustomizationHistory[]
-  auditLogs         AuditLog[] @relation("VmAudit")
-decommissionRequests Request[] @relation("DecommissionTarget")
-
-  @@map("vm_instances")
-  @@unique([requestId, sequenceNumber])
-  @@index([ownerId])
-  @@index([status])
+  @@unique([requestId, sequenceNumber])
+  @@index([ownerId])
+  @@index([status])
+  @@index([hostname])
+  @@index([ipAddress])
+  @@index([ownerId, status])
+  @@index([environment, status])
+  @@map("vm_instances")
 }
 
-enum VmStatus {
-  ACTIVE
-  SUSPENDED
-  RETIRED
-}
-
-// --- Versioned Resource Specification ---
 model VmSpec {
-  id                String    @id @default(uuid())
-  vmInstanceId      String
-  vmInstance        VmInstance @relation("VmSpecHistory", fields: [vmInstanceId], references: [id])
+  id                     String                 @id @default(uuid())
+  vmInstanceId           String
+  vcpu                   Int
+  ramGb                  Int
+  storageGb              Int
+  osName                 String?
+  osVersion              String?
+  raid                   Raid?
+  effectiveFrom          DateTime               @default(now())
+  createdAt              DateTime               @default(now())
+  appliedById            String?
+  sourceRequestId        String?
+  customizationRequestId String?                @unique
+  nextIn                 CustomizationHistory[] @relation("NewSpec")
+  previousIn             CustomizationHistory[] @relation("PreviousSpec")
+  appliedBy              User?                  @relation("VmSpecApplier", fields: [appliedById], references: [id])
+  customizationRequest   CustomizationRequest?  @relation("CustomizationAppliedSpec", fields: [customizationRequestId], references: [id])
+  sourceRequest          Request?               @relation("RequestSpecs", fields: [sourceRequestId], references: [id])
+  vmInstance             VmInstance             @relation("VmSpecHistory", fields: [vmInstanceId], references: [id])
+  additionalDisks        VmSpecDisk[]
+  firewallPorts          VmSpecFirewallPort[]
+  networkAccess          VmSpecNetworkAccess[]
+  currentForVm           VmInstance?            @relation("CurrentVmSpec")
 
-  vcpu              Int
-  ramGb             Int
-  storageGb         Int
-  osName            String?
-  osVersion         String?
-  raid              Raid?
-
-  effectiveFrom     DateTime   @default(now())
-  createdAt         DateTime   @default(now())
-
-  appliedById       String?
-  appliedBy         User?      @relation("VmSpecApplier", fields: [appliedById], references: [id])
-
-  // Link to request that caused this spec
-  sourceRequestId   String?
-  sourceRequest     Request?   @relation(fields: [sourceRequestId], references: [id])
-
-  // Reverse relation for current spec
-  currentForVm      VmInstance? @relation("CurrentVmSpec")
-
-  // Related structured data
-  additionalDisks   VmSpecDisk[]
-  firewallPorts     VmSpecFirewallPort[]
-  networkAccess     VmSpecNetworkAccess[]
-
-  @@index([vmInstanceId])
-  @@index([effectiveFrom])
+  @@index([vmInstanceId])
+  @@index([effectiveFrom])
 }
 
 model VmSpecDisk {
-  id        String   @id @default(uuid())
-  specId    String
-  spec      VmSpec   @relation(fields: [specId], references: [id], onDelete: Cascade)
-  sizeGb    Int
-  purpose   String?
-  sequence  Int
+  id       String  @id @default(uuid())
+  specId   String
+  sizeGb   Int
+  purpose  String?
+  sequence Int
+  spec     VmSpec  @relation(fields: [specId], references: [id], onDelete: Cascade)
 
-  @@index([specId])
+  @@index([specId])
 }
 
 model VmSpecFirewallPort {
-  id        String   @id @default(uuid())
-  specId    String
-  spec      VmSpec   @relation(fields: [specId], references: [id], onDelete: Cascade)
-  port      Int
-  protocol  Protocol
-  purpose   String
-  source    String?
+  id       String   @id @default(uuid())
+  specId   String
+  port     Int
+  protocol Protocol
+  purpose  String
+  source   String?
+  spec     VmSpec   @relation(fields: [specId], references: [id], onDelete: Cascade)
 
-  @@index([specId])
+  @@index([specId])
 }
 
 model VmSpecNetworkAccess {
-  id         String        @id @default(uuid())
-  specId     String
-  spec       VmSpec        @relation(fields: [specId], references: [id], onDelete: Cascade)
-  accessType NetworkAccess
+  id         String        @id @default(uuid())
+  specId     String
+  accessType NetworkAccess
+  spec       VmSpec        @relation(fields: [specId], references: [id], onDelete: Cascade)
 
-  @@index([specId])
+  @@index([specId])
 }
-
-// ======================
-// Customization Workflow (Linked to VmSpec)
-// ======================
 
 model CustomizationRequest {
-  id              String   @id @default(uuid())
-  parentRequestId String?  // Optional: link to original New VM request
-  parentRequest   Request? @relation("CustomizationParent", fields: [parentRequestId], references: [id])
+  id              String                @id @default(uuid())
+  parentRequestId String?
+  targetVmId      String
+  vcpu            Int?
+  ramGb           Int?
+  storageGb       Int?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  requesterId     String?
+  purpose         String?
+  submittedAt     DateTime?
+  status          CustomizationStatus   @default(DRAFT)
+  additionalDisks AdditionalDiskInput[]
+  approvals       Approval[]            @relation("CustomizationApprovals")
+  parentRequest   Request?              @relation("CustomizationParent", fields: [parentRequestId], references: [id])
+  requester       User?                 @relation("CustomizationRequester", fields: [requesterId], references: [id])
+  targetVm        VmInstance            @relation("CustomizationTarget", fields: [targetVmId], references: [id])
+  firewallPorts   FirewallPortInput[]
+  networkAccess   NetworkAccessInput[]
+  resultingSpec   VmSpec?               @relation("CustomizationAppliedSpec")
 
-  targetVmId      String
-  targetVm        VmInstance @relation("CustomizationTarget", fields: [targetVmId], references: [id])
-
-  // Desired new spec (partial fields)
-  vcpu            Int?
-  ramGb           Int?
-  storageGb       Int?
-
-  status          RequestStatus @default(PENDING_L1)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  requesterId     String?
-  requester       User?        @relation("CustomizationRequester", fields: [requesterId], references: [id])
-
-  // Normalized children (optional, for complex changes)
-  additionalDisks AdditionalDiskInput[]
-  firewallPorts   FirewallPortInput[]
-  networkAccess   NetworkAccessInput[]
-
-  @@index([targetVmId])
-  @@index([status])
+  @@index([targetVmId])
+  @@index([status])
+  @@index([requesterId])
+  @@index([createdAt])
 }
 
-// Temporary input models for customization (can be ephemeral or persisted)
 model AdditionalDiskInput {
-  id                   String   @id @default(uuid())
-  customizationId      String
-  customizationRequest CustomizationRequest @relation(fields: [customizationId], references: [id])
-  sizeGb               Int
-  purpose              String?
-  sequence             Int
+  id                   String               @id @default(uuid())
+  customizationId      String
+  sizeGb               Int
+  purpose              String?
+  sequence             Int
+  customizationRequest CustomizationRequest @relation(fields: [customizationId], references: [id])
 }
 
 model FirewallPortInput {
-  id                   String   @id @default(uuid())
-  customizationId      String
-  customizationRequest CustomizationRequest @relation(fields: [customizationId], references: [id])
-  port                 Int
-  protocol             Protocol
-  purpose              String
-  source               String?
+  id                   String               @id @default(uuid())
+  customizationId      String
+  port                 Int
+  protocol             Protocol
+  purpose              String
+  source               String?
+  customizationRequest CustomizationRequest @relation(fields: [customizationId], references: [id])
 }
 
 model NetworkAccessInput {
-  id                   String        @id @default(uuid())
-  customizationId      String
-  customizationRequest CustomizationRequest @relation(fields: [customizationId], references: [id])
-  accessType           NetworkAccess
+  id                   String               @id @default(uuid())
+  customizationId      String
+  accessType           NetworkAccess
+  customizationRequest CustomizationRequest @relation(fields: [customizationId], references: [id])
 }
 
-// History of applied changes
 model CustomizationHistory {
-  id          String   @id @default(uuid())
-  vmId        String
-  vm          VmInstance @relation(fields: [vmId], references: [id])
-  beforeSpecId String
-  afterSpecId  String
-  beforeSpec   String  
-  afterSpec    String  
-  appliedById  String?
-  appliedBy    User?    @relation(fields: [appliedById], references: [id])
-  createdAt    DateTime @default(now())
-}
+  id           String     @id @default(uuid())
+  vmId         String
+  beforeSpecId String
+  afterSpecId  String
+  appliedById  String?
+  createdAt    DateTime   @default(now())
+  reason       String?
+  afterSpec    VmSpec     @relation("NewSpec", fields: [afterSpecId], references: [id])
+  appliedBy    User?      @relation(fields: [appliedById], references: [id])
+  beforeSpec   VmSpec     @relation("PreviousSpec", fields: [beforeSpecId], references: [id])
+  vm           VmInstance @relation(fields: [vmId], references: [id], onDelete: Cascade)
 
-// ======================
-// Attachments & Audit
-// ======================
+  @@index([vmId])
+  @@index([beforeSpecId])
+  @@index([afterSpecId])
+  @@index([appliedById])
+}
 
 model Attachment {
-  id             String         @id @default(uuid())
-  requestId      String
-  request        Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  fileName       String
-  filePath       String
-  attachmentType AttachmentType
-  uploadedBy     String
-  user           User           @relation(fields: [uploadedBy], references: [id])
-  createdAt      DateTime       @default(now())
-}
-
-enum AttachmentType {
-  SECURITY_REPORT
-  JUSTIFICATION
+  id             String         @id @default(uuid())
+  requestId      String
+  fileName       String
+  filePath       String
+  attachmentType AttachmentType
+  uploadedBy     String
+  createdAt      DateTime       @default(now())
+  request        Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [uploadedBy], references: [id])
 }
 
 model AuditLog {
-  id         String   @id @default(uuid())
-  actorId    String
-  actor      User     @relation(fields: [actorId], references: [id])
-  action     String
-  entityType String?
-  entityId   String?
-  details    Json?   // Only here for flexibility in audit context (optional)
-  timestamp  DateTime @default(now())
-  vmId       String?
-  vm         VmInstance? @relation("VmAudit", fields: [vmId], references: [id])
+  id         String      @id @default(uuid())
+  actorId    String
+  action     String
+  entityType String?
+  entityId   String?
+  details    Json?
+  timestamp  DateTime    @default(now())
+  vmId       String?
+  actor      User        @relation(fields: [actorId], references: [id])
+  vm         VmInstance? @relation("VmAudit", fields: [vmId], references: [id])
 
-  @@index([actorId])
-  @@index([entityType, entityId])
-  @@index([timestamp])
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([timestamp])
+  @@index([vmId])
+  @@index([actorId, timestamp])
 }
-
-// ======================
-// Inventory (Physical + Software)
-// ======================
 
 model SoftwareLicense {
-  id                String    @id @default(uuid())
-  name              String
-  vendor            String
-  expiryDate        DateTime?
-  maintenanceExpiry DateTime?
-  type              String
-  notes             String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  assets            Asset[]
-  @@unique([name, vendor])
-}
+  id                String    @id @default(uuid())
+  name              String
+  vendor            String
+  expiryDate        DateTime?
+  maintenanceExpiry DateTime?
+  type              String
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  assets            Asset[]   @relation("AssetToSoftwareLicense")
 
-enum AssetType {
-  SERVER
-  ROUTER
-  SWITCH
-  FIREWALL
-  STORAGE
-  UPS
-  CONSOLE_SERVER
-  OTHER
+  @@unique([name, vendor])
 }
 
 model Asset {
-  id                   String     @id @default(uuid())
-  type                 AssetType
-  name                 String
-  vendor               String?
-  model                String?
-  serial               String?   @unique
-  location             String?
-  warrantyExpiry       DateTime?
-  cpuCores             Int?
-  ramGb                Int?
-  storageGb            Int?
-  graphicsCardModel    String?
-  graphicsCardSpec     String?
-  interfaces           Int?
-  throughputGbps       Float?
-  vlanSupport          Boolean?
-  capacityTb           Float?
-  noOfDisks            Int?
-  licenses             SoftwareLicense[]
-  createdAt            DateTime   @default(now())
+  id                String            @id @default(uuid())
+  type              AssetType
+  name              String
+  vendor            String?
+  model             String?
+  serial            String?           @unique
+  location          String?
+  warrantyExpiry    DateTime?
+  cpuCores          Int?
+  ramGb             Int?
+  storageGb         Int?
+  graphicsCardModel String?
+  graphicsCardSpec  String?
+  interfaces        Int?
+  throughputGbps    Float?
+  vlanSupport       Boolean?
+  capacityTb        Float?
+  noOfDisks         Int?
+  createdAt         DateTime          @default(now())
+  licenses          SoftwareLicense[] @relation("AssetToSoftwareLicense")
 }
 
 model SystemSetting {
@@ -564,9 +425,126 @@ model SystemSetting {
 model Notification {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
   type      String
   message   String
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+enum RequestType {
+  NEW_VM
+  CUSTOMIZED
+  RENEWAL
+  DECOMMISSION
+}
+
+enum RequestStatus {
+  DRAFT
+  PENDING_L1
+  PENDING_L2
+  PENDING_L3
+  APPROVED
+  REJECTED
+  PROVISIONED
+  CLOSED
+  REQUESTER_APPROVED
+  PENDING_L4
+}
+
+enum CustomizationStatus {
+  DRAFT
+  PENDING_L1
+  PENDING_L2
+  PENDING_L3
+  APPROVED
+  REJECTED
+  APPLIED
+  PENDING_L4
+}
+
+enum Protocol {
+  TCP
+  UDP
+  OTHER
+}
+
+enum ServerType {
+  APPLICATION
+  MAIL
+  DATABASE
+  FTP
+  OTHER
+}
+
+enum Environment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+  TESTING
+}
+
+enum LicenseProvider {
+  REQUESTER
+  PARTNER
+  OPEN_SOURCE
+}
+
+enum SSLProvider {
+  REQUESTER
+  MIS
+}
+
+enum NetworkAccess {
+  LOCAL
+  INTERNET
+  REMOTE
+}
+
+enum Raid {
+  RAID0
+  RAID1
+  RAID5
+  RAID10
+  NONE
+}
+
+enum ApprovalDecision {
+  PENDING
+  APPROVED
+  REJECTED
+  RETURNED
+}
+
+enum ApprovalEntityType {
+  REQUEST
+  CUSTOMIZATION
+}
+
+enum VmStatus {
+  ACTIVE
+  SUSPENDED
+  RETIRED
+}
+
+enum AttachmentType {
+  SECURITY_REPORT
+  JUSTIFICATION
+}
+
+enum AssetType {
+  SERVER
+  ROUTER
+  SWITCH
+  FIREWALL
+  STORAGE
+  UPS
+  CONSOLE_SERVER
+  OTHER
+}
+
+enum ApprovalLevel {
+  L1
+  L2
+  L3
 }

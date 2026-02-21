@@ -15,9 +15,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
-import { VmInstance } from "@/types/inventory";
+import { SerializedVmInstance } from "@/types/vm";
 
-export function VmListClient({ initialVms }: { initialVms: VmInstance[] }) {
+export function VmListClient({ initialVms }: { initialVms:  SerializedVmInstance[] }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
@@ -92,7 +92,7 @@ export function VmListClient({ initialVms }: { initialVms: VmInstance[] }) {
                               <User className="h-3 w-3 text-slate-400" />
                               <p className="text-sm font-bold text-slate-700 leading-none">{vm.owner?.name}</p>
                            </div>
-                           <p className="text-[10px] text-slate-400 font-bold uppercase ml-5">{vm.request?.environment || "CLUSTER_DEFAULT"}</p>
+                           <p className="text-[10px] text-slate-400 font-bold uppercase ml-5">{vm.request?.environment || "PRODUCTION"}</p>
                         </div>
                      </td>
                      <td className="px-6 py-5 text-center">

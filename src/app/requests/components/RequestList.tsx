@@ -1,3 +1,4 @@
+//scr/app/requests/components/RequestList.tsx
 "use client";
 
 import Link from "next/link";
@@ -14,27 +15,27 @@ import {
   HardDrive 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RequestDetailsData } from "@/types/requests";
+import { detailsRequest } from "@/types/requests";
+import { deleteRequest } from "@/app/actions/request-actions";
 
 // ✅ MINIMAL, PRECISE INTERFACES (matches EXACT data shape used)
 interface RequestListProps {
-  requests: RequestDetailsData[];
+  requests: detailsRequest[];
 }
 
 export function RequestList({ requests: initialRequests }: RequestListProps) {
-  const [requests, setRequests] = useState<RequestDetailsData[]>(initialRequests);
+  const [requests, setRequests] = useState<detailsRequest[]>(initialRequests);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this draft?")) return;
 
     try {
-      const res = await fetch(`/api/requests/${id}`, { method: "DELETE" });
-      if (res.ok) {
+      const res = await deleteRequest(id);
+      if (res.success) {
         setRequests(prev => prev.filter(r => r.id !== id));
         toast.success("Draft deleted successfully");
       } else {
-        const error: { error?: string } = await res.json();
-        toast.error(error.error || "Failed to delete draft");
+        toast.error("Failed to delete draft");
       }
     } catch {
       toast.error("Network error");
@@ -91,19 +92,19 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
                 <td className="px-6 py-4">
                   <Badge
                     variant={
-                      req.status === "REJECTED"
+                      req.status.toString() === "REJECTED"
                         ? "destructive"
-                        : req.status === "DRAFT"
+                        : req.status.toString() === "DRAFT"
                         ? "secondary"
                         : "default"
                     }
                     className="capitalize"
                   >
-                    {req.status.toLowerCase().replace(/_/g, " ")}
+                    {req.status.toString().toLowerCase().replace(/_/g, " ")}
                   </Badge>
                 </td>
                 <td className="px-6 py-4">
-                  {req.vmInstances.length > 0 ? (
+                  {req.vmInstances && req.vmInstances.length > 0 ? (
                     <div className="flex flex-col gap-1">
                       {req.vmInstances.map((vm) => (
                         <Link 
@@ -133,7 +134,7 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
                       </Button>
                     </Link>
 
-                    {req.status === "DRAFT" && (
+                    {req.status.toString() === "DRAFT" && (
                       <>
                         <Link href={`/requests/${req.id}/edit`}>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-amber-600">
@@ -151,7 +152,7 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
                       </>
                     )}
 
-                    {["APPROVED", "REJECTED", "PROVISIONED"].includes(req.status) && (
+                    {["APPROVED", "REJECTED", "PROVISIONED"].includes(req.status.toString()) && (
                       <Link href={`/requests/new?copyFrom=${req.id}`}>
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-green-600" title="Copy Request">
                           <Copy className="w-4 h-4" />

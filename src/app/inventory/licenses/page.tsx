@@ -1,82 +1,97 @@
 // src/app/inventory/licenses/page.tsx
 "use client";
-import { redirect } from "next/navigation";
-import { getLicenses } from "@/app/actions/inventory-actions";
+
+import { useRouter } from "next/navigation"; // Changed from redirect
 import { ROLES } from "@/lib/roles";
-import { 
-  FileText, 
-  Plus, 
-} from "lucide-react";
+import { FileText, Plus, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format, differenceInDays } from "date-fns";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
-import { EnrollmentLicense } from "@/types/inventory";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { SoftwareLicense } from "@/types/inventory"; // ✅ Fixed duplicate import
+import { fetchLicenseAssets } from "@/app/actions/license-actions";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default function LicensesPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [licenses, setLicenses] = useState<SoftwareLicense[]>([]);
+  const [loading, setLoading] = useState(true);
 
-   const { data: session } = useSession();
-   const [license, setLicense] = useState<EnrollmentLicense[]>([]);
-   
-  if (!session?.user) redirect("/auth");
+  // ✅ Handle Authorization and Data Fetching in useEffect
+  useEffect(() => {
+    if (status === "loading") return;
 
-  // Only Admin, DCOPS, and Approvers see licenses
-  if (session.user.roles.includes(ROLES.REQUESTER)) {
-     redirect("/inventory/vms");
+    if (!session) {
+      router.push("/auth");
+      return;
+    }
+
+    if (session.user.roles.includes(ROLES.REQUESTER)) {
+      router.push("/inventory/vms");
+      return;
+    }
+
+    const getLicenses = async () => {
+      try {
+        const { licenses: data } = await fetchLicenseAssets();
+        if (data) setLicenses(data);
+      } catch (err) {
+        console.error("Failed to fetch licenses:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    getLicenses();
+  }, [session, status, router]);
+
+  const canEdit = session?.user?.roles.includes(ROLES.ADMIN) || session?.user?.roles.includes(ROLES.DCOPS);
+
+  if (status === "loading" || loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      </div>
+    );
   }
-
-    useEffect(()=>{
-     getLicense();
-  
-    },[session]);
-const getLicense = async () => {
-
-    try {
-      const res = await  getLicenses();
-      if (!res) return;
-      setLicense(res);
-    } catch (err) {
-      console.log(err);
-    } 
-  };
-
-  const canEdit = session.user.roles.includes(ROLES.ADMIN) || session.user.roles.includes(ROLES.DCOPS);
 
   return (
     <div className="p-6 md:p-10 space-y-8 bg-slate-50/20 min-h-screen">
-       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Software Subscriptions</h1>
-          <p className="text-slate-500 mt-1">Manage centralized software licensing, maintenance windows, and compliance alerts.</p>
+          <p className="text-slate-500 mt-1">Manage software licensing and compliance alerts.</p>
         </div>
         {canEdit && (
-           <Button asChild className="bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-100 gap-2 h-11 px-6">
-              <Link href="/inventory/licenses/new">
-                <Plus className="h-4 w-4" /> Register New License
-              </Link>
-           </Button>
+          <Button asChild className="bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-100 gap-2 h-11 px-6">
+            <Link href="/inventory/licenses/new">
+              <Plus className="h-4 w-4" /> Register New License
+            </Link>
+          </Button>
         )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-         {license.map((lic) => (
-            <LicenseCard key={lic.id} license={lic} />
-         ))}
-         {license.length === 0 && (
-            <div className="lg:col-span-3 py-20 text-center opacity-30 select-none">
-               <FileText className="h-12 w-12 mx-auto mb-3" />
-               <p className="font-black uppercase tracking-widest text-lg">No License Data Recorded</p>
-            </div>
-         )}
+        {licenses.map((lic) => (
+          <LicenseCard key={lic.id} license={lic} />
+        ))}
+        {licenses.length === 0 && (
+          <div className="lg:col-span-3 py-20 text-center opacity-30 select-none">
+            <FileText className="h-12 w-12 mx-auto mb-3" />
+            <p className="font-black uppercase tracking-widest text-lg">No License Data Recorded</p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function LicenseCard({ license }: { license: EnrollmentLicense }) {
+
+
+function LicenseCard({ license }: { license: SoftwareLicense }) {
    const daysToExpiry = license.expiryDate ? differenceInDays(new Date(license.expiryDate), new Date()) : null;
    
    let statusBadge = null;
