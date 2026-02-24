@@ -134,21 +134,24 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
                       </Button>
                     </Link>
 
-                    {req.status.toString() === "DRAFT" && (
+                    {(req.status.toString() === "DRAFT" || req.status.toString() === "RETURNED") && (
                       <>
                         <Link href={`/requests/${req.id}/edit`}>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-amber-600">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-amber-600" title="Edit Request">
                             <Edit2 className="w-4 h-4" />
                           </Button>
                         </Link>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8 text-slate-400 hover:text-red-600"
-                          onClick={() => handleDelete(req.id)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {req.status.toString() === "DRAFT" && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-slate-400 hover:text-red-600"
+                            onClick={() => handleDelete(req.id)}
+                            title="Delete Draft"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </>
                     )}
 

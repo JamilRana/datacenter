@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { 
   Check, 
   Copy, 
@@ -15,9 +15,11 @@ import {
   HardDrive,
   Clock,
   LucideIcon,
-  Shield
+  Shield,
+  FileText,
+  Download
 } from "lucide-react";
-import { ApprovalPanel } from "./ApprovalPanel";
+import { ApprovalPanel } from "@/app/approvals/components/ApprovalPanel";
 import { VmInstanceList } from "./VmInstanceList";
 import { getDetailedRequest, submitRequest } from "@/app/actions/request-actions";
 import { detailsRequest, Person } from "@/types/requests";
@@ -26,15 +28,13 @@ import type { ReactNode } from "react";
 
 export function RequestDetails({
   requestId,
-  userId,
 }: {
   requestId: string;
-  userId: string;
 }) {
   const [data, setData] = useState<detailsRequest | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchRequestData = async () => {
+  const fetchRequestData = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getDetailedRequest(requestId);
@@ -44,12 +44,12 @@ export function RequestDetails({
     } finally {
       setLoading(false);
     }
-  };
+  }, [requestId]);
 
   useEffect(() => {
     if (!requestId) return;
     fetchRequestData();
-  }, [requestId]);
+  }, [requestId, fetchRequestData]);
 
   const handleSubmit = async () => {
     if (!data) return;
@@ -241,6 +241,35 @@ export function RequestDetails({
               )}
             </div>
           </Card>
+
+          {/* Attachments */}
+          {data.attachments && data.attachments.length > 0 && (
+            <Card title="Attachments" icon={FileText}>
+              <div className="space-y-2">
+                {data.attachments.map((attachment) => (
+                  <div key={attachment.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-slate-400" />
+                      <div>
+                        <p className="text-sm font-medium text-slate-700">{attachment.fileName}</p>
+                        <p className="text-xs text-slate-400">
+                          {attachment.attachmentType.replace(/_/g, " ")} • {attachment.user?.name || "Unknown"}
+                        </p>
+                      </div>
+                    </div>
+                    <a 
+                      href={attachment.filePath} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800"
+                    >
+                      <Download className="h-4 w-4" />
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -258,8 +287,7 @@ export function RequestDetails({
       {data.approvals && data.approvals.length > 0 && (
       <ApprovalPanel
         approvals={data.approvals}
-        currentStatus={data.status}
-        currentUserId={userId}
+        requestType={data.requestType}
       />
       )}
       {/* Bottom Action Bar */}

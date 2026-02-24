@@ -77,3 +77,25 @@ export async function getDirector(): Promise<{ id: string; name: string; email: 
   });
   return director;
 }
+
+// ✅ NEW: Notify DCOps for approved requests
+export async function notifyDCOps(requestId: string, systemName: string) {
+  const dcopsUsers = await prisma.user.findMany({
+    where: { 
+      isActive: true,
+      roles: { 
+        some: { 
+          role: { name: ROLES.DCOPS } 
+        } 
+      } 
+    }
+  });
+
+  for (const user of dcopsUsers) {
+    await createNotification(
+      user.id,
+      "EXECUTION_READY",
+      `Request "${systemName}" (ID: ${requestId}) has been APPROVED and is ready for execution.`
+    );
+  }
+}

@@ -18,19 +18,22 @@ import {
   forwardToDirector 
 } from "@/app/actions/approval-actions";
 import { Approval } from "@/types/approvals";
+import { useSession } from "next-auth/react";
 
 export function ApprovalPanel({
   approvals,
-  currentUserId,
+  requestType,
 }: {
   approvals: Approval[];
-  currentUserId: string;
+  requestType?: string;
 }) {
   const [comments, setComments] = useState("");
   const [forwardComments, setForwardComments] = useState("");
+  const {data:session} = useSession();
   const [loading, setLoading] = useState(false);
   const [showForwardDialog, setShowForwardDialog] = useState(false);
-
+  const currentUserId = session?.user?.id;
+  
   const currentLevel = approvals.find(a => 
     a.decision === "PENDING" && a.approverId === currentUserId
   )?.level || null;
@@ -87,7 +90,7 @@ export function ApprovalPanel({
     setLoading(true);
     try {
       const result = await forwardToDirector(
-        activeApproval.requestId!, 
+        activeApproval.id, 
         forwardComments.trim()
       );
       
@@ -130,8 +133,8 @@ export function ApprovalPanel({
           ))}
         </div>
 
-        {/* FORWARD BUTTON (L3 ONLY) */}
-        {currentLevel === 3 && activeApproval && (
+        {/* FORWARD BUTTON (L3 ONLY) - Disabled for Decommissions */}
+        {currentLevel === 3 && activeApproval && requestType !== "DECOMMISSION" && (
           <div className="mt-6 pt-6 border-t-2 border-dashed border-amber-200">
             <Button
               variant="secondary"

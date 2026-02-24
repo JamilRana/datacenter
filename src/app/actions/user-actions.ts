@@ -20,7 +20,7 @@ export async function getRequesters() {
             },
           },
         },
-        isActive: true, // Only fetch active users who can actually approve
+        isActive: true,
       },
       include: {
       roles: {
@@ -40,10 +40,30 @@ export async function getRequesters() {
     designation: user.designation,
     organization: user.organization,
     isActive: user.isActive,
-    roles: user.roles.map((r) => r.role.name), // <-- FIX
+    roles: user.roles.map((r) => r.role.name),
   }));
   } catch (error) {
     console.error("Error fetching requesters:", error);
+    return [];
+  }
+}
+
+export async function getAllActiveUsers() {
+  try {
+    const users = await prisma.user.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        designation: true,
+        organization: true,
+      },
+      orderBy: { name: "asc" },
+    });
+    return users;
+  } catch (error) {
+    console.error("Error fetching all users:", error);
     return [];
   }
 }
@@ -368,4 +388,75 @@ export async function deleteRole(id: string) {
   });
 
   revalidatePath("/admin/users");
+}
+
+// ============================================
+// PROFILE MANAGEMENT - User updates own profile
+// ============================================
+
+export async function updateOwnProfile(formData: FormData) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const userId = session.user.id;
+  const name = formData.get("name")?.toString()?.trim();
+  const designation = formData.get("designation")?.toString()?.trim();
+  const organization = formData.get("organization")?.toString()?.trim();
+  const contact = formData.get("contact")?.toString()?.trim();
+
+  if (!name) throw new Error("Name is required");
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      name,
+      designation: designation || null,
+      organization: organization || null,
+      contact: contact || null,
+    },
+  });
+
+  revalidatePath("/profile");
+  revalidatePath("/");
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const userId = session.user.id;
+
+  // Get current user with password
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { password: true },
+  });
+
+  if (!user?.password) {
+    throw new Error("Cannot change password for this account");
+  }
+
+  // Verify current password
+  const { compare } = await import("bcryptjs");
+  const isValid = await compare(currentPassword, user.password);
+  if (!isValid) {
+    throw new Error("Current password is incorrect");
+  }
+
+  // Validate new password
+  if (newPassword.length < 6) {
+    throw new Error("New password must be at least 6 characters");
+  }
+
+  // Hash and update new password
+  const hashedPassword = await hash(newPassword, 12);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { password: hashedPassword },
+  });
+
+  revalidatePath("/profile");
 }

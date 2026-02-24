@@ -99,6 +99,7 @@ export async function createRequest(formData: FormData) {
     const firewallPorts = rawFirewallPorts ? JSON.parse(rawFirewallPorts) : [];
     const networkAccess = rawNetworkAccess ? JSON.parse(rawNetworkAccess) : [];
     const securityFile = formData.get("securityReport") as File;
+    const justificationFile = formData.get("justificationDoc") as File;
     const requestId = crypto.randomUUID();
     const attachments: Attachment[] = [];
 
@@ -118,6 +119,21 @@ export async function createRequest(formData: FormData) {
         fileName: securityFile.name,
         filePath: `/uploads/${requestId}/${securityFile.name}`,
         attachmentType: AttachmentType.SECURITY_REPORT,
+        uploadedBy: userId,
+      });
+    }
+
+    // Handle justification document upload
+    if (justificationFile && justificationFile.size > 0) {
+      const uploadDir = path.join(process.cwd(), "uploads", requestId);
+      await mkdir(uploadDir, { recursive: true });
+      const filePath = path.join(uploadDir, justificationFile.name);
+      const buffer = Buffer.from(await justificationFile.arrayBuffer());
+      await writeFile(filePath, buffer);
+      attachments.push({
+        fileName: justificationFile.name,
+        filePath: `/uploads/${requestId}/${justificationFile.name}`,
+        attachmentType: AttachmentType.JUSTIFICATION,
         uploadedBy: userId,
       });
     }
@@ -299,6 +315,7 @@ export async function editRequest(formData: FormData) {
     const firewallPorts = rawFirewallPorts ? JSON.parse(rawFirewallPorts) : [];
     const networkAccess = rawNetworkAccess ? JSON.parse(rawNetworkAccess) : [];
     const securityFile = formData.get("securityReport") as File;
+    const justificationFile = formData.get("justificationDoc") as File;
     const attachments: Attachment[] = [];
 
     // Handle security report upload
@@ -312,6 +329,21 @@ export async function editRequest(formData: FormData) {
         fileName: securityFile.name,
         filePath: `/uploads/${requestId}/${securityFile.name}`,
         attachmentType: AttachmentType.SECURITY_REPORT,
+        uploadedBy: userId,
+      });
+    }
+
+    // Handle justification document upload
+    if (justificationFile && justificationFile.size > 0) {
+      const uploadDir = path.join(process.cwd(), "uploads", requestId);
+      await mkdir(uploadDir, { recursive: true });
+      const filePath = path.join(uploadDir, justificationFile.name);
+      const buffer = Buffer.from(await justificationFile.arrayBuffer());
+      await writeFile(filePath, buffer);
+      attachments.push({
+        fileName: justificationFile.name,
+        filePath: `/uploads/${requestId}/${justificationFile.name}`,
+        attachmentType: AttachmentType.JUSTIFICATION,
         uploadedBy: userId,
       });
     }
@@ -476,12 +508,11 @@ export async function editRequest(formData: FormData) {
 
     // ✅ Generate approvals ONLY if status changed to PENDING_L1
     if (updatedRequest.status === RequestStatus.PENDING_L1) {
-      // Delete any pending approvals first
+      // ✅ DELETE ALL PREVIOUS APPROVALS (not just pending) to prevent duplicate levels
       await prisma.approval.deleteMany({
         where: { 
-          requestId: updatedRequest.id,  // ✅ CORRECT FIELD NAME
-          entityType: ApprovalEntityType.REQUEST,
-          decision: ApprovalDecision.PENDING 
+          requestId: updatedRequest.id,
+          entityType: ApprovalEntityType.REQUEST
         },
       });
       
@@ -536,12 +567,11 @@ export async function submitRequest(requestId: string) {
   }
 
   const updated = await prisma.$transaction(async (tx) => {
-    // ✅ DELETE PENDING APPROVALS FIRST (FIXED WHERE CLAUSE)
+    // ✅ DELETE ALL PREVIOUS APPROVALS (not just pending) to prevent duplicate levels
     await tx.approval.deleteMany({
       where: { 
-        requestId: requestId, // ✅ CORRECT FIELD NAME (was "id" before)
-        entityType: ApprovalEntityType.REQUEST,
-        decision: ApprovalDecision.PENDING 
+        requestId: requestId,
+        entityType: ApprovalEntityType.REQUEST
       },
     });
 
@@ -666,25 +696,25 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
 
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
-const isAdmin = session.user.roles.includes(ROLES.ADMIN);
-const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
+  const isAdmin = session.user.roles.includes(ROLES.ADMIN);
+  const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
+  const isDcopsUser = session.user.roles.includes(ROLES.DCOPS);
 
   // ✅ INCLUDE ALL REQUIRED FIELDS & RELATIONS
   const request = await prisma.request.findUnique({
   where: {
     id: requestId,
-    ...(isAdmin || isApprover
+    ...(isAdmin || isApprover || isDcopsUser
       ? {}
       : {
           OR: [
             { requesterId: session.user.id },
-            { developerId: session.user.id }
+            { developerId: session.user.id },
           ]
         }
     )
   },
     include: {
-      // ✅ Critical: Include requester relation for name/email
       requester: {
         select: { 
           id: true, 
@@ -714,7 +744,15 @@ const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
       additionalDisks: true,
       firewallPorts: true,
       networkAccess: true,
-      // customizations: true, // Only include if actually used in UI
+      attachments: {
+        include: {
+          user: { select: { id: true, name: true, email: true } }
+        },
+        orderBy: { createdAt: "desc" }
+      },
+      developer: {
+        select: { id: true, name: true, email: true, designation: true, organization: true, contact: true }
+      }
     },
   });
 
@@ -765,16 +803,26 @@ const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
         }
       : null,
 
-    // ✅ Construct developer from FLAT FIELDS (schema has no relation)
-    developer: request.developerName
+    // ✅ Construct developer from RELATION (preferred) or FLAT FIELDS (fallback)
+    developer: request.developer 
       ? {
-          name: request.developerName,
-          designation: request.developerDesignation || "",
-          organization: request.developerOrganization || "",
-          contact: request.developerContact || "",
-          email: request.developerEmail || "",
+          name: request.developer.name,
+          designation: request.developer.designation || "",
+          organization: request.developer.organization || "",
+          contact: request.developer.contact || "",
+          email: request.developer.email,
         }
-      : null,
+      : request.developerName
+        ? {
+            name: request.developerName,
+            designation: request.developerDesignation || "",
+            organization: request.developerOrganization || "",
+            contact: request.developerContact || "",
+            email: request.developerEmail || "",
+          }
+        : null,
+
+    developerId: request.developerId || null,
 
     // VM Spec
     serverType: request.serverType as ServerType,
@@ -851,140 +899,262 @@ const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
     networkAccess: (request.networkAccess || []).map((n) => ({
       accessType: n.accessType,
     })),
+    attachments: (request.attachments || []).map((a) => ({
+      id: a.id,
+      fileName: a.fileName,
+      filePath: a.filePath,
+      attachmentType: a.attachmentType,
+      uploadedBy: a.uploadedBy,
+      createdAt: a.createdAt,
+      user: a.user ? { id: a.user.id, name: a.user.name, email: a.user.email } : null,
+    })),
     targetVm: request.targetVm || null,
   };
 
   return transformed;
 }
 
+// export async function getRequests(
+//   filters: RequestFilters = {}, 
+//   page: number = 1, 
+//   pageSize: number = 10
+// ) {
+//   const session = await getServerSession(authOptions);
+//   if (!session?.user) throw new Error("Unauthorized");
+  
+//   const userId = session.user.id;
+//   const userRoles = session.user.roles;
+//   const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
+//   const isAdmin = userRoles.includes(ROLES.ADMIN);
+  
+  
+//   const skip = (page - 1) * pageSize;
+//   const andConditions: Prisma.RequestWhereInput[] = [];
+//   if (!isApprover && !isAdmin) {
+//   andConditions.push({
+//     OR: [
+//       { requesterId: userId },
+//       { developerId: userId }
+//     ]
+//   });
+// }
+// if (filters.search?.trim()) {
+//   andConditions.push({
+//     OR: [
+//       { systemName: { contains: filters.search, mode: "insensitive" } },
+//       { projectName: { contains: filters.search, mode: "insensitive" } }
+//     ]
+//   });
+// }
+//   // ✅ BUILD QUERY WITH PROPER VISIBILITY RULES
+//     const whereClause: Prisma.RequestWhereInput = {
+//     // Regular users: only their own requests
+
+//     AND: andConditions,
+//     // Status filter with role-based enforcement
+//     ...(filters.status && filters.status !== "ALL"
+//       ? { status: filters.status as RequestStatus }
+//       : !isApprover || isAdmin
+//         ? {} 
+//         : {
+//             status: {
+//               in: userRoles.flatMap(role => {
+//                 if (role === "APPROVER_L1") return [RequestStatus.PENDING_L1];
+//                 if (role === "APPROVER_L2") return [RequestStatus.PENDING_L2];
+//                 if (role === "APPROVER_L3") return [RequestStatus.PENDING_L3];
+//                 if (role === ROLES.L4_APPROVER) return [RequestStatus.PENDING_L4];
+//                 return [];
+//               }).filter(Boolean)
+//             }
+//           }
+//     ),
+    
+//     // Type & search filters (same as before)
+//     ...(filters.type && filters.type !== "ALL" && {
+//       requestType: filters.type as RequestType
+//     }),
+
+//   };
+
+//   // ✅ CRITICAL FIX: Approvers ONLY see requests with PENDING approval assigned to THEM
+// // ✅ CRITICAL FIX: Approvers ONLY see requests with PENDING approval assigned to THEM
+// if (isApprover && !isAdmin) {
+//   // 1. Map roles to their integer levels
+//   const levelMapping: Record<string, number> = {
+//     "APPROVER_L1": 1,
+//     "APPROVER_L2": 2,
+//     "APPROVER_L3": 3,
+//     [ROLES.L4_APPROVER]: 4,
+//   };
+
+//   const myActionableLevels = userRoles
+//     .map(role => levelMapping[role])
+//     .filter((lvl): lvl is number => lvl !== undefined);
+
+//   // 2. Get request IDs where CURRENT USER has a PENDING approval record
+//   const pendingApprovals = await prisma.approval.findMany({
+//     where: {
+//       approverId: userId,
+//       decision: ApprovalDecision.PENDING,
+//       entityType: ApprovalEntityType.REQUEST,
+//       level: { in: myActionableLevels } // ✅ Matches numeric level
+//     },
+//     select: { requestId: true },
+//     take: 1000
+//   });
+
+//   const requestIdsForApprover = pendingApprovals
+//     .map(a => a.requestId)
+//     .filter((id): id is string => id !== null);
+
+//   // 3. Restrict whereClause to only these IDs
+//   // If the user has no pending items, we force an empty set
+//   whereClause.id = { in: requestIdsForApprover };
+// }
+// const [requests, total] = await Promise.all([
+//   prisma.request.findMany({
+//     where: whereClause,
+//     orderBy: { createdAt: "desc" },
+//     skip,
+//     take: pageSize,
+//     include: {
+//       vmInstances: { 
+//         select: { id: true, hostname: true, ipAddress: true, status: true } 
+//       },
+//       approvals: { 
+//         where: { entityType: ApprovalEntityType.REQUEST },
+//         include: { approver: { select: { id: true, name: true } } },
+//         orderBy: { createdAt: "asc" },
+//       },
+//       // Include this for all so the Type remains consistent
+//       targetVm: { 
+//         select: { id: true, hostname: true, status: true } 
+//       },
+//     },
+//   }),
+//   prisma.request.count({ where: whereClause })
+// ]);
+  
+//   const totalPages = Math.ceil(total / pageSize);
+  
+//   return { 
+//     requests: requests.map(r => transformRequestListItem(r)), 
+//     total, 
+//     totalPages, 
+//     currentPage: page 
+//   };
+// }
+
 export async function getRequests(
-  filters: RequestFilters = {}, 
-  page: number = 1, 
+  filters: RequestFilters = {},
+  page: number = 1,
   pageSize: number = 10
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
-  
+
   const userId = session.user.id;
   const userRoles = session.user.roles;
-  const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
   const isAdmin = userRoles.includes(ROLES.ADMIN);
+  const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_") || r === ROLES.L4_APPROVER);
   
-  
+  const levelMapping: Record<string, number> = {
+      "APPROVER_L1": 1,
+      "APPROVER_L2": 2,
+      "APPROVER_L3": 3,
+      [ROLES.L4_APPROVER]: 4,
+    };
   const skip = (page - 1) * pageSize;
   const andConditions: Prisma.RequestWhereInput[] = [];
-  if (!isApprover && !isAdmin) {
-  andConditions.push({
-    OR: [
-      { requesterId: userId },
-      { developerId: userId }
-    ]
-  });
-}
-if (filters.search?.trim()) {
-  andConditions.push({
-    OR: [
-      { systemName: { contains: filters.search, mode: "insensitive" } },
-      { projectName: { contains: filters.search, mode: "insensitive" } }
-    ]
-  });
-}
-  // ✅ BUILD QUERY WITH PROPER VISIBILITY RULES
-    const whereClause: Prisma.RequestWhereInput = {
-    // Regular users: only their own requests
 
-    AND: andConditions,
-    // Status filter with role-based enforcement
-    ...(filters.status && filters.status !== "ALL"
-      ? { status: filters.status as RequestStatus }
-      : !isApprover || isAdmin
-        ? {} 
-        : {
-            status: {
-              in: userRoles.flatMap(role => {
-                if (role === "APPROVER_L1") return [RequestStatus.PENDING_L1];
-                if (role === "APPROVER_L2") return [RequestStatus.PENDING_L2];
-                if (role === "APPROVER_L3") return [RequestStatus.PENDING_L3];
-                if (role === ROLES.L4_APPROVER) return [RequestStatus.PENDING_L4];
-                return [];
-              }).filter(Boolean)
-            }
-          }
-    ),
+  // 1. BASE VISIBILITY: Non-admins/Non-approvers only see their own stuff
+  if (!isAdmin && !isApprover) {
+    andConditions.push({
+      OR: [{ requesterId: userId }, { developerId: userId }]
+    });
+  }
+
+  // 2. SEARCH FILTERS
+  if (filters.search?.trim()) {
+    andConditions.push({
+      OR: [
+        { systemName: { contains: filters.search, mode: "insensitive" } },
+        { projectName: { contains: filters.search, mode: "insensitive" } }
+      ]
+    });
+  }
+
+  // 3. TYPE FILTERS
+  if (filters.type && filters.type !== "ALL") {
+    andConditions.push({ requestType: filters.type as RequestType });
+  }
+
+  // 4. APPROVER SPECIFIC FILTERING
+  // If user is an Approver and NOT an Admin, they should ONLY see what they need to sign
+  if (isApprover && !isAdmin) {
     
-    // Type & search filters (same as before)
-    ...(filters.type && filters.type !== "ALL" && {
-      requestType: filters.type as RequestType
+    const myActionableLevels = userRoles
+      .map(role => levelMapping[role])
+      .filter((lvl): lvl is number => lvl !== undefined);
+
+    // Filter by pending approvals assigned to THIS specific user at THEIR level
+    andConditions.push({
+      approvals: {
+        some: {
+          approverId: userId,
+          decision: ApprovalDecision.PENDING,
+          entityType: ApprovalEntityType.REQUEST,
+          level: { in: myActionableLevels }
+        }
+      }
+    });
+  }
+
+  // 5. STATUS FILTER (Global or Role-based)
+  if (filters.status && filters.status !== "ALL") {
+    andConditions.push({ status: filters.status as RequestStatus });
+  } else if (isApprover && !isAdmin) {
+    // If no specific status filter is picked, default to the statuses relevant to their levels
+    const statusMapping: Record<number, RequestStatus> = {
+      1: RequestStatus.PENDING_L1,
+      2: RequestStatus.PENDING_L2,
+      3: RequestStatus.PENDING_L3,
+      4: RequestStatus.PENDING_L4,
+    };
+    
+    const myStatuses = userRoles
+      .map(role => statusMapping[levelMapping[role]])
+      .filter(Boolean);
+
+    andConditions.push({ status: { in: myStatuses } });
+  }
+
+  const whereClause: Prisma.RequestWhereInput = { AND: andConditions };
+
+  const [requests, total] = await Promise.all([
+    prisma.request.findMany({
+      where: whereClause,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: pageSize,
+      include: {
+        vmInstances: { select: { id: true, hostname: true, ipAddress: true, status: true } },
+        approvals: {
+          where: { entityType: ApprovalEntityType.REQUEST },
+          include: { approver: { select: { id: true, name: true } } },
+          orderBy: { level: "asc" },
+        },
+        targetVm: { select: { id: true, hostname: true, status: true } },
+      },
     }),
+    prisma.request.count({ where: whereClause })
+  ]);
 
-  };
-
-  // ✅ CRITICAL FIX: Approvers ONLY see requests with PENDING approval assigned to THEM
-// ✅ CRITICAL FIX: Approvers ONLY see requests with PENDING approval assigned to THEM
-if (isApprover && !isAdmin) {
-  // 1. Map roles to their integer levels
-  const levelMapping: Record<string, number> = {
-    "APPROVER_L1": 1,
-    "APPROVER_L2": 2,
-    "APPROVER_L3": 3,
-    [ROLES.L4_APPROVER]: 4,
-  };
-
-  const myActionableLevels = userRoles
-    .map(role => levelMapping[role])
-    .filter((lvl): lvl is number => lvl !== undefined);
-
-  // 2. Get request IDs where CURRENT USER has a PENDING approval record
-  const pendingApprovals = await prisma.approval.findMany({
-    where: {
-      approverId: userId,
-      decision: ApprovalDecision.PENDING,
-      entityType: ApprovalEntityType.REQUEST,
-      level: { in: myActionableLevels } // ✅ Matches numeric level
-    },
-    select: { requestId: true },
-    take: 1000
-  });
-
-  const requestIdsForApprover = pendingApprovals
-    .map(a => a.requestId)
-    .filter((id): id is string => id !== null);
-
-  // 3. Restrict whereClause to only these IDs
-  // If the user has no pending items, we force an empty set
-  whereClause.id = { in: requestIdsForApprover };
-}
-const [requests, total] = await Promise.all([
-  prisma.request.findMany({
-    where: whereClause,
-    orderBy: { createdAt: "desc" },
-    skip,
-    take: pageSize,
-    include: {
-      vmInstances: { 
-        select: { id: true, hostname: true, ipAddress: true, status: true } 
-      },
-      approvals: { 
-        where: { entityType: ApprovalEntityType.REQUEST },
-        include: { approver: { select: { id: true, name: true } } },
-        orderBy: { createdAt: "asc" },
-      },
-      // Include this for all so the Type remains consistent
-      targetVm: { 
-        select: { id: true, hostname: true, status: true } 
-      },
-    },
-  }),
-  prisma.request.count({ where: whereClause })
-]);
-  
-  const totalPages = Math.ceil(total / pageSize);
-  
-  return { 
-    requests: requests.map(r => transformRequestListItem(r)), 
-    total, 
-    totalPages, 
-    currentPage: page 
+  return {
+    requests: requests.map(r => transformRequestListItem(r)),
+    total,
+    totalPages: Math.ceil(total / pageSize),
+    currentPage: page
   };
 }
 

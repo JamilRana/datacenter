@@ -419,7 +419,11 @@ model SystemSetting {
   value       String
   label       String?
   description String?
+  category    String   @default("general") // general, smtp, storage
+  isSecret    Boolean  @default(false)
   updatedAt   DateTime @updatedAt
+
+  @@index([category])
 }
 
 model Notification {

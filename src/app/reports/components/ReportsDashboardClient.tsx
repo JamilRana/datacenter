@@ -179,9 +179,9 @@ export function ReportsDashboardClient({ initialData }: { initialData: ReportDat
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
          {/* Summary Cards */}
          <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4">
-            <StatsMiniCard title="Total Instances" value={data.summary.vms} icon={Server} color="blue" />
-            <StatsMiniCard title="Active Requests" value={data.summary.requests} icon={Activity} color="indigo" />
-            <StatsMiniCard title="Entity Compliance" value={`${data.summary.licenses} Subscriptions`} icon={Shield} color="emerald" />
+            <StatsMiniCard title="Total Instances" value={data?.summary?.vms} icon={Server} color="blue" />
+            <StatsMiniCard title="Active Requests" value={data?.summary?.requests} icon={Activity} color="indigo" />
+            <StatsMiniCard title="Entity Compliance" value={`${data?.summary?.licenses} Subscriptions`} icon={Shield} color="emerald" />
             <StatsMiniCard title="Data Sync" value="Verified" icon={Database} color="slate" />
          </div>
 
@@ -191,7 +191,7 @@ export function ReportsDashboardClient({ initialData }: { initialData: ReportDat
                <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400">Environment Load</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-               {data.envDistribution.map((group) => (
+               {data?.envDistribution.map((group) => (
                   <div key={group.environment} className="space-y-1.5">
                      <div className="flex justify-between items-center text-xs font-bold">
                         <span className="text-slate-600">{group.environment}</span>
@@ -218,7 +218,7 @@ export function ReportsDashboardClient({ initialData }: { initialData: ReportDat
                <BarChart3 className="h-4 w-4 text-slate-200" />
             </CardHeader>
             <CardContent className="h-40 flex items-end gap-1 pt-4">
-               {data.trends.map((t) => (
+               {data?.trends?.map((t) => (
                   <div 
                     key={t.day} 
                     className="flex-1 bg-indigo-50 border-t-2 border-indigo-200 hover:bg-indigo-100 transition-all cursor-help relative group"
@@ -250,7 +250,7 @@ export function ReportsDashboardClient({ initialData }: { initialData: ReportDat
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                     {data.topRequesters.map((tr) => (
+                     {data?.topRequesters?.map((tr) => (
                         <tr key={tr.requesterId} className="hover:bg-blue-50/20 transition-colors">
                            <td className="px-6 py-4">
                               <div className="flex items-center gap-3">

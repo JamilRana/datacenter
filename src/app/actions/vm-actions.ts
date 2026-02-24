@@ -21,32 +21,61 @@ import { CustomizationStatus } from "@/types/enums";
 import { isAdmin } from "@/lib/utils";
 
 const vmBaseSchema = z.object({
-  requestId: z.string().uuid().nullable().optional(),
-  sequenceNumber: z.number().int().min(1),
-  ownerId: z.string().uuid().nullable().optional(),
-  hostname: z.string().nullable().optional(),
-  subdomain: z.string().nullable().optional(),
-  ipAddress: z.string().nullable().optional(),
-  publicIpAddress: z.string().nullable().optional(),
+  requestId: z.preprocess(
+    (val) => (val === "" || val == null ? null : val),
+    z.string().uuid().nullable()
+  ),
+
+  sequenceNumber: z.preprocess(
+  (val) => {
+    if (val === undefined || val === null || val === "") {
+      return 1; // default for manual VM
+    }
+    const num = Number(val);
+    return isNaN(num) ? undefined : num;
+  },
+  z.number().int().min(1)
+),
+
+  ownerId: z.preprocess(
+    (val) => (val === "" || val == null ? null : val),
+    z.string().uuid().nullable()
+  ),
+
+  hostname: z.string().optional().nullable(),
+  subdomain: z.string().optional().nullable(),
+  ipAddress: z.string().optional().nullable(),
+  publicIpAddress: z.string().optional().nullable(),
+
   status: z.nativeEnum(FrontendVmStatus),
-  renewalDate: z.string().nullable().optional(),
-  decommissionedAt: z.string().nullable().optional(),
-  hasRemoteAccess: z.boolean(),
-  vpnRequired: z.boolean(),
+
+  renewalDate: z.string().optional().nullable(),
+  decommissionedAt: z.string().optional().nullable(),
+
+  hasRemoteAccess: z.preprocess(
+    (val) => val === "true" || val === true,
+    z.boolean()
+  ),
+
+  vpnRequired: z.preprocess(
+    (val) => val === "true" || val === true,
+    z.boolean()
+  ),
 });
 
 const vmSpecSchema = z.object({
-  vcpu: z.number().int().min(1),
-  ramGb: z.number().int().min(1),
-  storageGb: z.number().int().min(1),
-  osName: z.string().nullable().optional(),
-  osVersion: z.string().nullable().optional(),
-  raid: z.enum(["RAID0", "RAID1", "RAID5", "RAID10", "NONE"]).nullable().optional(),
-});
+  vcpu: z.preprocess((val) => Number(val), z.number().int().min(1)),
+  ramGb: z.preprocess((val) => Number(val), z.number().int().min(1)),
+  storageGb: z.preprocess((val) => Number(val), z.number().int().min(1)),
 
-/* ------------------------------------------------------------------ */
-/* Shared Prisma Includes (NO duplication) */
-/* ------------------------------------------------------------------ */
+  osName: z.string().optional().nullable(),
+  osVersion: z.string().optional().nullable(),
+
+  raid: z
+    .enum(["RAID0", "RAID1", "RAID5", "RAID10", "NONE"])
+    .optional()
+    .nullable(),
+});
 
 const VM_LIGHT_INCLUDE = {
   owner: { select: { name: true, email: true } },
@@ -206,6 +235,14 @@ export async function createVm(formData: FormData, actorId: string) {
   return vm;
 }
 
+export async function createManualVm(formData: FormData, actorId: string) {
+  // Ensure requestId is null for manual entry
+  formData.delete("requestId"); 
+  formData.set("sequenceNumber", "1");
+  formData.set("environment", "PRODUCTION");
+  return createVm(formData, actorId);
+}
+
 export async function updateVm(formData: FormData) {
   const data = vmBaseSchema
     .extend({ id: z.string().uuid() })
@@ -317,7 +354,8 @@ export async function fetchVmDetails(id: string) {
   return vm;
 }
 
-export async function fetchAllVms(): Promise<SerializedVmInstance[]> {
+export async function fetchAllVms(page: number = 1, pageSize: number = 20): Promise<{ vms: SerializedVmInstance[], total: number }> {
+  const skip = (page - 1) * pageSize;
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
 
@@ -325,73 +363,81 @@ export async function fetchAllVms(): Promise<SerializedVmInstance[]> {
     ? {} 
     : { ownerId: session.user.id };
 
-  const vms = await prisma.vmInstance.findMany({
-    where,
-    orderBy: { updatedAt: "desc" },
-    select: {
-      id: true,
-      hostname: true,
-      ipAddress: true,
-      publicIpAddress: true,
-      status: true,
-      renewalDate: true,
-      hasRemoteAccess: true,
-      vpnRequired: true,
-      subdomain: true,
-      updatedAt: true,
-      provisionedAt: true,
-      currentSpec: {
-        select: {
-          vcpu: true,
-          ramGb: true,
-          storageGb: true,
-          osName: true,
-          osVersion: true,
-          raid: true,
+  const [vms, total] = await Promise.all([
+    prisma.vmInstance.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      skip,
+      take: pageSize,
+      select: {
+        id: true,
+        hostname: true,
+        ipAddress: true,
+        publicIpAddress: true,
+        status: true,
+        renewalDate: true,
+        hasRemoteAccess: true,
+        vpnRequired: true,
+        subdomain: true,
+        updatedAt: true,
+        provisionedAt: true,
+        currentSpec: {
+          select: {
+            vcpu: true,
+            ramGb: true,
+            storageGb: true,
+            osName: true,
+            osVersion: true,
+            raid: true,
+          },
         },
+        owner: { select: {id: true, name: true, email: true } },  
+        request: { select: { requestId: true, systemName: true, environment: true } }, 
       },
-      owner: { select: {id: true, name: true, email: true } },  
-      request: { select: { requestId: true, systemName: true, environment: true } }, 
-    },
-  });
-  return vms.map(vm => {
-    // Transform nested objects with explicit enum casting
-    const currentSpec = vm.currentSpec ? {
-      vcpu: vm.currentSpec.vcpu,
-      ramGb: vm.currentSpec.ramGb,
-      storageGb: vm.currentSpec.storageGb,
-      osName: vm.currentSpec.osName,
-      osVersion: vm.currentSpec.osVersion,
-      // CRITICAL: Cast nested enum via unknown
-      raid: (vm.currentSpec.raid as unknown) as FrontendRaid | null,
-    } : null;
+    }),
+    prisma.vmInstance.count({ where })
+  ]);
+  return {
+    vms: vms.map(vm => {
+      // Transform nested objects with explicit enum casting
+      const currentSpec = vm.currentSpec ? {
+        vcpu: vm.currentSpec.vcpu,
+        ramGb: vm.currentSpec.ramGb,
+        storageGb: vm.currentSpec.storageGb,
+        osName: vm.currentSpec.osName,
+        osVersion: vm.currentSpec.osVersion,
+        // CRITICAL: Cast nested enum via unknown
+        raid: (vm.currentSpec.raid as unknown) as FrontendRaid | null,
+      } : null;
 
-    const request = vm.request ? {
-      requestId: vm.request.requestId,
-      systemName: vm.request.systemName,
-      // CRITICAL: Cast nested enum via unknown
-      environment: (vm.request.environment as unknown) as FrontendEnvironment | null,
-    } : null;
+      const request = vm.request ? {
+        requestId: vm.request.requestId,
+        systemName: vm.request.systemName,
+        // CRITICAL: Cast nested enum via unknown
+        environment: (vm.request.environment as unknown) as FrontendEnvironment | null,
+      } : null;
 
-    // Build final object with explicit field mapping
-    return {
-      id: vm.id,
-      hostname: vm.hostname,
-      ipAddress: vm.ipAddress,
-      publicIpAddress: vm.publicIpAddress,
-      // CRITICAL: Cast top-level enum via unknown
-      status: (vm.status as unknown) as FrontendVmStatus,
-      renewalDate: vm.renewalDate?.toISOString() ?? null,
-      hasRemoteAccess: vm.hasRemoteAccess,
-      vpnRequired: vm.vpnRequired,
-      subdomain: vm.subdomain,
-      updatedAt: vm.updatedAt.toISOString(),
-      provisionedAt: vm.provisionedAt?.toISOString() ?? null,
-      currentSpec,
-      owner: vm.owner, // Already matches shape { name, email }
-      request,
-    };
-  });
+      // Build final object with explicit field mapping
+      return {
+        id: vm.id,
+        hostname: vm.hostname,
+        ipAddress: vm.ipAddress,
+        publicIpAddress: vm.publicIpAddress,
+        // CRITICAL: Cast top-level enum via unknown
+        status: (vm.status as unknown) as FrontendVmStatus,
+        renewalDate: vm.renewalDate?.toISOString() ?? null,
+        hasRemoteAccess: vm.hasRemoteAccess,
+        vpnRequired: vm.vpnRequired,
+        subdomain: vm.subdomain,
+        updatedAt: vm.updatedAt.toISOString(),
+        provisionedAt: vm.provisionedAt?.toISOString() ?? null,
+        currentSpec,
+        owner: vm.owner,
+        request,
+      };
+    }),
+    total
+  };
 }
 
 

@@ -6,30 +6,27 @@ import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { 
+  Prisma,
   ApprovalDecision, 
   RequestStatus,
   RequestType,
   VmStatus,
-  CustomizationStatus,
-  ApprovalEntityType
+  CustomizationStatus
 } from "@prisma/client";
 import { ROLES, hasRole } from "@/lib/roles";
-import { notifyRequester, notifyDirector } from "@/lib/notifications";
+import { notifyRequester, notifyDirector, notifyDCOps } from "@/lib/notifications";
 import { redirect } from "next/navigation";
 import { fetchDashboardData } from "../approvals/lib";
 
-// ✅ VALIDATE UUID FORMAT
-function isValidUUID(id: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-}
 
 // ✅ DERIVE NEXT STATUS FROM PENDING APPROVALS (NOT JUST CURRENT STATUS)
 async function getNextStatusFromApprovals(
+  tx: Prisma.TransactionClient | typeof prisma,
   entityId: string,
   entityType: "REQUEST" | "CUSTOMIZATION",
 ): Promise<string> {
   // Get all pending approvals for this entity
-  const pendingApprovals = await prisma.approval.findMany({
+  const pendingApprovals = await tx.approval.findMany({
     where: {
       ...(entityType === "REQUEST" 
         ? { requestId: entityId } 
@@ -64,38 +61,49 @@ export async function handleApprovalDecision(
   escalateToLevel?: number
 ) {
   const session = await getServerSession(authOptions);
-  let requestApprovalId;
   if (!session?.user) throw new Error("Unauthorized");
-  if (!isValidUUID(approvalId)) throw new Error("Invalid approval ID");
 
-  const request = await prisma.approval.findFirst({
-    where: { requestId: approvalId, approverId: session.user.id,  decision: ApprovalDecision.PENDING }
+  // ✅ RESOLVE THE ACTUAL APPROVAL RECORD
+  // The frontend might pass either the Approval ID OR the Request/Entity ID
+  const approvalRecord = await prisma.approval.findFirst({
+    where: {
+      OR: [
+        { id: approvalId }, // Try primary key first
+        { 
+          AND: [
+            { requestId: approvalId },
+            { approverId: session.user.id },
+            { decision: ApprovalDecision.PENDING }
+          ]
+        },
+        {
+          AND: [
+            { customizationRequestId: approvalId },
+            { approverId: session.user.id },
+            { decision: ApprovalDecision.PENDING }
+          ]
+        }
+      ]
+    }
   });
 
-  if(!request){
-    const customizationRequest = await prisma.approval.findFirst({
-      where: { customizationRequestId: approvalId, approverId: session.user.id, decision: ApprovalDecision.PENDING }
-    });
-    if(!customizationRequest){
-      throw new Error("Approval record not found or already processed");
-    }
-    requestApprovalId = customizationRequest.id;
-    
+  if (!approvalRecord) {
+    throw new Error("Approval record not found or already processed");
   }
-  else{
-    requestApprovalId = request.id;
-  }
-    return await prisma.$transaction(async (tx) => {
-      // 1. Fetch approval with all possible relations
-      const approval = await tx.approval.findUnique({
-        where: { id: requestApprovalId },
+
+  const resolvedApprovalId = approvalRecord.id;
+
+  return await prisma.$transaction(async (tx) => {
+    // 1. Fetch approval with all possible relations using the RESOLVED ID
+    const approval = await tx.approval.findUnique({
+      where: { id: resolvedApprovalId },
       include: { 
         request: { include: { requester: true, vmInstances: true, targetVm: true } },
         customizationRequest: { include: { requester: true, targetVm: true } }
       }
     });
 
-    if (!approval) throw new Error("Approval record not found or already processed");
+    if (!approval) throw new Error("Approval record not found during transaction");
     if (approval.decision !== ApprovalDecision.PENDING) {
       throw new Error(`This approval has already been processed: ${approval.decision}`);
     }
@@ -127,9 +135,9 @@ export async function handleApprovalDecision(
       throw new Error("Comments are mandatory for rejections or returns");
     }
 
-    // 4. Update Approval Record
+    // 4. Update Approval Record using the RESOLVED ID
     await tx.approval.update({
-      where: { id: approvalId },
+      where: { id: resolvedApprovalId },
       data: { decision, comments: comments || null, decidedAt: new Date() },
     });
 
@@ -158,7 +166,14 @@ export async function handleApprovalDecision(
     }
 
     // 6. Calculate and Update Entity Status
-    const nextStatus = await getNextStatusFromApprovals(entityId, entityType as "REQUEST" | "CUSTOMIZATION");
+    let nextStatus: string;
+    if (decision === ApprovalDecision.REJECTED) {
+      nextStatus = RequestStatus.REJECTED;
+    } else if (decision === ApprovalDecision.RETURNED) {
+      nextStatus = RequestStatus.DRAFT;
+    } else {
+      nextStatus = await getNextStatusFromApprovals(tx, entityId, entityType as "REQUEST" | "CUSTOMIZATION");
+    }
 
     if (entityType === "REQUEST") {
       await tx.request.update({
@@ -188,6 +203,10 @@ export async function handleApprovalDecision(
       await notifyRequester(requesterId, systemName, decision === ApprovalDecision.REJECTED ? "REJECTED" : "APPROVED");
     }
 
+    if (nextStatus === "APPROVED") {
+      await notifyDCOps(entityId, systemName);
+    }
+
     if (escalateToLevel === 4 && directorId) {
       await notifyDirector(directorId, systemName, entityId);
     }
@@ -197,88 +216,19 @@ export async function handleApprovalDecision(
 }
 
 // ✅ FORWARD TO DIRECTOR (L3 → L4 ESCALATION)
+// Updating signature to take approvalId for consistency with handleApprovalDecision
 export async function forwardToDirector(
-  requestId: string,
+  approvalId: string,
   comments: string
 ) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) throw new Error("Unauthorized");
-  if (!isValidUUID(requestId)) throw new Error("Invalid request ID");
-
-  return await prisma.$transaction(async (tx) => {
-    // Verify request exists and is at L3 stage
-    const request = await tx.request.findUnique({
-      where: { id: requestId },
-      include: { 
-        approvals: { 
-          where: { 
-            level: 3, // ✅ NUMERIC LEVEL (was L3 enum)
-            decision: ApprovalDecision.PENDING 
-          },
-          orderBy: { createdAt: "asc" }
-        },
-        requester: true,
-      }
-    });
-
-    if (!request) throw new Error("Request not found");
-    if (request.status !== RequestStatus.PENDING_L3) {
-      throw new Error(`Request must be in PENDING_L3 status to forward to director (current: ${request.status})`);
-    }
-
-    // Verify current user is the L3 approver
-    const l3Approval = request.approvals.find(a => a.approverId === session.user.id);
-    if (!l3Approval) {
-      throw new Error("Only the L3 approver can forward this request to the director");
-    }
-
-    // Get director user
-    const director = await tx.user.findFirst({
-      where: { 
-        isActive: true,
-        roles: { some: { role: { name: ROLES.L4_APPROVER } } }
-      }
-    });
-    if (!director) throw new Error("Director approver not found");
-
-    // ✅ CREATE L4 APPROVAL (DYNAMIC LEVEL 4)
-    await tx.approval.create({
-      data: {
-        entityType: ApprovalEntityType.REQUEST,
-        level: 4, // ✅ DYNAMIC LEVEL 4 (was impossible with enum)
-        approverId: director.id,
-        requestId,
-        decision: ApprovalDecision.PENDING,
-        comments: `Escalated by L3 approver (${session.user.name}): ${comments}`,
-      },
-    });
-
-    // ✅ UPDATE REQUEST STATUS TO PENDING_L4
-    await tx.request.update({
-      where: { id: requestId },
-      data: { status: RequestStatus.PENDING_L4 },
-    });
-
-    // ✅ AUDIT LOG
-    await tx.auditLog.create({
-      data: {
-        actorId: session.user.id,
-        action: "FORWARD_TO_DIRECTOR",
-        entityType: "REQUEST",
-        entityId: requestId,
-        details: JSON.stringify({
-          comments,
-          previousStatus: RequestStatus.PENDING_L3,
-          newStatus: RequestStatus.PENDING_L4,
-        }),
-      },
-    });
-
-    // ✅ NOTIFY DIRECTOR
-    await notifyDirector(director.id, request.systemName, requestId);
-
-    return { success: true, status: RequestStatus.PENDING_L4 };
-  }, { timeout: 15000 });
+  // Re-use handleApprovalDecision logic for escalation
+  // This automatically handles Request vs Customization, ID resolution, and L4 creation
+  return await handleApprovalDecision(
+    approvalId,
+    ApprovalDecision.APPROVED,
+    `FORWARDED: ${comments}`,
+    4 // Level 4 (Director)
+  );
 }
 
 
@@ -354,7 +304,6 @@ export async function executeRequest(requestId: string, notes?: string) {
           data: { status: RequestStatus.CLOSED },
         });
 
-        // ✅ FIX 4: Safe nullable check before notification
         if (request.requesterId) {
           await notifyRequester(
             request.requesterId,
@@ -363,7 +312,7 @@ export async function executeRequest(requestId: string, notes?: string) {
           );
         }
       } 
-      // NEW_VM/RENEWAL: Mark as provisioned
+      // NEW_VM/RENEWAL: Mark as provisioned (VMs created via executeRequestWithVmInputs)
       else {
         await tx.request.update({
           where: { id: requestId },
@@ -373,15 +322,6 @@ export async function executeRequest(requestId: string, notes?: string) {
           },
         });
 
-        // Optional: Create VM instances if not already created
-        if (request.vmInstances.length === 0 && request.targetVmId) {
-          await tx.vmInstance.update({
-            where: { id: request.targetVmId },
-            data: { status: VmStatus.ACTIVE },
-          });
-        }
-
-        // ✅ FIX 4: Safe nullable check before notification
         if (request.requesterId) {
           await notifyRequester(
             request.requesterId,
@@ -395,7 +335,7 @@ export async function executeRequest(requestId: string, notes?: string) {
     // CUSTOMIZATION: Apply spec changes
     if (customization) {
       const latestSpec = await tx.vmSpec.findFirst({
-        where: { vmInstanceId: customization.targetVmId! }, // ✅ Non-null assertion (validated earlier)
+        where: { vmInstanceId: customization.targetVmId! },
         orderBy: { createdAt: "desc" },
       });
 
@@ -403,7 +343,6 @@ export async function executeRequest(requestId: string, notes?: string) {
       const ramGb = customization.ramGb ?? latestSpec?.ramGb ?? 4;
       const storageGb = customization.storageGb ?? latestSpec?.storageGb ?? 50;
 
-      // Create new spec version
       const newSpec = await tx.vmSpec.create({
         data: {
           vmInstanceId: customization.targetVmId!,
@@ -419,7 +358,6 @@ export async function executeRequest(requestId: string, notes?: string) {
         },
       });
 
-      // Update VM to use new spec
       await tx.vmInstance.update({
         where: { id: customization.targetVmId! },
         data: { 
@@ -428,13 +366,11 @@ export async function executeRequest(requestId: string, notes?: string) {
         },
       });
 
-      // Mark customization as applied
       await tx.customizationRequest.update({
         where: { id: requestId },
         data: { status: CustomizationStatus.APPLIED },
       });
 
-      // ✅ FIX 4: Safe nullable checks before notification
       const vmHostname = customization.targetVm?.hostname || "VM";
       if (customization.requesterId) {
         await notifyRequester(
@@ -445,19 +381,157 @@ export async function executeRequest(requestId: string, notes?: string) {
       }
     }
 
-    // Audit log for execution
     await tx.auditLog.create({
       data: {
         actorId: userId,
         action: request ? "EXECUTE_REQUEST" : "APPLY_CUSTOMIZATION",
         entityType: request ? "REQUEST" : "CUSTOMIZATION",
         entityId: requestId,
-        details: JSON.stringify({ notes: notes || "No notes provided" }), // ✅ Handle nullable notes
+        details: JSON.stringify({ notes: notes || "No notes provided" }),
       },
     });
 
     return { success: true };
   }, { timeout: 15000 });
+}
+
+// VM input interface
+interface VmExecutionInput {
+  sequenceNumber: number;
+  hostname: string;
+  ipAddress: string;
+  publicIpAddress: string;
+  subdomain: string;
+}
+
+export async function executeRequestWithVmInputs(
+  requestId: string,
+  vmInputs: VmExecutionInput[],
+  notes?: string
+) {
+  const session = await getServerSession(authOptions);
+
+  if (
+    !session?.user ||
+    (!hasRole(session.user.roles, ROLES.DCOPS) &&
+      !hasRole(session.user.roles, ROLES.ADMIN))
+  ) {
+    throw new Error("Only DCOPS or ADMIN can execute requests");
+  }
+
+  const userId = session.user.id;
+
+  const request = await prisma.request.findUnique({
+    where: { id: requestId },
+    include: {
+      vmInstances: true,
+      requester: true,
+    },
+  });
+
+  if (!request) {
+    throw new Error("Request not found");
+  }
+
+  if (request.status !== RequestStatus.APPROVED) {
+    throw new Error(`Request must be APPROVED to execute (current: ${request.status})`);
+  }
+
+  if (request.requestType !== RequestType.NEW_VM) {
+    throw new Error("This function is only for NEW_VM requests");
+  }
+
+  // Validate VM inputs
+  if (vmInputs.length !== request.quantity) {
+    throw new Error(`Expected ${request.quantity} VM inputs, got ${vmInputs.length}`);
+  }
+
+  for (const vm of vmInputs) {
+    if (!vm.hostname?.trim()) {
+      throw new Error(`Hostname is required for VM ${vm.sequenceNumber}`);
+    }
+    if (!vm.ipAddress?.trim()) {
+      throw new Error(`IP Address is required for VM ${vm.sequenceNumber}`);
+    }
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    // Create VM instances with provided details
+    for (const vmInput of vmInputs) {
+      const createdVm = await tx.vmInstance.create({
+        data: {
+          requestId: request.id,
+          sequenceNumber: vmInput.sequenceNumber,
+          ownerId: request.requesterId,
+          hostname: vmInput.hostname,
+          ipAddress: vmInput.ipAddress,
+          publicIpAddress: vmInput.publicIpAddress || null,
+          subdomain: vmInput.subdomain || request.subdomain || null,
+          status: VmStatus.ACTIVE,
+          provisionedAt: new Date(),
+          environment: request.environment,
+        },
+      });
+
+      const spec = await tx.vmSpec.create({
+        data: {
+          vmInstanceId: createdVm.id,
+          vcpu: request.vcpu || 1,
+          ramGb: request.ramGb || 2,
+          storageGb: request.storageGb || 50,
+          osName: request.osName,
+          osVersion: request.osVersion,
+          raid: request.raid,
+          effectiveFrom: new Date(),
+          sourceRequestId: request.id,
+        },
+      });
+
+      await tx.vmInstance.update({
+        where: { id: createdVm.id },
+        data: { currentSpecId: spec.id },
+      });
+    }
+
+    // Update request status
+    await tx.request.update({
+      where: { id: requestId },
+      data: {
+        status: RequestStatus.PROVISIONED,
+        provisionedAt: new Date(),
+      },
+    });
+
+    // Audit log
+    await tx.auditLog.create({
+      data: {
+        actorId: userId,
+        action: "EXECUTE_REQUEST_WITH_VM_DETAILS",
+        entityType: "REQUEST",
+        entityId: requestId,
+        details: JSON.stringify({
+          notes: notes || "No notes provided",
+          vmCount: vmInputs.length,
+          vmDetails: vmInputs.map(v => ({
+            hostname: v.hostname,
+            ipAddress: v.ipAddress,
+            subdomain: v.subdomain
+          }))
+        }),
+      },
+    });
+
+    // Notify requester
+    if (request.requesterId) {
+      await notifyRequester(
+        request.requesterId,
+        request.systemName || "Provisioned VM",
+        "PROVISIONED"
+      );
+    }
+
+    return { success: true, vmCount: vmInputs.length };
+  }, { timeout: 30000 });
 }
 
 export async function getDashboardData() {
@@ -467,5 +541,5 @@ export async function getDashboardData() {
   const userRoles = session.user.roles;
   const isAdmin = userRoles.includes(ROLES.ADMIN);
 
-  return fetchDashboardData(userRoles, isAdmin);
+  return fetchDashboardData(session.user.id, userRoles, isAdmin);
 }

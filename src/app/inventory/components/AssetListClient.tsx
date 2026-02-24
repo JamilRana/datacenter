@@ -18,8 +18,15 @@ import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { PhysicalAsset } from "@/types/inventory";
 import { AssetType } from "@/types/enums";
+import { AssetModal } from "./AssetModal";
 
-export function AssetListClient({ initialAssets }: { initialAssets: PhysicalAsset[] }) {
+export function AssetListClient({ 
+  initialAssets,
+  canEdit 
+}: { 
+  initialAssets: PhysicalAsset[],
+  canEdit?: boolean
+}) {
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
 
@@ -113,9 +120,12 @@ export function AssetListClient({ initialAssets }: { initialAssets: PhysicalAsse
                         <div className="flex justify-end gap-2">
                            <Link href={`/inventory/assets/${asset.id}`}>
                               <Button variant="ghost" className="h-9 gap-1.5 font-bold text-xs hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100">
-                                 Review Specifications <ChevronRight className="h-4 w-4" />
+                                 Review <ChevronRight className="h-4 w-4" />
                               </Button>
                            </Link>
+                           {canEdit && (
+                             <AssetModal asset={asset} mode="edit" />
+                           )}
                         </div>
                      </td>
                   </tr>

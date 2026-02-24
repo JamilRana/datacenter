@@ -26,12 +26,10 @@ export async function PATCH(
     const formData = await request.formData();
     const requestId = params.id;
 
-    // ✅ Verify ownership and status
+    // ✅ Verify ownership (requester OR developer) and status
     const existingRequest = await prisma.request.findUnique({
-      where: {
-        id: requestId,
-        requesterId: session.user.id,
-      },
+      where: { id: requestId },
+      select: { requesterId: true, developerId: true, status: true, requestType: true },
     });
 
     let customization = null;
@@ -43,6 +41,17 @@ export async function PATCH(
 
     if (!existingRequest && !customization) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 });
+    }
+
+    // Check if user can edit (requester, developer who created, or admin)
+    if (existingRequest) {
+      const isRequester = existingRequest.requesterId === session.user.id;
+      const isDeveloper = existingRequest.developerId === session.user.id;
+      const isAdmin = session.user.roles?.includes("ADMIN");
+      
+      if (!isRequester && !isDeveloper && !isAdmin) {
+        return NextResponse.json({ error: "Unauthorized to edit this request" }, { status: 403 });
+      }
     }
 
     const item = existingRequest || customization;
@@ -81,7 +90,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   try{
       const request = await prisma.request.findUnique({
         where: { id: params.id },
-        select: { requesterId: true, status: true, requestType: true },
+        select: { requesterId: true, developerId: true, status: true, requestType: true },
       });
       if (request) {
         return NextResponse.json({ ...request, type: "REQUEST" });

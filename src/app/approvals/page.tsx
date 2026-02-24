@@ -44,15 +44,20 @@ function MetricCard({ title, value, icon: Icon, color }: MetricCardProps) {
   );
 }
 
-export default async function ApprovalsDashboard() {
+export default async function ApprovalsDashboard({
+  searchParams,
+}: {
+  searchParams: { page?: string };
+}) {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/auth");
 
+  const page = searchParams.page ? parseInt(searchParams.page, 10) : 1;
   const userRoles = session.user.roles;
   const isAdmin = userRoles.includes(ROLES.ADMIN);
   
   // ✅ Single source of truth: Reuse shared data fetcher
-  const { metrics, requests } = await fetchDashboardData(userRoles, isAdmin);
+  const { metrics, requests } = await fetchDashboardData(session.user.id, userRoles, isAdmin, page);
 
   return (
     <div className="p-6 md:p-10 space-y-8 bg-slate-50/30 min-h-screen">
@@ -76,6 +81,7 @@ export default async function ApprovalsDashboard() {
       <ApproverDashboardClient 
         initialRequests={JSON.parse(JSON.stringify(requests))} 
         userRoles={userRoles} 
+        currentUserId={session.user.id}
       />
     </div>
   );

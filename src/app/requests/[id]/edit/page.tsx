@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 interface Request {
   id: string;
   requesterId: string;
+  developerId?: string | null;
   status: string;
   type?: "REQUEST";
   targetVmId?: string;
@@ -46,7 +47,16 @@ export default function EditRequestPage({
 
   if (loading) return <div className="p-6">Loading...</div>;
 
-  if (!request || request.requesterId !== session.user.id || request.status !== "DRAFT") {
+  if (!request || request.status !== "DRAFT") {
+    redirect("/requests");
+  }
+
+  // Allow both requester and developer (who created draft) to edit
+  const isRequester = request.requesterId === session.user.id;
+  const isDeveloper = request.developerId === session.user.id;
+  const isAdmin = session.user.roles?.includes("ADMIN");
+
+  if (!isRequester && !isDeveloper && !isAdmin) {
     redirect("/requests");
   }
 

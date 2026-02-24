@@ -106,7 +106,7 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
         {/* Main Content */}
         <div className="lg:col-span-3">
           {session?.user && displayRequest && (
-            <RequestDetails requestId={displayRequest.id} userId={session.user.id} />
+            <RequestDetails requestId={displayRequest.id} />
           )}
           {session?.user && displayCustomization && (
             <CustomizationRequestDetails 
@@ -165,8 +165,8 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
       {/* Unified Action Panel */}
       {session?.user && (
         <ApprovalPanel
-          approvals={displayRequest?.approvals || []}
-          currentUserId={session.user.id}
+          approvals={displayRequest?.approvals || displayCustomization?.approvals || []}
+          requestType={isCustomization ? "CUSTOMIZED" : displayRequest?.requestType}
         />
       )}
     </div>

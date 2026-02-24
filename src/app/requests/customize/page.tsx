@@ -88,7 +88,7 @@ approvals: (req.approvals ?? []).map(a => ({
 }));
 
       setRequests(transformedRequests);
-      setVms(vmsRes);
+      setVms(vmsRes.vms);
       setTotalPages(requestsRes.totalPages);
       setIsLoading(false);
     } catch (error) {

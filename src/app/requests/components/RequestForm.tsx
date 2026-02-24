@@ -83,6 +83,10 @@ export function RequestForm({
   const [securityReport, setSecurityReport] = useState<File | null>(null);
   const [justificationDoc, setJustificationDoc] = useState<File | null>(null);
   const [prefillData, setPrefillData] = useState<detailsRequest | null>(null);
+  const [existingAttachments, setExistingAttachments] = useState<{
+    securityReport?: { id: string; fileName: string; filePath: string };
+    justification?: { id: string; fileName: string; filePath: string };
+  }>({});
 
   // Hardware values
   const [vcpuValue, setVcpuValue] = useState<string>("2");
@@ -151,28 +155,37 @@ export function RequestForm({
         setPrefillData(data || null);
 
         if (data) {
-          setAdditionalDisks(
-            data?.additionalDisks?.map(d => ({
-              sequence: d.sequence,
-              sizeGb: d.sizeGb,
-              purpose: d.purpose || "",
-            })) || [{ sequence: 1, sizeGb: 0, purpose: "" }]
-          );
+           setAdditionalDisks(
+             data?.additionalDisks?.map(d => ({
+               sequence: d.sequence,
+               sizeGb: d.sizeGb,
+               purpose: d.purpose || "",
+             })) || [{ sequence: 1, sizeGb: 0, purpose: "" }]
+           );
 
-          setFirewallPorts(
-            data?.firewallPorts?.map(p => ({
-              port: p.port,
-              protocol: p.protocol || Protocol.TCP,
-              purpose: p.purpose || "",
-              source: p.source || "",
-            })) || [{ port: 80, protocol: Protocol.TCP, purpose: "HTTP", source: "" }]
-          );
+           setFirewallPorts(
+             data?.firewallPorts?.map(p => ({
+               port: p.port,
+               protocol: p.protocol || Protocol.TCP,
+               purpose: p.purpose || "",
+               source: p.source || "",
+             })) || [{ port: 80, protocol: Protocol.TCP, purpose: "HTTP", source: "" }]
+           );
 
-          setNetworkAccess(data?.networkAccess?.map(n => n.accessType) || ["LOCAL"]);
-        }
+           setNetworkAccess(data?.networkAccess?.map(n => n.accessType) || ["LOCAL"]);
 
-        setSecurityReport(null);
-        setJustificationDoc(null);
+           // Load existing attachments
+           const attachments = data.attachments || [];
+           const securityRep = attachments.find(a => a.attachmentType === "SECURITY_REPORT");
+           const justification = attachments.find(a => a.attachmentType === "JUSTIFICATION");
+           setExistingAttachments({
+             securityReport: securityRep ? { id: securityRep.id, fileName: securityRep.fileName, filePath: securityRep.filePath } : undefined,
+             justification: justification ? { id: justification.id, fileName: justification.fileName, filePath: justification.filePath } : undefined,
+           });
+         }
+
+         setSecurityReport(null);
+         setJustificationDoc(null);
       } catch (err) {
         toast.error(`Failed to load request data: ${err}`);
         setPrefillData(null);
@@ -576,7 +589,7 @@ export function RequestForm({
               name="quantity"
               type="number"
               defaultValue={getDefaultValue(prefillData?.quantity?.toString(), "1")}
-              className="w-16 h-8"
+              className="w-16 h-8 no-spinner"
               min="1"
               max="10"
             />
@@ -615,7 +628,7 @@ export function RequestForm({
                 placeholder="Specify cores"
                 type="number"
                 defaultValue={getDefaultValue(prefillData?.vcpu?.toString(), "")}
-                className="mt-2"
+                className="mt-2 no-spinner"
               />
             )}
           </div>
@@ -648,7 +661,7 @@ export function RequestForm({
                 name="customRam"
                 placeholder="Specify GB"
                 type="number"
-                className="mt-2"
+                className="mt-2 no-spinner"
                 defaultValue={getDefaultValue(prefillData?.ramGb?.toString(), "")}
               />
             )}
@@ -682,7 +695,7 @@ export function RequestForm({
                 name="customStorage"
                 placeholder="Specify OS GB"
                 type="number"
-                className="mt-2"
+                className="mt-2 no-spinner"
                 defaultValue={getDefaultValue(prefillData?.storageGb?.toString(), "")}
               />
             )}
@@ -745,7 +758,7 @@ export function RequestForm({
                 <Input
                   placeholder="Size (GB)"
                   type="number"
-                  className="w-32"
+                  className="w-32 no-spinner"
                   value={disk.sizeGb}
                   onChange={(e) => {
                     const d = [...additionalDisks];
@@ -858,7 +871,7 @@ export function RequestForm({
 
             {/* SSL */}
             <div className="pt-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+              <div className="mt-2">
                 <Select
                   name="sslProvider"
                   value={sslProvider}
@@ -873,14 +886,6 @@ export function RequestForm({
                     <SelectItem value="MIS">MIS</SelectItem>
                   </SelectContent>
                 </Select>
-                <div>
-                  <Label>SSL Cost Paid By</Label>
-                  <Input
-                    name="sslCostPaidBy"
-                    placeholder="Paid by Project/DGHS/etc."
-                    defaultValue={getDefaultValue(prefillData?.sslCostPaidBy, "")}
-                  />
-                </div>
               </div>
             </div>
 
@@ -899,6 +904,7 @@ export function RequestForm({
                         setFirewallPorts(newPorts);
                       }}
                       type="number"
+                      className="no-spinner"
                       min="1"
                       max="65535"
                     />
@@ -979,6 +985,23 @@ export function RequestForm({
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Security Assessment (Software Testing Report) *</Label>
+                {existingAttachments.securityReport && (
+                  <div className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-200 mb-2">
+                    <div className="flex items-center gap-2">
+                      <Upload className="w-4 h-4 text-emerald-600" />
+                      <span className="text-sm text-emerald-700">{existingAttachments.securityReport.fileName}</span>
+                      <span className="text-xs text-emerald-500">(uploaded)</span>
+                    </div>
+                    <a 
+                      href={existingAttachments.securityReport.filePath} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-emerald-600 hover:text-emerald-800 underline"
+                    >
+                      View
+                    </a>
+                  </div>
+                )}
                 <div className="flex items-center gap-3 border-2 border-dashed border-slate-300 rounded-lg p-4 bg-slate-50">
                   <Upload className="w-5 h-5 text-slate-400" />
                   <input
@@ -988,10 +1011,28 @@ export function RequestForm({
                       setSecurityReport(e.target.files?.[0] || null)
                     }
                   />
+                  {existingAttachments.securityReport && <span className="text-xs text-slate-400">(Replace existing)</span>}
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Resource Justification Document</Label>
+                {existingAttachments.justification && (
+                  <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200 mb-2">
+                    <div className="flex items-center gap-2">
+                      <Upload className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm text-blue-700">{existingAttachments.justification.fileName}</span>
+                      <span className="text-xs text-blue-500">(uploaded)</span>
+                    </div>
+                    <a 
+                      href={existingAttachments.justification.filePath} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:text-blue-800 underline"
+                    >
+                      View
+                    </a>
+                  </div>
+                )}
                 <div className="flex items-center gap-3 border border-slate-300 rounded-lg p-2">
                   <Upload className="w-5 h-5 text-slate-400" />
                   <input
@@ -1001,6 +1042,7 @@ export function RequestForm({
                       setJustificationDoc(e.target.files?.[0] || null)
                     }
                   />
+                  {existingAttachments.justification && <span className="text-xs text-slate-400">(Replace)</span>}
                 </div>
               </div>
             </div>
@@ -1020,7 +1062,7 @@ export function RequestForm({
                   name="renewalPeriodMonths"
                   placeholder="Renewal Period (Months)"
                   type="number"
-                  className="mt-2"
+                  className="mt-2 no-spinner"
                   defaultValue={getDefaultValue(prefillData?.renewalPeriodMonths?.toString(), "")}
                 />
               )}

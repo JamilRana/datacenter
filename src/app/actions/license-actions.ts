@@ -62,17 +62,13 @@ export async function deleteLicense(id: string) {
   revalidatePath("/inventory/licenses");
 }
 
-// src/actions/license-actions.ts
-
 export async function fetchLicenseAssets() {
   const where: Prisma.SoftwareLicenseWhereInput = {};
-  // ... (keep your existing filter logic)
 
   const [licenses, total] = await Promise.all([
     prisma.softwareLicense.findMany({
       where,
       orderBy: { name: "asc" },
-      // ✅ Add the include or select for assets
       include: {
         assets: {
           select: {
@@ -89,6 +85,7 @@ export async function fetchLicenseAssets() {
 
   return {
     licenses,
+    total,
     totalPages: Math.ceil(total / PAGE_SIZE),
   };
 }
@@ -135,6 +132,7 @@ export async function fetchLicenseDetails(
 
   return {
     licenses,
+    total,
     totalPages: Math.ceil(total / PAGE_SIZE),
   };
 }
@@ -144,4 +142,29 @@ export async function fetchLicenseById(id: string) {
     where: { id },
   });
   return license;
+}
+
+export async function fetchLicenseDetailsWithAssets(id: string) {
+  const license = await prisma.softwareLicense.findUnique({
+    where: { id },
+    include: {
+      assets: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          serial: true
+        }
+      }
+    }
+  });
+
+  if (!license) return null;
+
+  return {
+    ...license,
+    expiryDate: license.expiryDate?.toISOString() ?? null,
+    maintenanceExpiry: license.maintenanceExpiry?.toISOString() ?? null,
+    assets: license.assets
+  };
 }

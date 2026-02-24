@@ -10,17 +10,12 @@ export function cn(...inputs: ClassValue[]) {
 export function isAdmin(roles: string[] | undefined): boolean {
   if (!roles) return false;
   
-  if (Array.isArray(roles)) {
-    // Check for string roles: ["ADMIN", "USER"]
-    if (roles.some(r => typeof r === 'string' && r === "ADMIN")) {
-      return true;
-    }
-    
-    // Check for role objects: [{ name: "ADMIN" }, ...]
-    if (roles.includes(ROLES.ADMIN)) {
-      return true;
-    }
-  }
+    return roles.some(r => 
+      r === "ADMIN" || 
+      r === ROLES.ADMIN || 
+      r === "DC_OPS" || 
+      r === ROLES.DCOPS
+    );
   
   return false;
 }

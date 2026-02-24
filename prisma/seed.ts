@@ -9,10 +9,12 @@ import * as bcrypt from "bcryptjs";
 async function main() {
   // 1. Create/Upsert Roles
   const roleNames = [
+    "DEVELOPER",
     "REQUESTER",
     "APPROVER_L1",
     "APPROVER_L2",
     "APPROVER_L3",
+    "APPROVER_L4",
     "DC_OPS",
     "ADMIN",
     "VIEW",
@@ -84,7 +86,7 @@ async function main() {
     "ame@mis.dghs.gov.bd",
     "Younus Jamil Rana",
     "Assistant Maintenance Engineer",
-    ["APPROVER_L1", "ADMIN"]
+    ["APPROVER_L1", "ADMIN","REQUESTER"]
   );
 
   // L2 Approver + Admin
@@ -92,7 +94,7 @@ async function main() {
     "me@mis.dghs.gov.bd",
     "Kazi Fabliha Tasnim",
     "Maintenance Engineer",
-    ["APPROVER_L2", "ADMIN"]
+    ["APPROVER_L2", "ADMIN","REQUESTER"]
   );
 
   // L3 Approver + Admin
@@ -100,7 +102,7 @@ async function main() {
     "sukhen@mis.dghs.gov.bd",
     "Sukhendu Shekhor Roy",
     "Maintenance Engineer",
-    ["APPROVER_L3", "ADMIN"]
+    ["APPROVER_L3", "ADMIN","REQUESTER"]
   );
 
   // DC Ops + View Access
@@ -109,6 +111,20 @@ async function main() {
     "Datacenter Operations Team",
     "DC Operations",
     ["DC_OPS", "VIEW"]
+  );
+
+    await createUserWithRoles(
+    "director@mis.dghs.gov.bd",
+    "Director",
+    "Director",
+    ["APPROVER_L4", "ADMIN"]
+  );
+
+    await createUserWithRoles(
+    "dev@mis.dghs.gov.bd",
+    "Developer",
+    "Developer",
+    ["DEVELOPER", "ADMIN"]
   );
 
   // Devops / Requester

@@ -1,8 +1,10 @@
-//src/app/approvals/components/ApproverDashboardClient.tsx
+// src/app/approvals/components/ApproverDashboardClient.tsx
 "use client";
+import { ApprovalDecision } from "@prisma/client";
 
 import { useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
+import { ROLES } from "@/lib/roles";
 import { format, startOfDay, endOfDay, parseISO } from "date-fns";
 import { 
   Eye, 
@@ -25,8 +27,9 @@ import Link from "next/link";
 import { canUserApprove } from "@/lib/roles";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { handleApprovalDecision, executeRequest } from "@/app/actions/approval-actions";
+import { handleApprovalDecision, executeRequest, executeRequestWithVmInputs } from "@/app/actions/approval-actions";
 import { DashboardRequest } from "@/types/approvals";
+import { VmExecutionModal } from "./VmExecutionModal";
 
 interface ApproverRequest extends Omit<DashboardRequest, "createdAt"> {
   createdAt: string | Date;
@@ -54,22 +57,21 @@ const REQUEST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: 
     color: "bg-green-50 text-green-700 border-green-200", 
     icon: <ArrowUpDown className="h-3 w-3 mr-1" /> 
   },
-  UNKNOWN: { // ✅ CRITICAL ADDITION
+  UNKNOWN: {
     label: "Unknown Type", 
     color: "bg-slate-50 text-slate-700 border-slate-200", 
     icon: null 
   },
 };
 
-
-
-
 export function ApproverDashboardClient({ 
   initialRequests, 
-  userRoles 
+  userRoles,
+  currentUserId 
 }: { 
   initialRequests: ApproverRequest[], 
-  userRoles: string[] 
+  userRoles: string[],
+  currentUserId: string 
 }) {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
@@ -81,18 +83,53 @@ export function ApproverDashboardClient({
   const [isPending, startTransition] = useTransition();
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
   const [quickComments, setQuickComments] = useState("");
+  const [vmExecutionModal, setVmExecutionModal] = useState<{
+    open: boolean;
+    requestId: string;
+    systemName: string;
+    quantity: number;
+    subdomain?: string | null;
+  }>({ open: false, requestId: "", systemName: "", quantity: 1 });
 
-  // ✅ DETERMINE CURRENT APPROVAL LEVEL FROM STATUS
-  const getCurrentLevel = (status: string): string | null => {
-    if (status.startsWith("PENDING_L")) return status.split("_")[1];
-    if (status === "APPROVED") return "DCOPS";
+  // ✅ DETERMINE CURRENT APPROVAL LEVEL FROM STATUS (returns number)
+  const getCurrentLevel = (status: string): number | null => {
+    const match = status.match(/^PENDING_L(\d+)$/);
+    if (match) return parseInt(match[1], 10);
+    if (status === "APPROVED") return 99; // DCOPS execution level
     return null;
+  };
+
+  // ✅ GET ALL LEVELS THIS USER CAN ACT ON
+  const getUserActionableLevels = (roles: string[]): number[] => {
+    return roles
+      .map(role => {
+        if (role.startsWith("APPROVER_L")) {
+          const level = parseInt(role.replace("APPROVER_L", ""), 10);
+          return Number.isFinite(level) ? level : null;
+        }
+        if (role === "L4_APPROVER") return 4;
+        return null;
+      })
+      .filter((lvl): lvl is number => lvl !== null);
+  };
+
+  // ✅ FIND THE SPECIFIC APPROVAL ID FOR THIS USER + REQUEST + LEVEL
+  const findApprovalId = (request: ApproverRequest, userLevels: number[]): string | null => {
+    if (!request.approvals || !currentUserId) return null;
+    
+    const relevantApproval = request.approvals.find(approval => 
+      approval.level && 
+      userLevels.includes(approval.level) && 
+      approval.approverId === currentUserId && 
+      approval.decision === "PENDING"
+    );
+    
+    return relevantApproval?.id || null;
   };
 
   const getEntityType = (requestType?: string): "REQUEST" | "CUSTOMIZATION" => {
     return requestType === "CUSTOMIZED" ? "CUSTOMIZATION" : "REQUEST";
   };
-
 
   const filteredRequests = initialRequests.filter(req => {
     const matchesSearch = 
@@ -111,8 +148,10 @@ export function ApproverDashboardClient({
 
     return matchesSearch && matchesStatus && matchesType && matchesDate;
   });
+
+  // ✅ UPDATED: Now accepts approvalId instead of requestId
   async function onQuickAction(
-    requestId: string, 
+    approvalId: string, 
     entityType: "REQUEST" | "CUSTOMIZATION", 
     decision: "APPROVED" | "REJECTED"
   ) {
@@ -123,12 +162,8 @@ export function ApproverDashboardClient({
 
     startTransition(async () => {
       try {
-        // ✅ PASS ALL 4 REQUIRED PARAMETERS
-await handleApprovalDecision(
-  requestId,
-  decision,
-  quickComments
-);
+        // ✅ PASS approvalId (not requestId) to server action
+        await handleApprovalDecision(approvalId, decision as ApprovalDecision, quickComments);
         toast.success(`Request ${decision.toLowerCase()} successfully`);
         setActiveActionId(null);
         setQuickComments("");
@@ -153,6 +188,27 @@ await handleApprovalDecision(
         console.error("Execution error:", error);
       }
     });
+  }
+
+  function openVmExecutionModal(req: ApproverRequest) {
+    setVmExecutionModal({
+      open: true,
+      requestId: req.id,
+      systemName: req.systemName || "VM",
+      quantity: (req as unknown as { quantity?: number }).quantity || 1,
+      subdomain: (req as unknown as { subdomain?: string | null }).subdomain,
+    });
+  }
+
+  async function handleVmExecute(requestId: string, vmInputs: {
+    sequenceNumber: number;
+    hostname: string;
+    ipAddress: string;
+    publicIpAddress: string;
+    subdomain: string;
+  }[]) {
+    await executeRequestWithVmInputs(requestId, vmInputs, "Executed via dashboard");
+    router.refresh();
   }
 
   return (
@@ -240,7 +296,7 @@ await handleApprovalDecision(
       </div>
 
       {/* Requests Table */}
-            <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50">
@@ -266,12 +322,25 @@ await handleApprovalDecision(
                 </tr>
               ) : (
                 filteredRequests.map((req) => {
-                  // ✅ CRITICAL FIX: Safe requestType handling
+                  // ✅ SAFE requestType handling
                   const requestType = req.requestType || "UNKNOWN";
                   const isCustomization = requestType === "CUSTOMIZED";
-                  const entityType = getEntityType(requestType); // ✅ DERIVE ENTITY TYPE
-                  const currentLevel = getCurrentLevel(req.status);
-                  const canActHere = currentLevel && canUserApprove(userRoles, currentLevel);
+                  const entityType = getEntityType(requestType);
+                  
+                  const requestLevel = getCurrentLevel(req.status);
+                  const userLevels = getUserActionableLevels(userRoles);
+                  
+                  // ✅ KEY LOGIC: Only actionable if request level matches user's levels
+                  const isActionableLevel = requestLevel !== null && userLevels.includes(requestLevel);
+                  
+                  // ✅ Permission check (extra safety layer)
+                  const canShowApprovalButtons = isActionableLevel && canUserApprove(userRoles, `L${requestLevel}`);
+                  
+                  // ✅ Execute button: only for DCOPS on APPROVED requests
+                  const canShowExecuteButton = req.status === "APPROVED" && userRoles.includes(ROLES.DCOPS);
+                  
+                  // ✅ FIND THE SPECIFIC APPROVAL ID FOR THIS REQUEST + USER
+                  const approvalId = findApprovalId(req, userLevels);
                   
                   // ✅ SAFE CONFIG LOOKUP
                   const typeConfig = REQUEST_TYPE_CONFIG[requestType] || REQUEST_TYPE_CONFIG.UNKNOWN;
@@ -289,7 +358,7 @@ await handleApprovalDecision(
                         activeActionId === req.id ? 'bg-blue-50/30' : ''
                       }`}
                     >
-                        {/* System Name */}
+                      {/* System Name */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <div>
@@ -332,18 +401,18 @@ await handleApprovalDecision(
                         {formattedDate}
                       </td>
 
-
-                      {/* Actions Column - CRITICAL FIXES BELOW */}
+                      {/* Actions Column */}
                       <td className="px-6 py-4">
                         <div className="flex justify-end items-center gap-2">
-                          {/* ✅ CONDITIONAL QUICK ACTIONS WITH ENTITY TYPE */}
-                          {canActHere && currentLevel !== "DCOPS" && (
+                          
+                          {/* ✅ APPROVAL BUTTONS - Only show if level matches AND approvalId exists */}
+                          {canShowApprovalButtons && approvalId && (
                             <>
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-8 text-xs text-emerald-700 hover:bg-emerald-50"
-                                onClick={() => onQuickAction(req.id, entityType, "APPROVED")} // ✅ PASS entityType
+                                onClick={() => onQuickAction(approvalId, entityType, "APPROVED")}
                                 disabled={isPending || activeActionId === req.id}
                               >
                                 <CheckCircle2 className="h-3 w-3 mr-1" />
@@ -365,12 +434,21 @@ await handleApprovalDecision(
                             </>
                           )}
 
-                          {canActHere && currentLevel === "DCOPS" && (
+                          {/* ✅ EXECUTE BUTTON - Only for DCOPS on APPROVED */}
+                          {canShowExecuteButton && (
                             <Button
                               variant="outline"
                               size="sm"
                               className="h-8 bg-blue-600 hover:bg-blue-700 text-white border-blue-600 text-xs shadow"
-                              onClick={() => onQuickExecute(req.id)}
+                              onClick={() => {
+                                // For NEW_VM, show the modal to collect VM details
+                                if (req.requestType === "NEW_VM") {
+                                  openVmExecutionModal(req);
+                                } else {
+                                  // For other types (DECOMMISSION, RENEWAL, CUSTOMIZED), execute directly
+                                  onQuickExecute(req.id);
+                                }
+                              }}
                               disabled={isPending}
                             >
                               <Zap className="h-3 w-3 mr-1" />
@@ -378,7 +456,7 @@ await handleApprovalDecision(
                             </Button>
                           )}
 
-                          {/* View Details */}
+                          {/* ✅ View Details - Always visible */}
                           <Link href={`/approvals/${req.id}?type=${isCustomization ? 'customization' : 'request'}`}>
                             <Button 
                               variant="ghost" 
@@ -390,8 +468,8 @@ await handleApprovalDecision(
                           </Link>
                         </div>
 
-                        {/* ✅ INLINE COMMENT INPUT - PASS entityType IN SCOPE */}
-                        {activeActionId === req.id && currentLevel !== "DCOPS" && (
+                        {/* ✅ INLINE COMMENT INPUT - Only for actionable rejections */}
+                        {activeActionId === req.id && canShowApprovalButtons && approvalId && (
                           <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
                             <div className="flex items-start gap-2">
                               <MessageSquare className="h-4 w-4 text-orange-500 mt-1 flex-shrink-0" />
@@ -417,8 +495,7 @@ await handleApprovalDecision(
                                   <Button
                                     variant="destructive"
                                     size="sm"
-                                    // ✅ PASS entityType FROM JSX SCOPE (available in map iteration)
-                                    onClick={() => onQuickAction(req.id, entityType, "REJECTED")}
+                                    onClick={() => onQuickAction(approvalId, entityType, "REJECTED")}
                                     disabled={isPending || !quickComments.trim()}
                                   >
                                     {isPending ? (
@@ -432,6 +509,24 @@ await handleApprovalDecision(
                             </div>
                           </div>
                         )}
+
+                        {/* ✅ Optional: Visual indicator for non-actionable requests */}
+                        {!isActionableLevel && requestLevel && requestLevel !== 99 && (
+                          <div className="mt-2 flex justify-end">
+                            <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-200">
+                              Level {requestLevel} • Assigned to another approver
+                            </Badge>
+                          </div>
+                        )}
+                        
+                        {/* ✅ Debug: Show if approvalId is missing (helpful during development) */}
+                        {process.env.NODE_ENV === 'development' && canShowApprovalButtons && !approvalId && (
+                          <div className="mt-2 flex justify-end">
+                            <Badge variant="destructive" className="text-[10px]">
+                              ⚠️ No approval record found
+                            </Badge>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -441,20 +536,33 @@ await handleApprovalDecision(
           </table>
         </div>
       </div>
+
+      {/* VM Execution Modal */}
+      <VmExecutionModal
+        open={vmExecutionModal.open}
+        onOpenChange={(open) => setVmExecutionModal(prev => ({ ...prev, open }))}
+        requestId={vmExecutionModal.requestId}
+        systemName={vmExecutionModal.systemName}
+        quantity={vmExecutionModal.quantity}
+        requestSubdomain={vmExecutionModal.subdomain}
+        onExecute={handleVmExecute}
+      />
     </div>
   );
 }
 
+// ✅ StatusBadge component
 function StatusBadge({ status }: { status: string }) {
   const configs: Record<string, string> = {
     PENDING_L1: "bg-orange-50 text-orange-700 border-orange-200",
     PENDING_L2: "bg-orange-50 text-orange-700 border-orange-200",
     PENDING_L3: "bg-orange-50 text-orange-700 border-orange-200",
+    PENDING_L4: "bg-orange-50 text-orange-700 border-orange-200",
     APPROVED: "bg-emerald-50 text-emerald-700 border-emerald-200",
     REJECTED: "bg-red-50 text-red-700 border-red-200",
     PROVISIONED: "bg-blue-50 text-blue-700 border-blue-200",
     CLOSED: "bg-slate-50 text-slate-700 border-slate-200",
-    APPLIED: "bg-purple-50 text-purple-700 border-purple-200", // ✅ CRITICAL ADDITION
+    APPLIED: "bg-purple-50 text-purple-700 border-purple-200",
   };
 
   return (

@@ -57,6 +57,17 @@ export interface NetworkAccessEntry {
   accessType: NetworkAccess;
 }
 
+// Attachment interface
+export interface Attachment {
+  id: string;
+  fileName: string;
+  filePath: string;
+  attachmentType: "SECURITY_REPORT" | "JUSTIFICATION";
+  uploadedBy: string;
+  createdAt: Date;
+  user?: { id: string; name: string; email: string } | null;
+}
+
 // Main request interface
 export interface detailsRequest {
   id: string;
@@ -75,6 +86,7 @@ export interface detailsRequest {
 
   alternativePerson: Person | null;
   developer: Person | null;
+  developerId?: string | null;
 
   // VM Spec
   serverType: ServerType;
@@ -118,6 +130,7 @@ export interface detailsRequest {
   additionalDisks: AdditionalDisk[] | null;
   firewallPorts: FirewallPort[] | null;
   networkAccess: NetworkAccessEntry[] | null;
+  attachments: Attachment[] | null;
   targetVm?: VmInstance | null;
 }
 

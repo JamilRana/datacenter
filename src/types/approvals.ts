@@ -1,6 +1,4 @@
 // src/types/approvals.ts
-//import { RequestStatus, RequestType, CustomizationStatus } from "./enums";
-
 import { CustomizationStatus, RequestStatus, RequestType } from "@prisma/client";
 
 export interface Approval {
@@ -51,6 +49,7 @@ export interface CustomizationRequestItem extends BaseCustomizationRequest {
 }
 
 export interface Requester {
+  id: string;
   name: string;
   email: string;
   designation?: string | null;
@@ -59,10 +58,11 @@ export interface Requester {
 export interface DashboardRequest {
   id: string;
   createdAt: Date;
-  status:string;
+  status: string;
   requestType?: string;
   systemName: string;
   projectName: string | null;
   requester: Requester | null;
   targetVm?: { hostname: string | null } | null;
+  approvals?: Approval[];
 }

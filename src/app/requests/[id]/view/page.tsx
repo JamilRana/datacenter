@@ -28,7 +28,7 @@ export default function RequestDetailPage({
   return (
     <div className="p-6 max-w-4xl mx-auto">
       {/* Pass params.id to the requestId prop */}
-      <RequestDetails requestId={params.id} userId={session?.user?.id || ""} />
+      <RequestDetails requestId={params.id} />
     </div>
   );
 }

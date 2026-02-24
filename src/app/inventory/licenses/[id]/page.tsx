@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { SoftwareLicense } from "@/types/inventory";
-import { fetchAssetDetailsWithLicenses } from "@/app/actions/asset-actions";
+import { fetchLicenseDetailsWithAssets } from "@/app/actions/license-actions";
 
 
 export default function LicenseDetailPage({ params }: { params: { id: string } }) {
@@ -29,21 +29,21 @@ export default function LicenseDetailPage({ params }: { params: { id: string } }
   if (session.user.roles.includes(ROLES.REQUESTER)) {
      redirect("/inventory/vms");
   }
-  useEffect(()=>{
-   getLicense(params.id);
+  useEffect(() => {
+    const getLicense = async (id: string) => {
+      try {
+        const res = await fetchLicenseDetailsWithAssets(id);
+        if (!res) return;
+        setLicense(res as unknown as SoftwareLicense);
+      } catch (err) {
+        console.error(err);
+      }
+    };
 
-  },[]);
- 
-const getLicense = async (id: string) => {
-
-    try {
-      const res = await  fetchAssetDetailsWithLicenses(id);
-      if (!res) return;
-      setLicense(res);
-    } catch (err) {
-      console.log(err);
-    } 
-  };
+    if (session) {
+      getLicense(params.id);
+    }
+  }, [session, params.id]);
 
 
   return (

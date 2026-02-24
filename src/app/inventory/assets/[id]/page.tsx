@@ -32,19 +32,21 @@ export default function AssetDetailPage({ params }: { params: { id: string } }) 
     redirect("/inventory/vms");
   }
 
-useEffect(()=>{
-   getAsset(params.id);
-  },[session]);
- 
-const getAsset = async (id: string) => {
-    try {
-      const res = await  fetchAssetDetailsWithLicenses(id);
-      if (!res) return;
-      setAsset(res);
-    } catch (err) {
-      console.log(err);
-    } 
-  };
+  useEffect(() => {
+    const getAsset = async (id: string) => {
+      try {
+        const res = await fetchAssetDetailsWithLicenses(id);
+        if (!res) return;
+        setAsset(res);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    if (session) {
+      getAsset(params.id);
+    }
+  }, [session, params.id]);
 
   if (!asset) notFound();
 

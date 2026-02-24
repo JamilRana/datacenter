@@ -65,14 +65,15 @@ export interface PhysicalAsset {
   cpuCores: number | null;
   ramGb: number | null;
   storageGb: number | null;
-  createdAt: string;
+  createdAt: string | Date;
+  warrantyExpiry: Date | string | null;
 }
 
 export interface License {
     name: string;
     id: string;
-    createdAt: Date;
-    updatedAt: Date;
+    createdAt: string | Date;
+    updatedAt: string | Date;
     type: string;
     vendor: string;
     expiryDate: Date | null;
