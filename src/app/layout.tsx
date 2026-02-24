@@ -6,6 +6,8 @@ import AuthSessionProvider from "./providers/SessionProviders";
 import { Navbar } from "@/components/Navbar";
 import { Toaster } from "sonner";
 import PermissionHandler from "./providers/PermissionHandler";
+import { Suspense } from "react";
+import { LoadingProvider } from "@/context/LoadingContext";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -34,10 +36,14 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-slate-50`}
       >
         <AuthSessionProvider>
-          <Navbar />
-          <main>{children}</main>
-          <Toaster position="top-right" richColors />
-          <PermissionHandler />
+          <LoadingProvider>
+            <Navbar />
+            <main>{children}</main>
+            <Toaster position="top-right" richColors />
+            <Suspense fallback={null}>
+              <PermissionHandler />
+            </Suspense>
+          </LoadingProvider>
         </AuthSessionProvider>
       </body>
     </html>

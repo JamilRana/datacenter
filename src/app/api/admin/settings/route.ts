@@ -1,4 +1,5 @@
 // src/app/api/admin/settings/route.ts
+export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
