@@ -21,7 +21,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "VMCloud - Infrastructure Portal",
+  title: "MIS DC Portal",
   description: "Virtual Machine Request and Provisioning System",
 };
 

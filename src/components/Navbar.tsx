@@ -55,7 +55,7 @@ export function Navbar() {
                       <div className="bg-indigo-600 p-1.5 rounded-lg text-white">
                         <Server size={18} />
                       </div>
-                      VMCloud
+                      MIS DC Portal
                     </DialogTitle>
                     <DialogDescription className="text-left py-4">
                       Navigation Menu
@@ -99,7 +99,7 @@ export function Navbar() {
               <div className="bg-indigo-600 p-1.5 rounded-lg text-white">
                 <Server size={20} />
               </div>
-              <span className="font-bold text-xl tracking-tight text-slate-900">VMCloud</span>
+              <span className="font-bold text-xl tracking-tight text-slate-900">MIS DC Portal</span>
             </Link>
             
             <div className="hidden md:ml-10 md:flex md:space-x-6">

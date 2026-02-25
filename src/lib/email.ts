@@ -6,7 +6,7 @@ import prisma from "@/lib/prisma";
 import nodemailer from "nodemailer";
 
 const DEFAULT_PORTAL_URL = env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-const DEFAULT_FROM_EMAIL = "noreply@vmcloud.local";
+const DEFAULT_FROM_EMAIL = env.NEXT_PUBLIC_EMAIL || "noreply@mis.dghs.gov.bd";
 
 export interface EmailParams {
   to: string;
@@ -100,7 +100,7 @@ function getEmailTemplate(content: string, title: string): string {
           <!-- Header -->
           <tr>
             <td style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 30px;">
-              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">VMCloud Portal</h1>
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">MIS DC Portal</h1>
               <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">Infrastructure Request Management</p>
             </td>
           </tr>
@@ -116,7 +116,7 @@ function getEmailTemplate(content: string, title: string): string {
           <tr>
             <td style="padding: 20px 30px; background-color: #f1f5f9; text-align: center;">
               <p style="margin: 0; color: #64748b; font-size: 12px;">
-                This is an automated notification from VMCloud Portal.
+                This is an automated notification from MIS DC Portal.
               </p>
               <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 11px;">
                 Please do not reply to this email. Access the portal to manage your requests.
@@ -161,7 +161,7 @@ export function getApprovalEmailHtml(
   let content = `
     <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
     <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
-      A request requires your approval in the VMCloud Portal.
+      A request requires your approval in the MIS DC Portal.
     </p>
     
     <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e2e8f0;">

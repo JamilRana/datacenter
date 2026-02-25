@@ -1,23 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { useState, useEffect } from "react";
+import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2 } from "lucide-react"; // Import a loader for better UX
 
 export default function LoginPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { data: session, status } = useSession();
+
+  // Handle redirection as a side effect
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.push("/");
+      router.refresh();
+    }
+  }, [status, router]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -32,15 +36,23 @@ export default function LoginPage() {
       password: formData.get("password"),
     });
 
-    setLoading(false);
-
     if (result?.ok) {
-      router.push("/inventory");
+      router.push("/");
       router.refresh();
     } else {
+      setLoading(false);
       setErrorMessage("Invalid email or password.");
     }
   };
+
+  // Prevent flash of login form while checking session
+  if (status === "loading" || status === "authenticated") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -49,9 +61,6 @@ export default function LoginPage() {
           <CardTitle className="text-2xl font-bold text-center">
             Datacenter Management
           </CardTitle>
-          {/* <CardDescription className="text-center">
-            Sign in to your account
-          </CardDescription> */}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -65,7 +74,6 @@ export default function LoginPage() {
                 autoComplete="email"
               />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
@@ -76,13 +84,11 @@ export default function LoginPage() {
                 autoComplete="current-password"
               />
             </div>
-
             {errorMessage && (
               <div className="text-sm text-destructive text-center">
                 {errorMessage}
               </div>
             )}
-
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>

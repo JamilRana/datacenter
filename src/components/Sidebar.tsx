@@ -109,7 +109,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
           <div className="bg-indigo-600 p-1.5 rounded-lg text-white">
             <Server size={20} />
           </div>
-          <span className="font-bold text-xl tracking-tight text-slate-900">VMCloud</span>
+          <span className="font-bold text-xl tracking-tight text-slate-900">MIS DC Portal</span>
         </Link>
         {mobile && (
           <Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)}>
