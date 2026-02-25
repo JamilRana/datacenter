@@ -66,7 +66,7 @@ interface UsageRowProps {
   total: number;
   percent: number;
   unit: string;
-  icon: LucideIcon; // ✅ Replaced 'any' with proper type
+  icon: LucideIcon; 
   color: string;
 }
 

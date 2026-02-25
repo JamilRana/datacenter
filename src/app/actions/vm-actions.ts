@@ -440,7 +440,15 @@ export async function fetchAllVms(page: number = 1, pageSize: number = 20): Prom
   };
 }
 
+export async function deleteVm(id: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user || !isAdmin(session.user.roles)) {
+    throw new Error("Unauthorized");
+  }
 
+  await prisma.vmInstance.delete({ where: { id } });
+  revalidatePath("/inventory/vms");
+}
 
 export async function renewVmRequest(vmId: string) {
   const session = await getServerSession(authOptions);

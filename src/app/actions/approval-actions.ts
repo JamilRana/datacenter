@@ -15,6 +15,7 @@ import {
 } from "@prisma/client";
 import { ROLES, hasRole } from "@/lib/roles";
 import { notifyRequester, notifyDirector, notifyDCOps } from "@/lib/notifications";
+import { sendStatusUpdateNotification } from "@/lib/email";
 import { redirect } from "next/navigation";
 import { fetchDashboardData } from "../approvals/lib";
 
@@ -115,15 +116,21 @@ export async function handleApprovalDecision(
     let entityId: string;
     let systemName: string;
     let requesterId: string | null;
+    let requesterEmail: string | null = null;
+    let requesterName: string | null = null;
 
     if (entityType === "REQUEST" && approval.request) {
       entityId = approval.request.id;
       systemName = approval.request.systemName;
       requesterId = approval.request.requesterId;
+      requesterEmail = approval.request.requester?.email || null;
+      requesterName = approval.request.requester?.name || null;
     } else if (entityType === "CUSTOMIZATION" && approval.customizationRequest) {
       entityId = approval.customizationRequest.id;
       systemName = approval.customizationRequest.targetVm?.hostname || "Resource Customization";
       requesterId = approval.customizationRequest.requesterId;
+      requesterEmail = approval.customizationRequest.requester?.email || null;
+      requesterName = approval.customizationRequest.requester?.name || null;
     } else {
       throw new Error("Linked entity not found for this approval record.");
     }
@@ -199,6 +206,17 @@ export async function handleApprovalDecision(
     // 8. Notifications
     if (requesterId && (decision === ApprovalDecision.REJECTED || nextStatus === "APPROVED")) {
       await notifyRequester(requesterId, systemName, decision === ApprovalDecision.REJECTED ? "REJECTED" : "APPROVED");
+      
+      // Send email notification to requester
+      if (requesterEmail && requesterName) {
+        await sendStatusUpdateNotification(
+          requesterEmail,
+          requesterName,
+          systemName,
+          decision === ApprovalDecision.REJECTED ? "REJECTED" : "APPROVED",
+          comments || undefined
+        );
+      }
     }
 
     if (nextStatus === "APPROVED") {

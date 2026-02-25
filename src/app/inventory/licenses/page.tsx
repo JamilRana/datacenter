@@ -3,16 +3,20 @@
 
 import { useRouter } from "next/navigation";
 import { ROLES } from "@/lib/roles";
-import { FileText, Loader2, ChevronLeft } from "lucide-react";
+import { FileText, ChevronLeft, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { format, differenceInDays } from "date-fns";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { SoftwareLicense } from "@/types/inventory";
-import { fetchLicenseDetails } from "@/app/actions/license-actions";
+import { fetchLicenseDetails, deleteLicense } from "@/app/actions/license-actions";
 import { LicenseModal } from "../components/LicenseModal";
+import { DeleteConfirmationModal } from "../components/DeleteConfirmationModal";
 import { Card, CardContent } from "@/components/ui/card";
+import { exportToCsv } from "@/lib/export-utils";
+import { Download } from "lucide-react";
 
 export default function LicensesPage({
   searchParams,
@@ -60,16 +64,32 @@ export default function LicensesPage({
 
   const canEdit = !!(session?.user?.roles?.includes(ROLES.ADMIN) || session?.user?.roles?.includes(ROLES.DCOPS));
 
+  const handleExport = () => {
+    const exportData = licenses.map(lic => ({
+      Name: lic.name,
+      Vendor: lic.vendor,
+      Type: lic.type || "",
+      Expiry_Date: lic.expiryDate ? new Date(lic.expiryDate).toLocaleDateString() : "Perpetual",
+      Maintenance_Expiry: lic.maintenanceExpiry ? new Date(lic.maintenanceExpiry).toLocaleDateString() : "",
+      Notes: lic.notes || "",
+    }));
+    exportToCsv(`software-licenses-${new Date().toISOString().split('T')[0]}.csv`, exportData);
+  };
+
   if (status === "loading" || loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      <div className="p-6 md:p-10 max-w-6xl mx-auto">
+        <div className="animate-pulse space-y-6">
+          <div className="h-8 bg-slate-200 rounded w-64"></div>
+          <div className="h-64 bg-slate-200 rounded-xl"></div>
+          <div className="h-96 bg-slate-200 rounded-xl"></div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 md:p-10 space-y-8 bg-slate-50/20 min-h-screen">
+    <div className="p-6 md:p-10 max-w-6xl mx-auto space-y-6">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-slate-500">
         <Link href="/inventory" className="hover:text-indigo-600 flex items-center gap-1">
@@ -87,9 +107,14 @@ export default function LicensesPage({
             Manage OS keys, SSL certificates, and application licenses with expiry tracking.
           </p>
         </div>
-        {canEdit && (
-          <LicenseModal mode="create" />
-        )}
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExport} className="gap-2">
+            <Download className="h-4 w-4" /> Export
+          </Button>
+          {canEdit && (
+            <LicenseModal mode="create" />
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -133,7 +158,22 @@ function LicenseCard({ license, canEdit }: { license: SoftwareLicense, canEdit: 
             <div className="flex flex-col items-end gap-2">
               {statusBadge}
               {canEdit && (
-                <LicenseModal license={license} mode="edit" />
+                <div className="flex gap-1">
+                  <LicenseModal license={license} mode="edit" />
+                  <DeleteConfirmationModal
+                    title="Delete License"
+                    description={`Are you sure you want to delete ${license.name}? All linked asset relationships will be removed.`}
+                    onDelete={async () => {
+                      await deleteLicense(license.id);
+                      window.location.reload();
+                    }}
+                    trigger={
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-600 transition-colors">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    }
+                  />
+                </div>
               )}
             </div>
           </div>

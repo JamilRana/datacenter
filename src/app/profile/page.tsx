@@ -46,9 +46,9 @@ export default function ProfilePage() {
     if (session?.user) {
       setProfileForm({
         name: session.user.name || "",
-        designation: (session.user as any).designation || "",
-        organization: (session.user as any).organization || "",
-        contact: (session.user as any).contact || "",
+        designation: session.user.designation || "",
+        organization: session.user.organization || "",
+        contact: session.user.contact || "",
       });
     }
   }, [session, status, router]);
@@ -128,7 +128,7 @@ export default function ProfilePage() {
     });
   };
 
-  const userRoles = (session.user as any)?.roles || [];
+  const userRoles = session.user?.roles || [];
 
   return (
     <div className="p-6 md:p-10 max-w-4xl mx-auto space-y-8">
@@ -178,9 +178,9 @@ export default function ProfilePage() {
                   // Reset form to original values
                   setProfileForm({
                     name: session.user?.name || "",
-                    designation: (session.user as any).designation || "",
-                    organization: (session.user as any).organization || "",
-                    contact: (session.user as any).contact || "",
+                    designation: session.user.designation || "",
+                    organization: session.user.organization || "",
+                    contact: session.user.contact || "",
                   });
                 }}
                 className="text-slate-500 hover:text-slate-700"
@@ -325,9 +325,9 @@ export default function ProfilePage() {
                     setIsEditingProfile(false);
                     setProfileForm({
                       name: session.user?.name || "",
-                      designation: (session.user as any).designation || "",
-                      organization: (session.user as any).organization || "",
-                      contact: (session.user as any).contact || "",
+                      designation: session.user.designation || "",
+                      organization: session.user.organization || "",
+                      contact: session.user.contact || "",
                     });
                   }}
                   disabled={isPending}

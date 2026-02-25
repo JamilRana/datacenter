@@ -16,8 +16,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { SerializedVmInstance } from "@/types/vm";
+import { EditVmModal } from "./EditVmModal";
 
-export function VmListClient({ initialVms }: { initialVms:  SerializedVmInstance[] }) {
+export function VmListClient({ initialVms, canEdit }: { initialVms: SerializedVmInstance[], canEdit?: boolean }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
 
@@ -106,14 +107,17 @@ export function VmListClient({ initialVms }: { initialVms:  SerializedVmInstance
                             <SpecBadge icon={Database} value={`${vm.currentSpec?.ramGb}G`} label="RAM" />
                          </div>
                      </td>
-                     <td className="px-6 py-5 text-right">
-                        <Link href={`/inventory/vms/${vm.id}`}>
-                           <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:text-blue-600 transition-all hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100">
-                              <Eye className="h-4 w-4" />
-                           </Button>
-                        </Link>
-                     </td>
-                  </tr>
+                      <td className="px-6 py-5 text-right">
+                         <div className="flex items-center justify-end gap-2">
+                            {canEdit && <EditVmModal vm={vm} />}
+                            <Link href={`/inventory/vms/${vm.id}`}>
+                               <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:text-blue-600 transition-all hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100">
+                                  <Eye className="h-4 w-4" />
+                               </Button>
+                            </Link>
+                         </div>
+                      </td>
+                   </tr>
                ))}
                {filteredVms.length === 0 && (
                   <tr>

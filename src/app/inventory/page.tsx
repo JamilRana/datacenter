@@ -5,15 +5,12 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { 
   Server, 
   HardDrive, 
   Key, 
   ArrowRight,
-  Activity,
-  Shield,
   Box
 } from "lucide-react";
 import { useEffect, useState } from "react";

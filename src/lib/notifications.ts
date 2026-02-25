@@ -1,6 +1,7 @@
 // src/lib/notifications.ts
 import prisma from "./prisma";
 import { ROLES } from "./roles";
+import { sendApprovalNotification } from "./email";
 
 export async function createNotification(userId: string, type: string, message: string) {
   try {
@@ -42,6 +43,18 @@ export async function notifyApprovers(requestId: string, systemName: string) {
       "APPROVAL_REQUIRED",
       `New request "${systemName}" requires your approval (ID: ${requestId})`
     );
+
+    // Send email notification to approver
+    if (approver.email) {
+      await sendApprovalNotification(
+        approver.email,
+        approver.name || "Approver",
+        systemName,
+        "PENDING_L1",
+        1,
+        undefined
+      );
+    }
   }
 }
 
@@ -97,5 +110,17 @@ export async function notifyDCOps(requestId: string, systemName: string) {
       "EXECUTION_READY",
       `Request "${systemName}" (ID: ${requestId}) has been APPROVED and is ready for execution.`
     );
+
+    // Send email notification to DCOps
+    if (user.email) {
+      await sendApprovalNotification(
+        user.email,
+        user.name || "DCOps",
+        systemName,
+        "APPROVED",
+        0,
+        "Request approved and ready for execution"
+      );
+    }
   }
 }

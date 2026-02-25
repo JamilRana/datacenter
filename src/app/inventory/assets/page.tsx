@@ -11,6 +11,9 @@ import { AssetModal } from "../components/AssetModal";
 import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Download } from "lucide-react";
+import { exportToCsv } from "@/lib/export-utils";
+import { Button } from "@/components/ui/button";
 
 export default function AssetsPage({
   searchParams,
@@ -67,6 +70,22 @@ export default function AssetsPage({
 
   const canEdit = session.user.roles.includes(ROLES.ADMIN) || session.user.roles.includes(ROLES.DCOPS);
 
+  const handleExport = () => {
+    const exportData = assets.map(asset => ({
+      Name: asset.name,
+      Type: asset.type,
+      Vendor: asset.vendor || "",
+      Model: asset.model || "",
+      Serial: asset.serial || "",
+      Location: asset.location || "",
+      CPU_Cores: asset.cpuCores || "",
+      RAM_GB: asset.ramGb || "",
+      Storage_GB: asset.storageGb || "",
+      Warranty_Expiry: asset.warrantyExpiry ? new Date(asset.warrantyExpiry).toLocaleDateString() : "",
+    }));
+    exportToCsv(`hardware-assets-${new Date().toISOString().split('T')[0]}.csv`, exportData);
+  };
+
   return (
     <div className="p-6 md:p-10 max-w-6xl mx-auto space-y-6">
       {/* Breadcrumb */}
@@ -86,9 +105,14 @@ export default function AssetsPage({
             Physical infrastructure: servers, racks, networking equipment, and storage devices.
           </p>
         </div>
-        {canEdit && (
-          <AssetModal mode="create" />
-        )}
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExport} className="gap-2">
+            <Download className="h-4 w-4" /> Export
+          </Button>
+          {canEdit && (
+            <AssetModal mode="create" />
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">

@@ -19,8 +19,12 @@ import Link from "next/link";
 import { PhysicalAsset } from "@/types/inventory";
 import { AssetType } from "@/types/enums";
 import { AssetModal } from "./AssetModal";
+import { DeleteConfirmationModal } from "./DeleteConfirmationModal";
+import { deleteAsset } from "@/app/actions/asset-actions";
+import { Trash2 } from "lucide-react";
 
 export function AssetListClient({ 
+
   initialAssets,
   canEdit 
 }: { 
@@ -124,7 +128,22 @@ export function AssetListClient({
                               </Button>
                            </Link>
                            {canEdit && (
-                             <AssetModal asset={asset} mode="edit" />
+                             <>
+                               <AssetModal asset={asset} mode="edit" />
+                               <DeleteConfirmationModal
+                                 title="Delete Asset"
+                                 description={`Are you sure you want to delete ${asset.name}? This action cannot be undone.`}
+                                 onDelete={async () => {
+                                   await deleteAsset(asset.id);
+                                   window.location.reload();
+                                 }}
+                                 trigger={
+                                   <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-600 transition-colors">
+                                     <Trash2 className="h-4 w-4" />
+                                   </Button>
+                                 }
+                               />
+                             </>
                            )}
                         </div>
                      </td>

@@ -88,7 +88,7 @@ export async function saveSettings(settings: { key: string; value: string }[]) {
     
     // ✅ Handle specific Prisma error codes
     if (error instanceof Error && 'code' in error) {
-      const prismaError = error as any;
+      const prismaError = error;
       if (prismaError.code === 'P2028') {
         throw new Error("Database transaction timeout. Please try again or reduce the number of settings being saved.");
       }

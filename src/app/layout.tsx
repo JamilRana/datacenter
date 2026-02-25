@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import AuthSessionProvider from "./providers/SessionProviders";
-import { Navbar } from "@/components/Navbar";
+import { Sidebar } from "@/components/Sidebar";
 import { Toaster } from "sonner";
 import PermissionHandler from "./providers/PermissionHandler";
 import { Suspense } from "react";
@@ -36,9 +36,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-slate-50`}
       >
         <AuthSessionProvider>
-          <LoadingProvider>
-            <Navbar />
-            <main>{children}</main>
+            <LoadingProvider>
+            <Sidebar>
+              {children}
+            </Sidebar>
             <Toaster position="top-right" richColors />
             <Suspense fallback={null}>
               <PermissionHandler />

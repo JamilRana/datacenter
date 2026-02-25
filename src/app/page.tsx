@@ -357,25 +357,6 @@ function MetricCard({
   );
 }
 
-// Status Row Component
-function StatusRow({ label, status }: { label: string; status: "operational" | "warning" | "down" }) {
-  const statusConfig = {
-    operational: { dot: "bg-emerald-500", text: "text-emerald-600", label: "Operational" },
-    warning: { dot: "bg-amber-500", text: "text-amber-600", label: "Warning" },
-    down: { dot: "bg-red-500", text: "text-red-600", label: "Down" },
-  };
-  const config = statusConfig[status];
-
-  return (
-    <div className="flex justify-between items-center text-sm">
-      <span className="text-slate-600">{label}</span>
-      <span className={`flex items-center gap-1.5 ${config.text}`}>
-        <div className={`h-2 w-2 rounded-full ${config.dot}`} />
-        {config.label}
-      </span>
-    </div>
-  );
-}
 
 // Provisioning Queue Section (DCOPS/Admin)
 function ProvisioningQueueSection({ data }: { data: HomeDashboardData | null }) {

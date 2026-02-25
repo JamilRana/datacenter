@@ -15,6 +15,9 @@ import { SerializedVmInstance } from "@/types/vm";
 import { ManualVmModal } from "@/app/inventory/components/ManualVmModal";
 import { ROLES } from "@/lib/roles";
 import Link from "next/link";
+import { exportToCsv } from "@/lib/export-utils";
+import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function VmInventoryPage({
   searchParams,
@@ -75,6 +78,25 @@ export default function VmInventoryPage({
   
   const canAddManually = userRoles.includes("ADMIN") || userRoles.includes(ROLES.DCOPS);
 
+  const handleExport = () => {
+    const exportData = vms.map(vm => ({
+      Hostname: vm.hostname || "",
+      IP_Address: vm.ipAddress || "",
+      Public_IP: vm.publicIpAddress || "",
+      Status: vm.status,
+      Owner: vm.owner?.name || "",
+      Owner_Email: vm.owner?.email || "",
+      vCPU: vm.currentSpec?.vcpu || "",
+      RAM_GB: vm.currentSpec?.ramGb || "",
+      Storage_GB: vm.currentSpec?.storageGb || "",
+      OS: vm.currentSpec?.osName || "",
+      OS_Version: vm.currentSpec?.osVersion || "",
+      Subdomain: vm.subdomain || "",
+      Provisioned_At: vm.provisionedAt ? new Date(vm.provisionedAt).toLocaleDateString() : "",
+    }));
+    exportToCsv(`vm-instances-${new Date().toISOString().split('T')[0]}.csv`, exportData);
+  };
+
   return (
     <div className="p-6 md:p-10 max-w-6xl mx-auto space-y-6">
       {/* Breadcrumb */}
@@ -97,6 +119,9 @@ export default function VmInventoryPage({
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExport} className="gap-2">
+            <Download className="h-4 w-4" /> Export
+          </Button>
           {canAddManually && (
             <ManualVmModal actorId={session.user.id} />
           )}
@@ -152,7 +177,7 @@ export default function VmInventoryPage({
 
       <Card className="border-slate-200 shadow-sm overflow-hidden">
         <CardContent className="p-0">
-          <VmListClient initialVms={vms} />
+          <VmListClient initialVms={vms} canEdit={isManagement} />
         </CardContent>
       </Card>
     </div>

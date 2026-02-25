@@ -199,7 +199,7 @@ export default function UserTable({ initialUsers, allRoles }: { initialUsers: Us
                 </div>
                 <div className="space-y-2 col-span-2 md:col-span-1">
                     <Label>Email Address *</Label>
-                    <Input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="john@company.com" />
+                    <Input required type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="john@mail.com" />
                 </div>
                 {isCreateOpen && (
                     <div className="space-y-2 col-span-2 md:col-span-1">
