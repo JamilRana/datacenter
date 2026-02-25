@@ -21,6 +21,10 @@ export default function LoginPage() {
       router.push("/");
       router.refresh();
     }
+    if(session){
+      router.push("/");
+      router.refresh();
+    }
   }, [status, router]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
