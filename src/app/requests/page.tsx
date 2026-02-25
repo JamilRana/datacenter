@@ -6,11 +6,11 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { RequestList } from "./components/RequestList";
 import { getRequests } from "@/app/actions/request-actions";
-import { 
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Search, Loader2, Plus, Zap, Trash2, Server, ArrowRight, Clock, CheckCircle2, XCircle, FileText } from "lucide-react";
+import { Search, Loader2, Plus, Zap, Trash2, Server, ArrowRight, Clock, CheckCircle2, XCircle, FileText, ChevronRight } from "lucide-react";
 import { Pagination } from "@/components/Pagination";
 import { detailsRequest } from "@/types/requests";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -24,12 +24,10 @@ export default function MyRequestsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  
   const [currentPage, setCurrentPage] = useState(() => {
     const pageParam = searchParams.get("page");
     return pageParam ? parseInt(pageParam, 10) : 1;
   });
-  
   const [loading, setLoading] = useState(true);
   const [requestsData, setRequestsData] = useState<{
     requests: detailsRequest[];
@@ -37,9 +35,7 @@ export default function MyRequestsPage() {
     totalPages: number;
     currentPage: number;
   } | null>(null);
-  
   const [activeTab, setActiveTab] = useState<RequestType | "ALL">("ALL");
-  
   const [filters, setFilters] = useState({
     status: "ALL",
     type: "ALL",
@@ -48,7 +44,6 @@ export default function MyRequestsPage() {
 
   useEffect(() => {
     if (status === "loading" || !session) return;
-    
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -67,20 +62,17 @@ export default function MyRequestsPage() {
         setLoading(false);
       }
     };
-    
     fetchData();
   }, [session, status, filters, currentPage, activeTab]);
 
   useEffect(() => {
     if (currentPage === 1 && !searchParams.toString()) return;
-    
     const params = new URLSearchParams(searchParams.toString());
     if (currentPage > 1) {
       params.set("page", currentPage.toString());
     } else {
       params.delete("page");
     }
-    
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
   }, [currentPage, pathname, router, searchParams]);
 
@@ -134,7 +126,7 @@ export default function MyRequestsPage() {
 
   if (status === "loading" || loading) {
     return (
-      <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className="p-6 md:p-10 max-w-7xl mx-auto space-y-6">
         <div className="flex justify-between items-center h-10">
           <div className="h-8 w-48 bg-slate-200 animate-pulse rounded" />
           <div className="h-10 w-32 bg-slate-200 animate-pulse rounded" />
@@ -152,6 +144,13 @@ export default function MyRequestsPage() {
 
   return (
     <div className="p-6 md:p-10 max-w-7xl mx-auto space-y-8">
+      {/* Breadcrumbs */}
+      <div className="flex items-center text-sm text-slate-500">
+        <Link href="/" className="hover:text-slate-900">Home</Link>
+        <ChevronRight className="h-4 w-4 mx-2" />
+        <span className="text-slate-900 font-medium">Requests</span>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -277,10 +276,9 @@ export default function MyRequestsPage() {
               onChange={(e) => handleFilterChange("search", e.target.value)}
             />
           </div>
-          
           <div className="w-full md:w-48">
-            <Select 
-              value={filters.status} 
+            <Select
+              value={filters.status}
               onValueChange={(v) => handleFilterChange("status", v)}
             >
               <SelectTrigger className="bg-slate-50 border-slate-200">
@@ -310,12 +308,9 @@ export default function MyRequestsPage() {
       ) : (
         <>
           <RequestList requests={requestsData?.requests || []} />
-          
           {requestsData && requestsData.totalPages > 1 && (
             <div className="mt-6 flex justify-center">
-              <Pagination  
-                totalPages={requestsData.totalPages}
-              />
+              <Pagination totalPages={requestsData.totalPages} />
             </div>
           )}
         </>

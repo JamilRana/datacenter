@@ -13,9 +13,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for auth token (basic check - full auth happens in app)
-  const token = request.cookies.get("next-auth.session-token");
-  
+  const isProd = process.env.NODE_ENV === "production";
+  const tokenName = isProd ? "__Secure-next-auth.session-token" : "next-auth.session-token";
+  const token = request.cookies.get(tokenName);
+
   if (!token) {
     return NextResponse.redirect(new URL("/auth", request.url));
   }

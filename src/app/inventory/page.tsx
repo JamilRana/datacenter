@@ -179,7 +179,7 @@ export default function InventoryHubPage() {
       </div>
 
       {/* Quick Access for Admin/DCOPS */}
-      {isDCOPSorAdmin && (
+      {/* {isDCOPSorAdmin && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Button variant="outline" asChild className="h-auto py-4 flex-col gap-2">
             <Link href="/inventory/vms">
@@ -206,7 +206,7 @@ export default function InventoryHubPage() {
             </Link>
           </Button>
         </div>
-      )}
+      )} */}
 
       {/* Info Banner for Non-Admin Users */}
       {!isDCOPSorAdmin && (

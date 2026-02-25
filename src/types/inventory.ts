@@ -1,3 +1,4 @@
+//src/types/inventory.ts
 import { AssetType, VmStatus } from "@prisma/client";
 
 export type AssetFormData = 

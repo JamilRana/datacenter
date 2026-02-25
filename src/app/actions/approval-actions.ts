@@ -48,8 +48,8 @@ async function getNextStatusFromApprovals(
     case 1: return RequestStatus.PENDING_L1;
     case 2: return RequestStatus.PENDING_L2;
     case 3: return RequestStatus.PENDING_L3;
-    case 4: return RequestStatus.PENDING_L4; // Director escalation
-    default: return RequestStatus.PENDING_L3; // Fallback for higher levels
+    case 4: return RequestStatus.PENDING_L4;
+    default: return RequestStatus.PENDING_L3; 
   }
 }
 
@@ -63,8 +63,6 @@ export async function handleApprovalDecision(
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
 
-  // ✅ RESOLVE THE ACTUAL APPROVAL RECORD
-  // The frontend might pass either the Approval ID OR the Request/Entity ID
   const approvalRecord = await prisma.approval.findFirst({
     where: {
       OR: [

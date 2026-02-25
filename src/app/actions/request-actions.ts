@@ -46,7 +46,6 @@ interface Attachment {
   uploadedBy: string;
 }
 
-// Type definitions for Prisma queries
 interface RequestFilters {
   status?: RequestStatus | "ALL" | string;
   type?: RequestType | "ALL" | string;
@@ -284,9 +283,6 @@ export async function createRequest(formData: FormData) {
     throw error;
   }
 }
-
-
-
 
 export async function editRequest(formData: FormData) {
   try {
@@ -618,7 +614,6 @@ export async function submitRequest(requestId: string) {
   return updated;
 }
 
-// ✅ TRANSFORM Prisma roles → string array to match User interface
 export async function getApprovers(): Promise<User[]> {
   const approvers = await prisma.user.findMany({
     where: {
@@ -639,7 +634,6 @@ export async function getApprovers(): Promise<User[]> {
   }));
 }
 
-// src/app/actions/request-actions.ts
 export async function generateApprovals(
   tx: Prisma.TransactionClient | typeof prisma,
   entityId: string,
@@ -914,137 +908,6 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
   return transformed;
 }
 
-// export async function getRequests(
-//   filters: RequestFilters = {}, 
-//   page: number = 1, 
-//   pageSize: number = 10
-// ) {
-//   const session = await getServerSession(authOptions);
-//   if (!session?.user) throw new Error("Unauthorized");
-  
-//   const userId = session.user.id;
-//   const userRoles = session.user.roles;
-//   const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
-//   const isAdmin = userRoles.includes(ROLES.ADMIN);
-  
-  
-//   const skip = (page - 1) * pageSize;
-//   const andConditions: Prisma.RequestWhereInput[] = [];
-//   if (!isApprover && !isAdmin) {
-//   andConditions.push({
-//     OR: [
-//       { requesterId: userId },
-//       { developerId: userId }
-//     ]
-//   });
-// }
-// if (filters.search?.trim()) {
-//   andConditions.push({
-//     OR: [
-//       { systemName: { contains: filters.search, mode: "insensitive" } },
-//       { projectName: { contains: filters.search, mode: "insensitive" } }
-//     ]
-//   });
-// }
-//   // ✅ BUILD QUERY WITH PROPER VISIBILITY RULES
-//     const whereClause: Prisma.RequestWhereInput = {
-//     // Regular users: only their own requests
-
-//     AND: andConditions,
-//     // Status filter with role-based enforcement
-//     ...(filters.status && filters.status !== "ALL"
-//       ? { status: filters.status as RequestStatus }
-//       : !isApprover || isAdmin
-//         ? {} 
-//         : {
-//             status: {
-//               in: userRoles.flatMap(role => {
-//                 if (role === "APPROVER_L1") return [RequestStatus.PENDING_L1];
-//                 if (role === "APPROVER_L2") return [RequestStatus.PENDING_L2];
-//                 if (role === "APPROVER_L3") return [RequestStatus.PENDING_L3];
-//                 if (role === ROLES.L4_APPROVER) return [RequestStatus.PENDING_L4];
-//                 return [];
-//               }).filter(Boolean)
-//             }
-//           }
-//     ),
-    
-//     // Type & search filters (same as before)
-//     ...(filters.type && filters.type !== "ALL" && {
-//       requestType: filters.type as RequestType
-//     }),
-
-//   };
-
-//   // ✅ CRITICAL FIX: Approvers ONLY see requests with PENDING approval assigned to THEM
-// // ✅ CRITICAL FIX: Approvers ONLY see requests with PENDING approval assigned to THEM
-// if (isApprover && !isAdmin) {
-//   // 1. Map roles to their integer levels
-//   const levelMapping: Record<string, number> = {
-//     "APPROVER_L1": 1,
-//     "APPROVER_L2": 2,
-//     "APPROVER_L3": 3,
-//     [ROLES.L4_APPROVER]: 4,
-//   };
-
-//   const myActionableLevels = userRoles
-//     .map(role => levelMapping[role])
-//     .filter((lvl): lvl is number => lvl !== undefined);
-
-//   // 2. Get request IDs where CURRENT USER has a PENDING approval record
-//   const pendingApprovals = await prisma.approval.findMany({
-//     where: {
-//       approverId: userId,
-//       decision: ApprovalDecision.PENDING,
-//       entityType: ApprovalEntityType.REQUEST,
-//       level: { in: myActionableLevels } // ✅ Matches numeric level
-//     },
-//     select: { requestId: true },
-//     take: 1000
-//   });
-
-//   const requestIdsForApprover = pendingApprovals
-//     .map(a => a.requestId)
-//     .filter((id): id is string => id !== null);
-
-//   // 3. Restrict whereClause to only these IDs
-//   // If the user has no pending items, we force an empty set
-//   whereClause.id = { in: requestIdsForApprover };
-// }
-// const [requests, total] = await Promise.all([
-//   prisma.request.findMany({
-//     where: whereClause,
-//     orderBy: { createdAt: "desc" },
-//     skip,
-//     take: pageSize,
-//     include: {
-//       vmInstances: { 
-//         select: { id: true, hostname: true, ipAddress: true, status: true } 
-//       },
-//       approvals: { 
-//         where: { entityType: ApprovalEntityType.REQUEST },
-//         include: { approver: { select: { id: true, name: true } } },
-//         orderBy: { createdAt: "asc" },
-//       },
-//       // Include this for all so the Type remains consistent
-//       targetVm: { 
-//         select: { id: true, hostname: true, status: true } 
-//       },
-//     },
-//   }),
-//   prisma.request.count({ where: whereClause })
-// ]);
-  
-//   const totalPages = Math.ceil(total / pageSize);
-  
-//   return { 
-//     requests: requests.map(r => transformRequestListItem(r)), 
-//     total, 
-//     totalPages, 
-//     currentPage: page 
-//   };
-// }
-
 export async function getRequests(
   filters: RequestFilters = {},
   page: number = 1,
@@ -1089,8 +952,6 @@ export async function getRequests(
     andConditions.push({ requestType: filters.type as RequestType });
   }
 
-  // 4. APPROVER SPECIFIC FILTERING
-  // If user is an Approver and NOT an Admin, they should ONLY see what they need to sign
   if (isApprover && !isAdmin) {
     
     const myActionableLevels = userRoles

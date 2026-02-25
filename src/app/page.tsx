@@ -283,23 +283,6 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          {/* System Status */}
-          <Card className="shadow-sm border-slate-200 rounded-2xl overflow-hidden">
-            <CardHeader className="bg-slate-50 pb-3">
-              <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                <Activity className="h-4 w-4 text-emerald-500" /> System Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-3">
-              <StatusRow label="vCenter" status="operational" />
-              <StatusRow label="Database" status="operational" />
-              <StatusRow label="Storage Cluster" status="operational" />
-              <StatusRow label="Network" status="operational" />
-            </CardContent>
-            <div className="bg-slate-50 px-6 py-3 text-xs text-slate-400 border-t">
-              Last updated: {new Date().toLocaleTimeString()}
-            </div>
-          </Card>
 
           {/* Resource Summary */}
           <Card className="shadow-sm border-slate-200 rounded-2xl">
@@ -322,6 +305,9 @@ export default function Home() {
                 <span className="font-bold text-slate-800">{data?.totalAllocatedResources?.storageGb || 0} GB</span>
               </div>
             </CardContent>
+                        <div className="bg-slate-50 px-6 py-3 text-xs text-slate-400 border-t">
+              Last updated: {new Date().toLocaleTimeString()}
+            </div>
           </Card>
         </div>
       </div>

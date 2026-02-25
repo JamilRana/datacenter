@@ -1,65 +1,140 @@
 // src/lib/email.ts
-import { env } from "process";
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const FROM_EMAIL = "noreply@vmcloud.local";
-const PORTAL_URL = env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+import { env } from "node:process";
+import prisma from "@/lib/prisma";
+import nodemailer from "nodemailer";
+
+const DEFAULT_PORTAL_URL = env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const DEFAULT_FROM_EMAIL = "noreply@vmcloud.local";
 
 export interface EmailParams {
   to: string;
   subject: string;
-  body: string;
+  html: string;
+  text?: string; // Plain text fallback
 }
 
-function getHtmlTemplate(content: string, title: string): string {
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  auth: {
+    user: string;
+    pass: string;
+  };
+  from: string;
+}
+
+/**
+ * Escape HTML special characters to prevent XSS in email content
+ */
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * Fetch SMTP configuration from system settings
+ */
+export async function getSmtpConfig(): Promise<SmtpConfig | null> {
+  try {
+    const settings = await prisma.systemSetting.findMany({
+      where: { category: "smtp" },
+    });
+
+    const configMap: Record<string, string> = {};
+    settings.forEach((s) => {
+      configMap[s.key] = s.value;
+    });
+
+    // Validate required fields
+    if (!configMap.smtp_host || !configMap.smtp_port || !configMap.smtp_user) {
+      console.warn("SMTP configuration incomplete");
+      return null;
+    }
+
+    return {
+      host: configMap.smtp_host,
+      port: parseInt(configMap.smtp_port, 10),
+      secure: configMap.smtp_secure === "true",
+      auth: {
+        user: configMap.smtp_user,
+        pass: configMap.smtp_password || "",
+      },
+      from: configMap.smtp_from || DEFAULT_FROM_EMAIL,
+    };
+  } catch (error) {
+    console.error("Failed to fetch SMTP config:", error);
+    return null;
+  }
+}
+
+/**
+ * Create reusable email HTML template with consistent branding
+ */
+function getEmailTemplate(content: string, title: string): string {
+  const escapedTitle = escapeHtml(title);
   return `
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
+  <title>${escapedTitle}</title>
+  <!--[if mso]>
+  <style>
+    table { border-collapse: collapse; }
+  </style>
+  <![endif]-->
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8fafc;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; padding: 40px 20px;">
-      <tr>
-        <td align="center">
-          <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <!-- Header -->
-            <tr>
-              <td style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 30px; border-radius: 12px 12px 0 0;">
-                <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">VMCloud Portal</h1>
-                <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.8); font-size: 14px;">Infrastructure Request Management</p>
-              </td>
-            </tr>
-            
-            <!-- Content -->
-            <tr>
-              <td style="padding: 40px 30px;">
-                ${content}
-              </td>
-            </tr>
-            
-            <!-- Footer -->
-            <tr>
-              <td style="padding: 20px 30px; background-color: #f1f5f9; border-radius: 0 0 12px 12px; text-align: center;">
-                <p style="margin: 0; color: #64748b; font-size: 12px;">
-                  This is an automated notification from VMCloud Portal.
-                </p>
-                <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 11px;">
-                  Please do not reply to this email. Access the portal to manage your requests.
-                </p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8fafc; color: #1e293b;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #f8fafc; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden;">
+          <!-- Header -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 30px;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">VMCloud Portal</h1>
+              <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">Infrastructure Request Management</p>
+            </td>
+          </tr>
+          
+          <!-- Content -->
+          <tr>
+            <td style="padding: 40px 30px;">
+              ${content}
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 20px 30px; background-color: #f1f5f9; text-align: center;">
+              <p style="margin: 0; color: #64748b; font-size: 12px;">
+                This is an automated notification from VMCloud Portal.
+              </p>
+              <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 11px;">
+                Please do not reply to this email. Access the portal to manage your requests.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
 </html>
 `;
 }
 
+/**
+ * Generate approval request email HTML
+ */
 export function getApprovalEmailHtml(
   recipientName: string,
   systemName: string,
@@ -67,6 +142,10 @@ export function getApprovalEmailHtml(
   level: number,
   comments?: string
 ): string {
+  const escapedName = escapeHtml(recipientName);
+  const escapedSystem = escapeHtml(systemName);
+  const escapedComments = comments ? escapeHtml(comments) : null;
+
   const statusColors: Record<string, string> = {
     PENDING_L1: "#f59e0b",
     PENDING_L2: "#f59e0b", 
@@ -77,24 +156,25 @@ export function getApprovalEmailHtml(
   };
   
   const statusColor = statusColors[status] || "#64748b";
+  const displayStatus = status.replace(/_/g, " ");
 
   let content = `
-    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${recipientName},</h2>
+    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
     <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
       A request requires your approval in the VMCloud Portal.
     </p>
     
-    <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0;">
-      <table width="100%" cellpadding="0" cellspacing="0">
+    <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e2e8f0;">
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
         <tr>
           <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">System Name:</td>
-          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${systemName}</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${escapedSystem}</td>
         </tr>
         <tr>
           <td style="padding: 8px 0; color: #64748b; font-size: 13px;">Status:</td>
           <td style="padding: 8px 0;">
-            <span style="background-color: ${statusColor}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">
-              ${status.replace(/_/g, " ")}
+            <span style="background-color: ${statusColor}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block;">
+              ${displayStatus}
             </span>
           </td>
         </tr>
@@ -106,30 +186,44 @@ export function getApprovalEmailHtml(
     </div>
   `;
 
-  if (comments) {
+  if (escapedComments) {
     content += `
       <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; margin: 20px 0; border-radius: 0 8px 8px 0;">
         <p style="margin: 0 0 8px 0; color: #92400e; font-size: 13px; font-weight: 600;">Comments:</p>
-        <p style="margin: 0; color: #78350f; font-size: 14px; line-height: 1.6;">${comments}</p>
+        <p style="margin: 0; color: #78350f; font-size: 14px; line-height: 1.6;">${escapedComments}</p>
       </div>
     `;
   }
 
+  const portalUrl = `${DEFAULT_PORTAL_URL}/approvals`;
   content += `
-    <a href="${PORTAL_URL}/approvals" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; margin-top: 20px;">
-      Review in Portal
-    </a>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
+      <tr>
+        <td>
+          <a href="${portalUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500;">
+            Review in Portal
+          </a>
+        </td>
+      </tr>
+    </table>
   `;
 
-  return getHtmlTemplate(content, "Approval Required");
+  return getEmailTemplate(content, "Approval Required");
 }
 
+/**
+ * Generate status update email HTML
+ */
 export function getStatusUpdateEmailHtml(
   recipientName: string,
   systemName: string,
   newStatus: string,
   comments?: string
 ): string {
+  const escapedName = escapeHtml(recipientName);
+  const escapedSystem = escapeHtml(systemName);
+  const escapedComments = comments ? escapeHtml(comments) : null;
+
   const statusInfo: Record<string, { color: string; message: string }> = {
     APPROVED: { color: "#10b981", message: "Your request has been approved!" },
     REJECTED: { color: "#ef4444", message: "Your request has been rejected." },
@@ -138,25 +232,29 @@ export function getStatusUpdateEmailHtml(
     PENDING_L1: { color: "#f59e0b", message: "Your request is pending approval." },
   };
 
-  const info = statusInfo[newStatus] || { color: "#64748b", message: `Status changed to ${newStatus}` };
+  const info = statusInfo[newStatus] || { 
+    color: "#64748b", 
+    message: `Status changed to ${newStatus.replace(/_/g, " ")}` 
+  };
+  const displayStatus = newStatus.replace(/_/g, " ");
 
   let content = `
-    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${recipientName},</h2>
+    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
     <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
       ${info.message}
     </p>
     
-    <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0;">
-      <table width="100%" cellpadding="0" cellspacing="0">
+    <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e2e8f0;">
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
         <tr>
           <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">System Name:</td>
-          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${systemName}</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${escapedSystem}</td>
         </tr>
         <tr>
           <td style="padding: 8px 0; color: #64748b; font-size: 13px;">New Status:</td>
           <td style="padding: 8px 0;">
-            <span style="background-color: ${info.color}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">
-              ${newStatus.replace(/_/g, " ")}
+            <span style="background-color: ${info.color}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block;">
+              ${displayStatus}
             </span>
           </td>
         </tr>
@@ -164,50 +262,61 @@ export function getStatusUpdateEmailHtml(
     </div>
   `;
 
-  if (comments) {
+  if (escapedComments) {
     content += `
       <div style="background-color: #f1f5f9; border-left: 4px solid #64748b; padding: 16px; margin: 20px 0; border-radius: 0 8px 8px 0;">
-        <p style="margin: 0 0 8px 0; color: #475569; font-size: 13px; font-weight: 600;">Message from Approver:</p>
-        <p style="margin: 0; color: #1e293b; font-size: 14px; line-height: 1.6;">${comments}</p>
+        <p style="margin: 0 0 8px 0; color: #475569; font-size: 13px; font-weight: 600;">Message:</p>
+        <p style="margin: 0; color: #1e293b; font-size: 14px; line-height: 1.6;">${escapedComments}</p>
       </div>
     `;
   }
 
-  const actionUrl = newStatus === "REJECTED" || newStatus === "RETURNED" 
-    ? `${PORTAL_URL}/requests` 
-    : `${PORTAL_URL}/requests`;
-
+  const actionUrl = `${DEFAULT_PORTAL_URL}/requests`;
   content += `
-    <a href="${actionUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; margin-top: 20px;">
-      View Details
-    </a>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
+      <tr>
+        <td>
+          <a href="${actionUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500;">
+            View Details
+          </a>
+        </td>
+      </tr>
+    </table>
   `;
 
-  return getHtmlTemplate(content, `Request ${newStatus.replace(/_/g, " ")} - ${systemName}`);
+  return getEmailTemplate(content, `Request ${displayStatus} - ${escapedSystem}`);
 }
 
+/**
+ * Generate VM execution/provisioning email HTML
+ */
 export function getExecutionEmailHtml(
   recipientName: string,
   systemName: string,
   vmDetails?: { ip?: string; hostname?: string }
 ): string {
+  const escapedName = escapeHtml(recipientName);
+  const escapedSystem = escapeHtml(systemName);
+  const escapedHostname = vmDetails?.hostname ? escapeHtml(vmDetails.hostname) : null;
+  const escapedIp = vmDetails?.ip ? escapeHtml(vmDetails.ip) : null;
+
   let content = `
-    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${recipientName},</h2>
+    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
     <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
       Great news! Your VM has been successfully provisioned and is now ready for use.
     </p>
     
     <div style="background-color: #ecfdf5; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #a7f3d0;">
       <h3 style="margin: 0 0 16px 0; color: #065f46; font-size: 16px; font-weight: 600;">VM Details</h3>
-      <table width="100%" cellpadding="0" cellspacing="0">
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
         <tr>
           <td style="padding: 8px 0; color: #047857; font-size: 13px; width: 120px;">Hostname:</td>
-          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${vmDetails?.hostname || systemName}</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${escapedHostname || escapedSystem}</td>
         </tr>
-        ${vmDetails?.ip ? `
+        ${escapedIp ? `
         <tr>
           <td style="padding: 8px 0; color: #047857; font-size: 13px;">IP Address:</td>
-          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-family: monospace;">${vmDetails.ip}</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-family: 'Courier New', monospace;">${escapedIp}</td>
         </tr>
         ` : ''}
       </table>
@@ -218,26 +327,157 @@ export function getExecutionEmailHtml(
     </p>
   `;
 
+  const inventoryUrl = `${DEFAULT_PORTAL_URL}/inventory/vms`;
   content += `
-    <a href="${PORTAL_URL}/inventory/vms" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; margin-top: 20px;">
-      View in Inventory
-    </a>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
+      <tr>
+        <td>
+          <a href="${inventoryUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500;">
+            View in Inventory
+          </a>
+        </td>
+      </tr>
+    </table>
   `;
 
-  return getHtmlTemplate(content, "VM Provisioned - Ready to Use");
+  return getEmailTemplate(content, "VM Provisioned - Ready to Use");
 }
 
-export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-  // Stub for actual email sending - integrate with SendGrid, AWS SES, etc.
-  console.log("=== EMAIL NOTIFICATION ===");
-  console.log(`To: ${to}`);
-  console.log(`Subject: ${subject}`);
-  console.log(`Preview: ${html.substring(0, 200)}...`);
-  console.log("==========================");
+/**
+ * Convert HTML email to plain text fallback
+ */
+function htmlToText(html: string): string {
+  // Basic conversion - consider using a library like 'html-to-text' for production
+  return html
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, 500) + '...';
+}
+
+/**
+ * Send email with retry logic and proper error handling
+ */
+export async function sendEmail(params: EmailParams): Promise<{ success: boolean; error?: string }> {
+  const { to, subject, html, text } = params;
+
+  // Validate input
+  if (!to || !subject || !html) {
+    return { success: false, error: "Missing required email parameters" };
+  }
+
+  // Get SMTP config from database
+  const smtpConfig = await getSmtpConfig();
   
-  // TODO: Implement actual email sending
-  // Example with SendGrid:
-  // await sgMail.send({ to, from: FROM_EMAIL, subject, html });
+  // Fallback to environment variables if DB config not available
+  const config = smtpConfig || {
+    host: env.SMTP_HOST || "localhost",
+    port: parseInt(env.SMTP_PORT || "587", 10),
+    secure: env.SMTP_SECURE === "true",
+    auth: {
+      user: env.SMTP_USER || "",
+      pass: env.SMTP_PASSWORD || "",
+    },
+    from: env.SMTP_FROM || DEFAULT_FROM_EMAIL,
+  };
+
+  // Create transporter
+  const transporter = nodemailer.createTransport({
+    host: config.host,
+    port: config.port, 
+    secure: config.secure,
+    auth: config.auth.user ? config.auth : undefined,
+    tls: {
+      rejectUnauthorized: env.NODE_ENV === "production",
+    },
+  });
+
+  const mailOptions = {
+    from: config.from,
+    to,
+    subject,
+    html,
+    text: text || htmlToText(html),
+  };
+
+  // Retry logic for transient failures
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await transporter.sendMail(mailOptions);
+      console.log(`✓ Email sent to ${to}: ${subject}`);
+      return { success: true };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`Email send attempt ${attempt}/${maxRetries} failed:`, lastError.message);
+      
+      // Don't retry on authentication/configuration errors
+      if (lastError.message.includes("authentication") || 
+          lastError.message.includes("invalid credentials") ||
+          lastError.message.includes("ENOTFOUND")) {
+        break;
+      }
+      
+      // Wait before retrying (exponential backoff)
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+
+  console.error("✗ Failed to send email after retries:", lastError?.message);
+  return { 
+    success: false, 
+    error: lastError?.message || "Unknown email error" 
+  };
+}
+
+/**
+ * Helper: Send approval notification
+ */
+export async function sendApprovalNotification(
+  to: string,
+  recipientName: string,
+  systemName: string,
+  status: string,
+  level: number,
+  comments?: string
+): Promise<{ success: boolean; error?: string }> {
+  const subject = `Approval Required: ${systemName} (Level ${level})`;
+  const html = getApprovalEmailHtml(recipientName, systemName, status, level, comments);
   
-  return true;
+  return sendEmail({ to, subject, html });
+}
+
+/**
+ * Helper: Send status update notification
+ */
+export async function sendStatusUpdateNotification(
+  to: string,
+  recipientName: string,
+  systemName: string,
+  newStatus: string,
+  comments?: string
+): Promise<{ success: boolean; error?: string }> {
+  const subject = `Request ${newStatus.replace(/_/g, " ")}: ${systemName}`;
+  const html = getStatusUpdateEmailHtml(recipientName, systemName, newStatus, comments);
+  
+  return sendEmail({ to, subject, html });
+}
+
+/**
+ * Helper: Send VM provisioning notification
+ */
+export async function sendProvisioningNotification(
+  to: string,
+  recipientName: string,
+  systemName: string,
+  vmDetails?: { ip?: string; hostname?: string }
+): Promise<{ success: boolean; error?: string }> {
+  const subject = `VM Ready: ${systemName}`;
+  const html = getExecutionEmailHtml(recipientName, systemName, vmDetails);
+  
+  return sendEmail({ to, subject, html });
 }

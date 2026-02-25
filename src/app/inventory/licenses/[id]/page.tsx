@@ -26,7 +26,7 @@ export default function LicenseDetailPage({ params }: { params: { id: string } }
 
   if (!session?.user) redirect("/auth");
 
-  if (session.user.roles.includes(ROLES.REQUESTER)) {
+  if (!session.user.roles.includes(ROLES.ADMIN)) {
      redirect("/inventory/vms");
   }
   useEffect(() => {

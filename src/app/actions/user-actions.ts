@@ -176,13 +176,15 @@ export async function updateUserDetails(formData: FormData) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.roles?.includes(ROLES.ADMIN)) throw new Error("Unauthorized");
 
-  const userId = formData.get("userId")?.toString();
+  const userId = formData.get("id")?.toString();
   const name = formData.get("name")?.toString()?.trim();
   const email = formData.get("email")?.toString()?.trim();
   const designation = formData.get("designation")?.toString()?.trim();
   const organization = formData.get("organization")?.toString()?.trim();
   const contact = formData.get("contact")?.toString()?.trim();
   const roleNames = formData.getAll("roles") as string[]; // ✅ MULTIPLE ROLES
+  console.log("updateUserDetails",userId,name,email,designation,organization,contact,roleNames);
+
 
   if (!userId || !name || !email) throw new Error("Missing required fields");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Invalid email format");

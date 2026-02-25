@@ -4,6 +4,8 @@ import { RequestForm } from "@/app/requests/components/RequestForm";
 import { redirect } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 
 interface Request {
   id: string;
@@ -33,7 +35,6 @@ export default function EditRequestPage({
         const [reqRes] = await Promise.all([
           fetch(`/api/requests/${params.id}`),
         ]);
-        
         const reqData = await reqRes.json();
         setRequest(reqData);
       } catch (error) {
@@ -45,7 +46,14 @@ export default function EditRequestPage({
     fetchData();
   }, [params.id, session.user.id]);
 
-  if (loading) return <div className="p-6">Loading...</div>;
+  if (loading) {
+    return (
+      <div className="p-6 md:p-10 max-w-4xl mx-auto space-y-6">
+        <div className="h-8 w-48 bg-slate-200 animate-pulse rounded" />
+        <div className="h-96 w-full bg-slate-100 animate-pulse rounded-xl border border-slate-200" />
+      </div>
+    );
+  }
 
   if (!request || request.status !== "DRAFT") {
     redirect("/requests");
@@ -61,11 +69,28 @@ export default function EditRequestPage({
   }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6 text-slate-800">
-        Edit 
-      </h1>
+    <div className="p-6 md:p-10 max-w-4xl mx-auto space-y-6">
+      {/* Breadcrumbs */}
+      <div className="flex items-center text-sm text-slate-500">
+        <Link href="/" className="hover:text-slate-900">Home</Link>
+        <ChevronRight className="h-4 w-4 mx-2" />
+        <Link href="/requests" className="hover:text-slate-900">Requests</Link>
+        <ChevronRight className="h-4 w-4 mx-2" />
+        <Link href={`/requests/${params.id}`} className="hover:text-slate-900">Details</Link>
+        <ChevronRight className="h-4 w-4 mx-2" />
+        <span className="text-slate-900 font-medium">Edit</span>
+      </div>
+
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Edit Request</h1>
+        <p className="text-slate-500 mt-1">
+          Update the details of your draft request.
+        </p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
         <RequestForm userId={session.user.id} editId={params.id} />
+      </div>
     </div>
   );
 }
