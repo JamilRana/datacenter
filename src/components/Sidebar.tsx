@@ -5,10 +5,22 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { ROLES } from "@/lib/roles";
-import { 
-  Server, PlusCircle, LogOut, HardDrive, Zap, Trash2, 
-  ListChecks, UserCircle, ChevronDown, ChevronRight,
-  FileBarChart, LayoutDashboard, Settings, X, Menu
+import {
+  Server,
+  PlusCircle,
+  LogOut,
+  HardDrive,
+  Zap,
+  Trash2,
+  ListChecks,
+  UserCircle,
+  ChevronDown,
+  ChevronRight,
+  FileBarChart,
+  LayoutDashboard,
+  Settings,
+  X,
+  Menu,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -54,7 +66,13 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
       title: "Approvals",
       href: "/approvals",
       icon: ListChecks,
-      roles: ["APPROVER_L1", "APPROVER_L2", "APPROVER_L3", ROLES.DCOPS, ROLES.ADMIN],
+      roles: [
+        "APPROVER_L1",
+        "APPROVER_L2",
+        "APPROVER_L3",
+        ROLES.DCOPS,
+        ROLES.ADMIN,
+      ],
     },
     {
       title: "Inventory",
@@ -87,17 +105,17 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
   };
 
   const toggleExpanded = (title: string) => {
-    setExpandedItems(prev => 
-      prev.includes(title) 
-        ? prev.filter(item => item !== title)
-        : [...prev, title]
+    setExpandedItems((prev) =>
+      prev.includes(title)
+        ? prev.filter((item) => item !== title)
+        : [...prev, title],
     );
   };
 
   const filterByRole = (items: NavItem[]): NavItem[] => {
-    return items.filter(item => {
+    return items.filter((item) => {
       if (!item.roles) return true;
-      return item.roles.some(role => hasRole(role));
+      return item.roles.some((role) => hasRole(role));
     });
   };
 
@@ -109,10 +127,16 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
           <div className="bg-indigo-600 p-1.5 rounded-lg text-white">
             <Server size={20} />
           </div>
-          <span className="font-bold text-xl tracking-tight text-slate-900">MIS DC Portal</span>
+          <span className="font-bold text-xl tracking-tight text-slate-900">
+            MIS DC Portal
+          </span>
         </Link>
         {mobile && (
-          <Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setMobileOpen(false)}
+          >
             <X className="h-5 w-5" />
           </Button>
         )}
@@ -129,7 +153,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
                   className={cn(
                     "w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                     "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-                    expandedItems.includes(item.title) && "bg-slate-100"
+                    expandedItems.includes(item.title) && "bg-slate-100",
                   )}
                 >
                   <div className="flex items-center gap-3">
@@ -152,7 +176,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
                           "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                           isActive(child.href || "")
                             ? "bg-indigo-50 text-indigo-700"
-                            : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                            : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
                         )}
                       >
                         {child.icon && <child.icon className="h-4 w-4" />}
@@ -169,7 +193,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                   isActive(item.href || "")
                     ? "bg-indigo-50 text-indigo-700"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
                 )}
               >
                 {item.icon && <item.icon className="h-5 w-5" />}
@@ -188,15 +212,26 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
               <UserCircle className="h-5 w-5 text-indigo-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-slate-900 truncate">{session.user.name}</div>
-              <div className="text-xs text-slate-500 truncate">{session.user.email}</div>
+              <div className="text-sm font-semibold text-slate-900 truncate">
+                {session.user.name}
+              </div>
+              <div className="text-xs text-slate-500 truncate">
+                {session.user.email}
+              </div>
             </div>
           </div>
           <div className="flex gap-2">
             <Link href="/profile" className="flex-1">
-              <Button variant="outline" size="sm" className="w-full">Profile</Button>
+              <Button variant="outline" size="sm" className="w-full">
+                Profile
+              </Button>
             </Link>
-            <Button variant="ghost" size="icon" onClick={() => signOut()} className="text-slate-500 hover:text-red-600">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => signOut()}
+              className="text-slate-500 hover:text-red-600"
+            >
               <LogOut className="h-4 w-4" />
             </Button>
           </div>
@@ -218,42 +253,45 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!session) return null;
-
   return (
     <>
-      {/* Mobile Toggle */}
-      <div className="lg:hidden fixed top-4 left-4 z-50">
-        <Button variant="outline" size="icon" onClick={() => setMobileOpen(true)} className="bg-white shadow-md">
-          <Menu className="h-5 w-5" />
-        </Button>
-      </div>
+      {session && (
+        <>
+          {/* Mobile Toggle */}
+          <div className="lg:hidden fixed top-4 left-4 z-50">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setMobileOpen(true)}
+              className="bg-white shadow-md"
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+          </div>
 
-      {/* Mobile Overlay */}
-      {mobileOpen && (
-        <div 
-          className="lg:hidden fixed inset-0 bg-black/50 z-40"
-          onClick={() => setMobileOpen(false)}
-        />
+          {/* Desktop Sidebar */}
+          <aside className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 lg:w-64 lg:bg-white lg:border-r lg:border-slate-200">
+            <SidebarContent />
+          </aside>
+
+          {/* Mobile Sidebar */}
+          <aside
+            className={cn(
+              "lg:hidden fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 z-50 transform transition-transform",
+              mobileOpen ? "translate-x-0" : "-translate-x-full",
+            )}
+          >
+            <SidebarContent mobile />
+          </aside>
+        </>
       )}
 
-      {/* Sidebar - Desktop */}
-      <aside className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:left-0 lg:w-64 lg:bg-white lg:border-r lg:border-slate-200">
-        <SidebarContent />
-      </aside>
-
-      {/* Sidebar - Mobile */}
-      <aside className={cn(
-        "lg:hidden fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 z-50 transform transition-transform",
-        mobileOpen ? "translate-x-0" : "-translate-x-full"
-      )}>
-        <SidebarContent mobile />
-      </aside>
-
-      {/* Main Content */}
-      <div className="lg:pl-64 min-h-screen">
+      {/* MAIN CONTENT ALWAYS RENDERS */}
+      <div className={cn("min-h-screen", session && "lg:pl-64")}>
         {children}
       </div>
     </>
   );
 }
+
+export default Sidebar;

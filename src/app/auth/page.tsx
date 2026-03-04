@@ -7,23 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2 } from "lucide-react"; // Import a loader for better UX
+import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
-  const { data: session, status } = useSession();
 
-  // Handle redirection as a side effect
+  const router = useRouter();
+  const { status } = useSession();
+
   useEffect(() => {
     if (status === "authenticated") {
-      router.push("/");
-      router.refresh();
-    }
-    if(session){
-      router.push("/");
-      router.refresh();
+      router.replace("/");
     }
   }, [status, router]);
 
@@ -41,16 +36,15 @@ export default function LoginPage() {
     });
 
     if (result?.ok) {
-      router.push("/");
-      router.refresh();
+      router.replace("/");
     } else {
       setLoading(false);
       setErrorMessage("Invalid email or password.");
     }
   };
 
-  // Prevent flash of login form while checking session
-  if (status === "loading" || status === "authenticated") {
+  // Show loader while checking session
+  if (status === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
@@ -58,10 +52,15 @@ export default function LoginPage() {
     );
   }
 
+  // If authenticated, avoid flashing login form
+  if (status === "authenticated") {
+    return null;
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
+        <CardHeader>
           <CardTitle className="text-2xl font-bold text-center">
             Datacenter Management
           </CardTitle>
@@ -70,29 +69,20 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                required
-                autoComplete="email"
-              />
+              <Input id="email" name="email" type="email" required />
             </div>
+
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                required
-                autoComplete="current-password"
-              />
+              <Input id="password" name="password" type="password" required />
             </div>
+
             {errorMessage && (
-              <div className="text-sm text-destructive text-center">
+              <div className="text-sm text-red-500 text-center">
                 {errorMessage}
               </div>
             )}
+
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>

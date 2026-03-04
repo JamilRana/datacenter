@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import AuthSessionProvider from "./providers/SessionProviders";
-import { Sidebar } from "@/components/Sidebar";
+import Sidebar from "@/components/Sidebar";
 import { Toaster } from "sonner";
 import PermissionHandler from "./providers/PermissionHandler";
 import { Suspense } from "react";
@@ -37,15 +37,15 @@ export default function RootLayout({
       >
         <AuthSessionProvider>
             <LoadingProvider>
-            <Sidebar>
-              {children}
-            </Sidebar>
-            <Toaster position="top-right" richColors />
-            <Suspense fallback={null}>
-              <PermissionHandler />
-            </Suspense>
-          </LoadingProvider>
-        </AuthSessionProvider>
+              <Sidebar>
+                {children}
+              </Sidebar>
+              <Toaster position="top-right" richColors />
+              <Suspense fallback={null}>
+                <PermissionHandler />
+              </Suspense>
+            </LoadingProvider>
+          </AuthSessionProvider>
       </body>
     </html>
   );

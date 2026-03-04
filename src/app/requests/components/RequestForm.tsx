@@ -327,7 +327,7 @@ export function RequestForm({
           </CardHeader>
           <CardContent className="pt-4">
             <div className="space-y-2">
-              <Label className="text-amber-800 font-medium">Business Owner / Requester *</Label>
+              <Label className="text-amber-800 font-medium">Requester *</Label>
               <Select
                 value={assignedRequesterId}
                 onValueChange={setAssignedRequesterId}
@@ -484,7 +484,7 @@ export function RequestForm({
         <CardContent className="pt-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* ✅ REQUESTER = RESPONSIBLE PERSON (auto-set, no manual input) */}
           <div>
-            <Label className="font-medium mb-3 block">Development Partner / Developer</Label>
+            <Label className="font-medium mb-3 block">Developer</Label>
             <div className="space-y-3">
               <Input
                 name="developerName"
@@ -542,7 +542,7 @@ export function RequestForm({
 
           {/* Alternate Person - Optional backup contact */}
           <div>
-            <Label className="font-medium mb-3 block">Alternate Contact (Optional)</Label>
+            <Label className="font-medium mb-3 block">Alternate Focal Person (Optional)</Label>
             <div className="space-y-3">
               <Input
                 name="alternativePersonName"
