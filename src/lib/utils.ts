@@ -1,6 +1,5 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { ROLES } from "./roles";
 
 
 export function cn(...inputs: ClassValue[]) {
@@ -10,12 +9,17 @@ export function cn(...inputs: ClassValue[]) {
 export function isAdmin(roles: string[] | undefined): boolean {
   if (!roles) return false;
   
-    return roles.some(r => 
-      r === "ADMIN" || 
-      r === ROLES.ADMIN || 
-      r === "DC_OPS" || 
-      r === ROLES.DCOPS
-    );
+  const roleArray = Array.isArray(roles) ? roles : [];
+  if (roleArray.length === 0) return false;
   
-  return false;
+  const roleStrings = roleArray.map(r => String(r).toUpperCase().trim());
+  
+  return roleStrings.some(r => 
+    r === "ADMIN" || 
+    r === "DC_OPS" ||
+    r === "APPROVER_L1" ||
+    r === "APPROVER_L2" ||
+    r === "APPROVER_L3" ||
+    r === "APPROVER_L4"
+  );
 }

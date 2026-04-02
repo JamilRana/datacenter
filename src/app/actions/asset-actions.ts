@@ -19,6 +19,15 @@ const optionalNumber = (value: unknown): number | undefined => {
   return isNaN(num) ? undefined : num;
 };
 
+const optionalJson = (value: unknown): unknown => {
+  if (!value || typeof value !== "string") return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+};
+
 const assetBaseSchema = z.object({
   name: z.string().min(1, "Name is required"),
   type: z.string().min(1, "Type is required"),
@@ -30,6 +39,7 @@ const assetBaseSchema = z.object({
   cpuCores: z.union([z.number(), z.string()]).optional().transform(optionalNumber),
   ramGb: z.union([z.number(), z.string()]).optional().transform(optionalNumber),
   storageGb: z.union([z.number(), z.string()]).optional().transform(optionalNumber),
+  details: z.string().optional().transform(optionalJson),
 });
 
 export async function createAsset(formData: FormData) {
@@ -40,20 +50,21 @@ export async function createAsset(formData: FormData) {
 
   const validated = assetBaseSchema.parse(Object.fromEntries(formData));
   
-  await prisma.asset.create({
-    data: {
-      name: validated.name,
-      type: validated.type as import("@prisma/client").$Enums.AssetType,
-      vendor: validated.vendor,
-      model: validated.model,
-      serial: validated.serial,
-      location: validated.location,
-      warrantyExpiry: validated.warrantyExpiry,
-      cpuCores: validated.cpuCores,
-      ramGb: validated.ramGb,
-      storageGb: validated.storageGb,
-    },
-  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyData: any = {
+    name: validated.name,
+    type: validated.type as import("@prisma/client").$Enums.AssetType,
+    vendor: validated.vendor,
+    model: validated.model,
+    serial: validated.serial,
+    location: validated.location,
+    warrantyExpiry: validated.warrantyExpiry,
+    cpuCores: validated.cpuCores,
+    ramGb: validated.ramGb,
+    storageGb: validated.storageGb,
+  };
+
+  await prisma.asset.create({ data: anyData });
 
   revalidatePath("/inventory/assets");
 }
@@ -69,20 +80,23 @@ export async function updateAsset(formData: FormData) {
 
   const validated = assetBaseSchema.parse(Object.fromEntries(formData));
   
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyData: any = {
+    name: validated.name,
+    type: validated.type as import("@prisma/client").$Enums.AssetType,
+    vendor: validated.vendor,
+    model: validated.model,
+    serial: validated.serial,
+    location: validated.location,
+    warrantyExpiry: validated.warrantyExpiry,
+    cpuCores: validated.cpuCores,
+    ramGb: validated.ramGb,
+    storageGb: validated.storageGb,
+  };
+
   await prisma.asset.update({
     where: { id },
-    data: {
-      name: validated.name,
-      type: validated.type as import("@prisma/client").$Enums.AssetType,
-      vendor: validated.vendor,
-      model: validated.model,
-      serial: validated.serial,
-      location: validated.location,
-      warrantyExpiry: validated.warrantyExpiry,
-      cpuCores: validated.cpuCores,
-      ramGb: validated.ramGb,
-      storageGb: validated.storageGb,
-    },
+    data: anyData,
   });
 
   revalidatePath("/inventory/assets");

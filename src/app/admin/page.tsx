@@ -132,7 +132,7 @@ export default async function AdminDashboardPage() {
               </div>
             ))}
           </div>
-          <Link href="/admin/audit" className="block w-full py-4 text-center text-[10px] font-black uppercase tracking-[0.3em] text-white/30 hover:bg-white/10 hover:text-white transition-all">
+          <Link href="/admin/audit-logs" className="block w-full py-4 text-center text-[10px] font-black uppercase tracking-[0.3em] text-white/30 hover:bg-white/10 hover:text-white transition-all">
             Access Deep Log Vault
           </Link>
         </CardContent>

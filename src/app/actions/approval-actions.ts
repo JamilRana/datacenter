@@ -13,20 +13,79 @@ import {
   VmStatus,
   CustomizationStatus
 } from "@prisma/client";
-import { ROLES, hasRole } from "@/lib/roles";
-import { notifyRequester, notifyDirector, notifyDCOps } from "@/lib/notifications";
-import { sendStatusUpdateNotification } from "@/lib/email";
+import { RoleService } from "@/lib/services/role.service";
+import { NotificationService } from "@/lib/services/notification.service";
+import { UserRole } from "@/lib/types/enums";
+import { ApiResponse } from "@/lib/types/api-response";
+import { 
+  getWorkflowConfig, 
+  getStatusForLevel, 
+  getNextLevel,
+  WorkflowConfig
+} from "@/lib/workflow";
 import { redirect } from "next/navigation";
 import { fetchDashboardData } from "../approvals/lib";
+import { revalidatePath } from "next/cache";
+
+export async function generateApprovals(
+  tx: Prisma.TransactionClient,
+  entityId: string,
+  entityType: "REQUEST" | "CUSTOMIZATION",
+  requestType: RequestType
+) {
+  const workflow = await getWorkflowConfig(requestType);
+  
+  // Rule: Only create Level 1 approval initially
+  const firstLevel = workflow.levels.find(l => l.level === 1);
+  if (!firstLevel) return;
+
+  const firstLevelApprover = await tx.user.findFirst({
+    where: {
+      isActive: true,
+      roles: {
+        some: {
+          role: {
+            name: firstLevel.role
+          }
+        }
+      }
+    }
+  });
+
+  if (firstLevelApprover) {
+    await tx.approval.create({
+      data: {
+        entityType,
+        level: 1,
+        approverId: firstLevelApprover.id,
+        decision: ApprovalDecision.PENDING,
+        ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
+      },
+    });
+
+    // Notify Level 1 approvers (actually just the one assigned, or all of that role?)
+    // The current implementation assigns to ONE.
+    // Let's stick to the current logic of choosing one but notifying all if needed.
+    // The NotificationService handles notifying ALL of that role.
+    const systemName = entityType === "REQUEST" 
+      ? (await tx.request.findUnique({ where: { id: entityId }, select: { systemName: true } }))?.systemName || "New Request"
+      : "Customization Request";
+      
+    await NotificationService.notifyApprovers(entityId, systemName, 1);
+  }
+}
+
+export async function getWorkflowForRequest(requestType: string): Promise<WorkflowConfig> {
+  return getWorkflowConfig(requestType);
+}
 
 
-// ✅ DERIVE NEXT STATUS FROM PENDING APPROVALS (NOT JUST CURRENT STATUS)
+// ✅ DYNAMIC STATUS DERIVATION
 async function getNextStatusFromApprovals(
   tx: Prisma.TransactionClient | typeof prisma,
   entityId: string,
   entityType: "REQUEST" | "CUSTOMIZATION",
 ): Promise<string> {
-  // Get all pending approvals for this entity
   const pendingApprovals = await tx.approval.findMany({
     where: {
       ...(entityType === "REQUEST" 
@@ -35,23 +94,15 @@ async function getNextStatusFromApprovals(
       decision: ApprovalDecision.PENDING,
     },
     orderBy: { level: "asc" },
-    take: 1 // Only need the next pending level
+    take: 1
   });
 
-  // If no pending approvals left → APPROVED
   if (pendingApprovals.length === 0) {
     return entityType === "REQUEST" ? RequestStatus.APPROVED : CustomizationStatus.APPROVED;
   }
 
-  // Map next pending level to status
   const nextLevel = pendingApprovals[0].level;
-  switch (nextLevel) {
-    case 1: return RequestStatus.PENDING_L1;
-    case 2: return RequestStatus.PENDING_L2;
-    case 3: return RequestStatus.PENDING_L3;
-    case 4: return RequestStatus.PENDING_L4;
-    default: return RequestStatus.PENDING_L3; 
-  }
+  return getStatusForLevel(nextLevel);
 }
 
 // ✅ HANDLE APPROVAL DECISION WITH DYNAMIC ESCALATION
@@ -59,15 +110,15 @@ export async function handleApprovalDecision(
   approvalId: string,
   decision: ApprovalDecision,
   comments?: string,
-  escalateToLevel?: number
-) {
+  forwardToLevel?: number
+): Promise<ApiResponse<{ status: string; action: string; forwardedToLevel?: number }>> {
   const session = await getServerSession(authOptions);
-  if (!session?.user) throw new Error("Unauthorized");
+  if (!session?.user) return { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
 
   const approvalRecord = await prisma.approval.findFirst({
     where: {
       OR: [
-        { id: approvalId }, // Try primary key first
+        { id: approvalId },
         { 
           AND: [
             { requestId: approvalId },
@@ -87,13 +138,12 @@ export async function handleApprovalDecision(
   });
 
   if (!approvalRecord) {
-    throw new Error("Approval record not found or already processed");
+    return { success: false, error: "Approval record not found or already processed", code: "NOT_FOUND" };
   }
 
   const resolvedApprovalId = approvalRecord.id;
 
   return await prisma.$transaction(async (tx) => {
-    // 1. Fetch approval with all possible relations using the RESOLVED ID
     const approval = await tx.approval.findUnique({
       where: { id: resolvedApprovalId },
       include: { 
@@ -102,80 +152,235 @@ export async function handleApprovalDecision(
       }
     });
 
-    if (!approval) throw new Error("Approval record not found during transaction");
+    if (!approval) return { success: false, error: "Approval record not found during transaction" };
     if (approval.decision !== ApprovalDecision.PENDING) {
-      throw new Error(`This approval has already been processed: ${approval.decision}`);
+      return { success: false, error: `This approval has already been processed: ${approval.decision}` };
     }
     if (approval.approverId !== session.user.id) {
-      throw new Error("You can only act on approvals assigned to you");
+      return { success: false, error: "You can only act on approvals assigned to you" };
     }
 
     const entityType = approval.entityType;
     
-    // 2. Narrow the type and handle specifics
     let entityId: string;
     let systemName: string;
     let requesterId: string | null;
-    let requesterEmail: string | null = null;
-    let requesterName: string | null = null;
+    let requestType: string = "NEW_VM";
 
     if (entityType === "REQUEST" && approval.request) {
       entityId = approval.request.id;
       systemName = approval.request.systemName;
+      requestType = approval.request.requestType;
       requesterId = approval.request.requesterId;
-      requesterEmail = approval.request.requester?.email || null;
-      requesterName = approval.request.requester?.name || null;
     } else if (entityType === "CUSTOMIZATION" && approval.customizationRequest) {
       entityId = approval.customizationRequest.id;
       systemName = approval.customizationRequest.targetVm?.hostname || "Resource Customization";
+      requestType = "CUSTOMIZED";
       requesterId = approval.customizationRequest.requesterId;
-      requesterEmail = approval.customizationRequest.requester?.email || null;
-      requesterName = approval.customizationRequest.requester?.name || null;
     } else {
-      throw new Error("Linked entity not found for this approval record.");
+      return { success: false, error: "Linked entity not found for this approval record." };
     }
 
-    // 3. Validation
+    // Validation
     if ((decision === ApprovalDecision.REJECTED || decision === ApprovalDecision.RETURNED) && !comments?.trim()) {
-      throw new Error("Comments are mandatory for rejections or returns");
+      return { success: false, error: "Comments are mandatory for rejections or returns" };
     }
 
-    // 4. Update Approval Record using the RESOLVED ID
+    // Update Approval Record
     await tx.approval.update({
       where: { id: resolvedApprovalId },
       data: { decision, comments: comments || null, decidedAt: new Date() },
     });
 
-    // 5. Handle Escalation logic (L3 -> L4)
-    let directorId: string | undefined;
-    if (escalateToLevel && decision === ApprovalDecision.APPROVED) {
-      const director = await tx.user.findFirst({
+    // Handle RETURN - return to draft
+    if (decision === ApprovalDecision.RETURNED) {
+      // Create audit log
+      await tx.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: `APPROVAL_RETURNED_L${approval.level}`,
+          entityType,
+          entityId: entityId,
+          details: JSON.stringify({ comments, nextStatus: "DRAFT" }),
+        },
+      });
+
+      if (entityType === "REQUEST") {
+        await tx.request.update({
+          where: { id: entityId },
+          data: { status: RequestStatus.DRAFT },
+        });
+      } else {
+        await tx.customizationRequest.update({
+          where: { id: entityId },
+          data: { status: CustomizationStatus.DRAFT },
+        });
+      }
+
+      return { success: true, data: { status: "DRAFT", action: "RETURNED" } };
+    }
+
+    // Handle FORWARD - forward to higher level using dynamic workflow
+    if (forwardToLevel && decision === ApprovalDecision.APPROVED) {
+      const workflow = await getWorkflowConfig(requestType);
+      const nextLevel = workflow.levels.find(l => l.level === forwardToLevel);
+      
+      if (!nextLevel) {
+        return { success: false, error: `No workflow level found for level ${forwardToLevel}` };
+      }
+
+      // Check if forward target is DC_OPS
+      if (nextLevel.role === "DC_OPS") {
+        // Forwarding to DC_OPS - set status to APPROVED for provisioning
+        await tx.auditLog.create({
+          data: {
+            actorId: session.user.id,
+            action: `APPROVAL_FORWARDED_TO_DC_OPS`,
+            entityType,
+            entityId: entityId,
+            details: JSON.stringify({ comments, forwardFromLevel: approval.level }),
+          },
+        });
+        
+        // Create pending approval for DC_OPS
+        const dcOpsUsers = await tx.user.findMany({
+          where: { 
+            isActive: true,
+            roles: { some: { role: { name: "DC_OPS" } } }
+          }
+        });
+        
+        for (const dcOpsUser of dcOpsUsers) {
+          await tx.approval.create({
+            data: {
+              entityType,
+              level: nextLevel.level,
+              approverId: dcOpsUser.id,
+              decision: ApprovalDecision.PENDING,
+              comments: `Forwarded to DC_OPS for provisioning from level ${approval.level}: ${comments || ""}`,
+              ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
+            },
+          });
+        }
+        
+        return { success: true, data: { status: RequestStatus.APPROVED, action: "FORWARDED_TO_DCOPS", forwardedToLevel: forwardToLevel } };
+      }
+
+      const nextApprover = await tx.user.findFirst({
         where: { 
           isActive: true,
-          roles: { some: { role: { name: ROLES.L4_APPROVER } } }
+          roles: { some: { role: { name: nextLevel.role } } }
         }
       });
-      if (!director) throw new Error("Director approver not found");
-      directorId = director.id;
+      
+      if (!nextApprover) {
+        return { success: false, error: `No approver found for role: ${nextLevel.role}` };
+      }
 
       await tx.approval.create({
         data: {
           entityType,
-          level: escalateToLevel,
-          approverId: director.id,
+          level: forwardToLevel,
+          approverId: nextApprover.id,
           decision: ApprovalDecision.PENDING,
-          comments: `Escalated from level ${approval.level}: ${comments || "No comments"}`,
+          comments: `Forwarded from level ${approval.level}: ${comments || "No comments"}`,
           ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: `APPROVAL_FORWARDED_L${approval.level}_TO_L${forwardToLevel}`,
+          entityType,
+          entityId: entityId,
+          details: JSON.stringify({ comments, nextStatus: getStatusForLevel(forwardToLevel) }),
+        },
+      });
+
+      return { success: true, data: { status: getStatusForLevel(forwardToLevel), action: "FORWARDED", forwardedToLevel: forwardToLevel } };
     }
 
-    // 6. Calculate and Update Entity Status
+    // 6. Handle APPROVED - check if there's a next level in workflow
     let nextStatus: string;
+    
     if (decision === ApprovalDecision.REJECTED) {
       nextStatus = RequestStatus.REJECTED;
-    } else if (decision === ApprovalDecision.RETURNED) {
-      nextStatus = RequestStatus.DRAFT;
+    } else if (decision === ApprovalDecision.APPROVED) {
+      const workflow = await getWorkflowConfig(requestType);
+      
+      // Get current level config to check if it's final
+      const currentLevelConfig = workflow.levels.find(l => l.level === approval.level);
+      const isCurrentLevelFinal = currentLevelConfig?.isFinal || false;
+      
+      // Get next level in workflow
+      const nextLevel = await getNextLevel(approval.level, workflow);
+      
+      if (!nextLevel) {
+        // No more levels - this is the final approval
+        // If current level is marked as final, set to APPROVED (or APPROVED for DCOPS to provision)
+        if (isCurrentLevelFinal && currentLevelConfig?.role === "DC_OPS") {
+          nextStatus = RequestStatus.APPROVED;
+        } else if (isCurrentLevelFinal) {
+          nextStatus = RequestStatus.APPROVED;
+        } else {
+          // Fallback - should not happen if workflow is configured correctly
+          nextStatus = RequestStatus.APPROVED;
+        }
+      } else {
+        // There's a next level - check if it's DC_OPS
+        if (nextLevel.role === "DC_OPS") {
+          // Final approval before DC_OPS - set to APPROVED so DCOPS can provision
+          nextStatus = RequestStatus.APPROVED;
+          
+          // Create a pending approval for DC_OPS so it appears in DCOPS dashboard
+          const dcOpsUsers = await tx.user.findMany({
+            where: { 
+              isActive: true,
+              roles: { some: { role: { name: "DC_OPS" } } }
+            }
+          });
+          
+          for (const dcOpsUser of dcOpsUsers) {
+            await tx.approval.create({
+              data: {
+                entityType,
+                level: nextLevel.level,
+                approverId: dcOpsUser.id,
+                decision: ApprovalDecision.PENDING,
+                comments: `Ready for provisioning after final approval at level ${approval.level}`,
+                ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
+              },
+            });
+          }
+        } else {
+          // Next is another approver level - create pending approval for them
+          const nextApprover = await tx.user.findFirst({
+            where: { 
+              isActive: true,
+              roles: { some: { role: { name: nextLevel.role } } }
+            }
+          });
+          
+          if (nextApprover) {
+            await tx.approval.create({
+              data: {
+                entityType,
+                level: nextLevel.level,
+                approverId: nextApprover.id,
+                decision: ApprovalDecision.PENDING,
+                comments: `Auto-escalated from level ${approval.level}: ${comments || "Approved"}`,
+                ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
+              },
+            });
+            await NotificationService.notifyApprovers(entityId, systemName, nextLevel.level);
+            nextStatus = getStatusForLevel(nextLevel.level);
+          } else {
+            // No approver found - finalize the request
+            nextStatus = RequestStatus.APPROVED;
+          }
+        }
+      }
     } else {
       nextStatus = await getNextStatusFromApprovals(tx, entityId, entityType as "REQUEST" | "CUSTOMIZATION");
     }
@@ -196,7 +401,7 @@ export async function handleApprovalDecision(
     await tx.auditLog.create({
       data: {
         actorId: session.user.id,
-        action: escalateToLevel ? `ESCALATE_TO_L${escalateToLevel}` : `APPROVAL_${decision}_L${approval.level}`,
+        action: `APPROVAL_${decision}_L${approval.level}`,
         entityType,
         entityId: entityId,
         details: JSON.stringify({ comments, nextStatus }),
@@ -205,58 +410,46 @@ export async function handleApprovalDecision(
 
     // 8. Notifications
     if (requesterId && (decision === ApprovalDecision.REJECTED || nextStatus === "APPROVED")) {
-      await notifyRequester(requesterId, systemName, decision === ApprovalDecision.REJECTED ? "REJECTED" : "APPROVED");
-      
-      // Send email notification to requester
-      if (requesterEmail && requesterName) {
-        await sendStatusUpdateNotification(
-          requesterEmail,
-          requesterName,
-          systemName,
-          decision === ApprovalDecision.REJECTED ? "REJECTED" : "APPROVED",
-          comments || undefined
-        );
-      }
+      await NotificationService.notifyRequester(
+        requesterId, 
+        systemName, 
+        decision === ApprovalDecision.REJECTED ? "REJECTED" : "APPROVED",
+        comments || undefined
+      );
     }
 
     if (nextStatus === "APPROVED") {
-      await notifyDCOps(entityId, systemName);
+      await NotificationService.notifyDCOps(entityId, systemName);
     }
 
-    if (escalateToLevel === 4 && directorId) {
-      await notifyDirector(directorId, systemName, entityId);
-    }
-
-    return { success: true, status: nextStatus, escalated: !!escalateToLevel };
+    return { success: true, data: { status: nextStatus, action: decision } };
   }, { timeout: 30000 });
 }
 
-// ✅ FORWARD TO DIRECTOR (L3 → L4 ESCALATION)
-// Updating signature to take approvalId for consistency with handleApprovalDecision
-export async function forwardToDirector(
+// ✅ FORWARD TO HIGHER LEVEL - Uses dynamic workflow
+export async function forwardToLevel(
   approvalId: string,
+  targetLevel: number,
   comments: string
 ) {
-  // Re-use handleApprovalDecision logic for escalation
-  // This automatically handles Request vs Customization, ID resolution, and L4 creation
   return await handleApprovalDecision(
     approvalId,
     ApprovalDecision.APPROVED,
-    `FORWARDED: ${comments}`,
-    4 // Level 4 (Director)
+    comments,
+    targetLevel
   );
 }
 
 
-export async function executeRequest(requestId: string, notes?: string) {
+export async function executeRequest(requestId: string, notes?: string): Promise<ApiResponse> {
   const session = await getServerSession(authOptions);
 
   if (
     !session?.user ||
-    (!hasRole(session.user.roles, ROLES.DCOPS) &&
-      !hasRole(session.user.roles, ROLES.ADMIN))
+    (!RoleService.hasRole(session.user.roles, UserRole.DCOPS) &&
+      !RoleService.hasRole(session.user.roles, UserRole.ADMIN))
   ) {
-    throw new Error("Only DCOPS or ADMIN can execute requests");
+    return { success: false, error: "Only DCOPS or ADMIN can execute requests", code: "FORBIDDEN" };
   }
 
   const userId = session.user.id;
@@ -282,15 +475,15 @@ export async function executeRequest(requestId: string, notes?: string) {
     : null;
 
   if (!request && !customization) {
-    throw new Error("Entity not found");
+    return { success: false, error: "Entity not found", code: "NOT_FOUND" };
   }
 
   // Status validation
   if (request && request.status !== RequestStatus.APPROVED) {
-    throw new Error(`Request must be APPROVED to execute (current: ${request.status})`);
+    return { success: false, error: `Request must be APPROVED to execute (current: ${request.status})` };
   }
   if (customization && customization.status !== CustomizationStatus.APPROVED) {
-    throw new Error(`Customization must be APPROVED to execute (current: ${customization.status})`);
+    return { success: false, error: `Customization must be APPROVED to execute (current: ${customization.status})` };
   }
 
   return await prisma.$transaction(async (tx) => {
@@ -304,7 +497,7 @@ export async function executeRequest(requestId: string, notes?: string) {
           : [];
 
         if (vms.length === 0) {
-          throw new Error("No VMs found to decommission");
+          return { success: false, error: "No VMs found to decommission" };
         }
 
         await tx.vmInstance.updateMany({
@@ -321,7 +514,7 @@ export async function executeRequest(requestId: string, notes?: string) {
         });
 
         if (request.requesterId) {
-          await notifyRequester(
+          await NotificationService.notifyRequester(
             request.requesterId,
             request.systemName || "Decommissioned VM",
             "DECOMMISSIONED"
@@ -339,7 +532,7 @@ export async function executeRequest(requestId: string, notes?: string) {
         });
 
         if (request.requesterId) {
-          await notifyRequester(
+          await NotificationService.notifyRequester(
             request.requesterId,
             request.systemName || "Provisioned VM",
             "PROVISIONED"
@@ -389,7 +582,7 @@ export async function executeRequest(requestId: string, notes?: string) {
 
       const vmHostname = customization.targetVm?.hostname || "VM";
       if (customization.requesterId) {
-        await notifyRequester(
+        await NotificationService.notifyRequester(
           customization.requesterId,
           vmHostname,
           "CUSTOMIZATION_APPLIED"
@@ -407,6 +600,7 @@ export async function executeRequest(requestId: string, notes?: string) {
       },
     });
 
+    revalidatePath("/inventory/vms");
     return { success: true };
   }, { timeout: 15000 });
 }
@@ -424,15 +618,15 @@ export async function executeRequestWithVmInputs(
   requestId: string,
   vmInputs: VmExecutionInput[],
   notes?: string
-) {
+): Promise<ApiResponse<{ vmCount: number }>> {
   const session = await getServerSession(authOptions);
 
   if (
     !session?.user ||
-    (!hasRole(session.user.roles, ROLES.DCOPS) &&
-      !hasRole(session.user.roles, ROLES.ADMIN))
+    (!RoleService.hasRole(session.user.roles, UserRole.DCOPS) &&
+      !RoleService.hasRole(session.user.roles, UserRole.ADMIN))
   ) {
-    throw new Error("Only DCOPS or ADMIN can execute requests");
+    return { success: false, error: "Only DCOPS or ADMIN can execute requests", code: "FORBIDDEN" };
   }
 
   const userId = session.user.id;
@@ -446,28 +640,28 @@ export async function executeRequestWithVmInputs(
   });
 
   if (!request) {
-    throw new Error("Request not found");
+    return { success: false, error: "Request not found", code: "NOT_FOUND" };
   }
 
   if (request.status !== RequestStatus.APPROVED) {
-    throw new Error(`Request must be APPROVED to execute (current: ${request.status})`);
+    return { success: false, error: `Request must be APPROVED to execute (current: ${request.status})` };
   }
 
   if (request.requestType !== RequestType.NEW_VM) {
-    throw new Error("This function is only for NEW_VM requests");
+    return { success: false, error: "This function is only for NEW_VM requests" };
   }
 
   // Validate VM inputs
   if (vmInputs.length !== request.quantity) {
-    throw new Error(`Expected ${request.quantity} VM inputs, got ${vmInputs.length}`);
+    return { success: false, error: `Expected ${request.quantity} VM inputs, got ${vmInputs.length}` };
   }
 
   for (const vm of vmInputs) {
     if (!vm.hostname?.trim()) {
-      throw new Error(`Hostname is required for VM ${vm.sequenceNumber}`);
+      return { success: false, error: `Hostname is required for VM ${vm.sequenceNumber}` };
     }
     if (!vm.ipAddress?.trim()) {
-      throw new Error(`IP Address is required for VM ${vm.sequenceNumber}`);
+      return { success: false, error: `IP Address is required for VM ${vm.sequenceNumber}` };
     }
   }
 
@@ -539,23 +733,251 @@ export async function executeRequestWithVmInputs(
 
     // Notify requester
     if (request.requesterId) {
-      await notifyRequester(
+      await NotificationService.notifyRequester(
         request.requesterId,
         request.systemName || "Provisioned VM",
         "PROVISIONED"
       );
     }
 
-    return { success: true, vmCount: vmInputs.length };
+    revalidatePath("/inventory/vms");
+    return { success: true, data: { vmCount: vmInputs.length } };
   }, { timeout: 30000 });
 }
 
-export async function getDashboardData() {
+export async function getDashboardData(): Promise<ApiResponse<unknown>> {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/auth");
 
   const userRoles = session.user.roles;
-  const isAdmin = userRoles.includes(ROLES.ADMIN);
+  const isAdmin = RoleService.hasRole(userRoles, UserRole.ADMIN);
 
-  return fetchDashboardData(session.user.id, userRoles, isAdmin);
+  const data = await fetchDashboardData(session.user.id, userRoles, isAdmin);
+  return { success: true, data };
+}
+
+export interface VmProvisioningInput {
+  hostname: string;
+  ipAddress: string;
+  publicIpAddress: string | null;
+  subdomain: string | null;
+  sequenceNumber: number;
+}
+
+interface ProvisionResult {
+  success: boolean;
+  message: string;
+  provisionedCount?: number;
+  errors?: { index: number; field: string; message: string }[];
+}
+
+export async function provisionVMs(
+  requestId: string,
+  requesterId: string,
+  vms: VmProvisioningInput[]
+): Promise<ProvisionResult> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return { success: false, message: "Unauthorized" };
+  }
+
+  const userRoles = session.user.roles;
+  const isDCOps = RoleService.hasRole(userRoles, UserRole.DCOPS);
+  const isAdmin = RoleService.hasRole(userRoles, UserRole.ADMIN);
+
+  if (!isDCOps && !isAdmin) {
+    return { success: false, message: "Only DCOPS or Admin can provision VMs" };
+  }
+
+  try {
+    // Increase timeout for VM provisioning (30 seconds)
+    return await prisma.$transaction(
+      async (tx) => {
+      // Fetch the request
+      const request = await tx.request.findUnique({
+        where: { id: requestId },
+        include: {
+          vmInstances: true,
+          requester: true,
+        },
+      });
+
+      if (!request) {
+        return { success: false, message: "Request not found" };
+      }
+
+      if (request.status !== RequestStatus.APPROVED && request.status !== RequestStatus.PARTIALLY_PROVISIONED) {
+        return { success: false, message: `Cannot provision VM for request with status: ${request.status}` };
+      }
+
+      const existingCount = request.vmInstances.length;
+      const totalAfterProvision = existingCount + vms.length;
+
+      if (totalAfterProvision > request.quantity) {
+        return {
+          success: false,
+          message: `Cannot provision ${vms.length} VMs. Only ${request.quantity - existingCount} VMs remaining.`,
+        };
+      }
+
+      const provisionedVms = [];
+      const validationErrors: { index: number; field: string; message: string }[] = [];
+
+      // Validate and create VMs
+      for (let i = 0; i < vms.length; i++) {
+        const vm = vms[i];
+        
+        const trimmedHostname = vm.hostname.trim();
+        const trimmedIpAddress = vm.ipAddress.trim();
+
+        // Check hostname is not empty
+        if (!trimmedHostname) {
+          validationErrors.push({
+            index: i,
+            field: "hostname",
+            message: "Hostname is required",
+          });
+          continue;
+        }
+
+        // Check IP is not empty
+        if (!trimmedIpAddress) {
+          validationErrors.push({
+            index: i,
+            field: "ipAddress",
+            message: "Private IP is required",
+          });
+          continue;
+        }
+
+        // Check hostname uniqueness
+        const existingHostname = await tx.vmInstance.findUnique({
+          where: { hostname: trimmedHostname },
+        });
+        if (existingHostname) {
+          validationErrors.push({
+            index: i,
+            field: "hostname",
+            message: `Hostname '${trimmedHostname}' is already in use`,
+          });
+          continue;
+        }
+
+        // Check IP uniqueness
+        const existingIp = await tx.vmInstance.findUnique({
+          where: { ipAddress: trimmedIpAddress },
+        });
+        if (existingIp) {
+          validationErrors.push({
+            index: i,
+            field: "ipAddress",
+            message: `IP address '${trimmedIpAddress}' is already in use`,
+          });
+          continue;
+        }
+
+        // Check sequence number uniqueness within request
+        const existingSeq = await tx.vmInstance.findUnique({
+          where: {
+            requestId_sequenceNumber: {
+              requestId,
+              sequenceNumber: vm.sequenceNumber,
+            },
+          },
+        });
+        if (existingSeq) {
+          validationErrors.push({
+            index: i,
+            field: "sequenceNumber",
+            message: `Sequence number ${vm.sequenceNumber} already exists`,
+          });
+          continue;
+        }
+
+        // Create VM instance
+        const vmInstance = await tx.vmInstance.create({
+          data: {
+            requestId,
+            sequenceNumber: vm.sequenceNumber,
+            hostname: trimmedHostname,
+            ipAddress: trimmedIpAddress,
+            publicIpAddress: vm.publicIpAddress,
+            subdomain: vm.subdomain,
+            ownerId: requesterId,
+            status: VmStatus.ACTIVE,
+            provisionedAt: new Date(),
+            environment: request.environment,
+          },
+        });
+
+        provisionedVms.push(vmInstance);
+
+        // Create audit log for each VM
+        await tx.auditLog.create({
+          data: {
+            actorId: session.user.id,
+            action: "VM_PROVISIONED",
+            entityType: "REQUEST",
+            entityId: requestId,
+            details: JSON.stringify({
+              vmId: vmInstance.id,
+              hostname: vm.hostname,
+              ipAddress: vm.ipAddress,
+              sequenceNumber: vm.sequenceNumber,
+            }),
+          },
+        });
+      }
+
+      if (validationErrors.length > 0) {
+        return {
+          success: false,
+          message: "Validation failed for some VMs",
+          errors: validationErrors,
+        };
+      }
+
+      // Update request status
+      let newStatus: RequestStatus;
+      if (totalAfterProvision === request.quantity) {
+        newStatus = RequestStatus.PROVISIONED;
+      } else {
+        newStatus = RequestStatus.PARTIALLY_PROVISIONED;
+      }
+
+      await tx.request.update({
+        where: { id: requestId },
+        data: {
+          status: newStatus,
+          provisionedAt: new Date(),
+        },
+      });
+
+      // Create audit log for status change
+      await tx.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: "REQUEST_PROVISIONED",
+          entityType: "REQUEST",
+          entityId: requestId,
+          details: JSON.stringify({
+            provisionedCount: provisionedVms.length,
+            totalVms: request.quantity,
+            newStatus,
+          }),
+        },
+      });
+
+      return {
+        success: true,
+        message: `Successfully provisioned ${provisionedVms.length} VM${provisionedVms.length !== 1 ? "s" : ""}`,
+        provisionedCount: provisionedVms.length,
+      };
+    },
+    { timeout: 30000 }
+  );
+  } catch (error) {
+    console.error("Error provisioning VMs:", error);
+    return { success: false, message: "Failed to provision VMs" };
+  }
 }

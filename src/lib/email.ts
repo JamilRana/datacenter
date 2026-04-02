@@ -4,9 +4,28 @@
 import { env } from "node:process";
 import prisma from "@/lib/prisma";
 import nodemailer from "nodemailer";
+import crypto from "crypto";
 
 const DEFAULT_PORTAL_URL = env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-const DEFAULT_FROM_EMAIL = env.NEXT_PUBLIC_EMAIL || "noreply@mis.dghs.gov.bd";
+const DEFAULT_FROM_EMAIL = env.NEXT_PUBLIC_EMAIL || "[EMAIL_ADDRESS]";
+
+const ENCRYPTION_KEY = process.env.EMAIL_ENCRYPTION_KEY || "default-32-char-encryption-key!!";
+
+function decryptSmtpPassword(text: string): string {
+  try {
+    const parts = text.split(":");
+    if (parts.length !== 2) return text;
+    const iv = Buffer.from(parts[0], "hex");
+    const encryptedText = parts[1];
+    const key = Buffer.from(ENCRYPTION_KEY, "utf-8");
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+    let decrypted = decipher.update(encryptedText, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } catch {
+    return text;
+  }
+}
 
 export interface EmailParams {
   to: string;
@@ -47,13 +66,15 @@ export async function getSmtpConfig(): Promise<SmtpConfig | null> {
       where: { category: "smtp" },
     });
 
+    console.log("SMTP settings from DB:", settings.map(s => ({ key: s.key, value: s.isSecret ? "***" : s.value })));
+
     const configMap: Record<string, string> = {};
     settings.forEach((s) => {
-      configMap[s.key] = s.value;
+      configMap[s.key] = s.key === "smtp_password" ? decryptSmtpPassword(s.value) : s.value;
     });
 
-    // Validate required fields
-    if (!configMap.smtp_host || !configMap.smtp_port || !configMap.smtp_user) {
+    // Validate required fields - check both smtp_user and smtp_email for compatibility
+    if (!configMap.smtp_host || !configMap.smtp_port || (!configMap.smtp_user && !configMap.smtp_email)) {
       console.warn("SMTP configuration incomplete");
       return null;
     }
@@ -63,10 +84,10 @@ export async function getSmtpConfig(): Promise<SmtpConfig | null> {
       port: parseInt(configMap.smtp_port, 10),
       secure: configMap.smtp_secure === "true",
       auth: {
-        user: configMap.smtp_user,
+        user: configMap.smtp_email || configMap.smtp_user || "",
         pass: configMap.smtp_password || "",
       },
-      from: configMap.smtp_from || DEFAULT_FROM_EMAIL,
+      from: configMap.smtp_from || configMap.smtp_email || DEFAULT_FROM_EMAIL,
     };
   } catch (error) {
     console.error("Failed to fetch SMTP config:", error);
@@ -368,6 +389,7 @@ export async function sendEmail(params: EmailParams): Promise<{ success: boolean
 
   // Get SMTP config from database
   const smtpConfig = await getSmtpConfig();
+  console.log("SMTP Config from DB:", smtpConfig ? { host: smtpConfig.host, port: smtpConfig.port, user: smtpConfig.auth.user, from: smtpConfig.from } : null);
   
   // Fallback to environment variables if DB config not available
   const config = smtpConfig || {
@@ -380,6 +402,8 @@ export async function sendEmail(params: EmailParams): Promise<{ success: boolean
     },
     from: env.SMTP_FROM || DEFAULT_FROM_EMAIL,
   };
+  
+  console.log("Final SMTP Config:", { host: config.host, port: config.port, user: config.auth.user, from: config.from });
 
   // Create transporter
   const transporter = nodemailer.createTransport({

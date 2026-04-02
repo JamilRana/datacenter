@@ -5,6 +5,7 @@ import "./globals.css";
 import AuthSessionProvider from "./providers/SessionProviders";
 import Sidebar from "@/components/Sidebar";
 import { Toaster } from "sonner";
+import NextTopLoader from "nextjs-toploader";
 import PermissionHandler from "./providers/PermissionHandler";
 import { Suspense } from "react";
 import { LoadingProvider } from "@/context/LoadingContext";
@@ -35,6 +36,17 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-slate-50`}
       >
+        <NextTopLoader 
+          color="#4f46e5"
+          initialPosition={0.08}
+          crawlSpeed={200}
+          height={3}
+          crawl={true}
+          showSpinner={false}
+          easing="ease"
+          speed={200}
+          shadow="0 0 10px #4f46e5,0 0 5px #4f46e5"
+        />
         <AuthSessionProvider>
             <LoadingProvider>
               <Sidebar>

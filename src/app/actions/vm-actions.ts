@@ -13,7 +13,7 @@ import {
 
 import { VmStatus as FrontendVmStatus,   Raid as FrontendRaid,
   Environment as FrontendEnvironment } from "@/types/enums";
-import { generateApprovals } from "./request-actions";
+import { generateApprovals } from "./approval-actions";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { SerializedVmInstance, SerializedVmInstanceDetail } from "@/types/vm";

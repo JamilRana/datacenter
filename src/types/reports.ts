@@ -1,110 +1,111 @@
 // src/types/reports.ts
-import { Environment, RequestType, RequestStatus } from "@prisma/client";
+import { RequestStatus, RequestType, VmStatus, Environment } from "@prisma/client";
 
-// ✅ Clean filter interface for API calls
-export interface ReportFilters {
-  startDate?: string;      // ISO date string: "2024-01-01"
-  endDate?: string;        // ISO date string: "2024-12-31"
-  environment?: Environment;
-  status?: RequestStatus;
-  requestType?: RequestType;
-  userId?: string;
-}
-
-// ✅ Flattened, serializable types for API responses (no Prisma internals)
-export interface EnvDistributionItem {
-  environment: Environment;
-  count: number;
-  percentage: number;  // 0-100
-}
-
-export interface TypeDistributionItem {
-  type: RequestType;
-  count: number;
-  percentage: number;
-}
-
-export interface StatusDistributionItem {
-  status: RequestStatus;
-  count: number;
-  percentage: number;
-}
-
-export interface TrendDataPoint {
-  day: string;           // ISO date: "2024-01-15"
-  new: number;           // New requests created
-  approved: number;      // Requests approved
-  provisioned: number;   // VMs provisioned
-}
-
-export interface TopRequesterItem {
+export interface UserAllocationSummary {
   userId: string;
-  name: string | null;
-  email: string | null;
-  department: string | null;  // from User.organization
-  requestCount: number;
-  avgApprovalTimeHours: number;
+  name: string;
+  designation: string;
+  organization: string;
+  totalVms: number;
+  vcpuAllocated: number;
+  ramAllocatedGb: number;
+  storageAllocatedGb: number;
+  activeVms: number;
+  suspendedVms: number;
+  lastActivity: string;
 }
 
-export interface DepartmentBreakdownItem {
-  department: string;
-  requestCount: number;
-  budgetUsed: number;  // Estimated cost
-  percentage: number;
+export interface UserVmDetail {
+  id: string;
+  hostname: string;
+  ipAddress: string;
+  environment: Environment;
+  vcpu: number;
+  ramGb: number;
+  storageGb: number;
+  os: string;
+  cluster: string;
+  status: VmStatus;
+  renewalDate: string;
+  requestId: string;
 }
 
-export interface ResourceMetricItem {
-  environment: Environment | null;
-  avgCpu: number;      // Average vCPU
-  avgRam: number;      // Average GB RAM
-  avgStorage: number;  // Average GB storage
-  growthRate: number;  // Percentage growth
+export interface VmInventoryItem {
+  id: string;
+  hostname: string;
+  owner: string;
+  project: string;
+  environment: Environment;
+  vcpu: number;
+  ramGb: number;
+  storageGb: number;
+  cluster: string;
+  status: VmStatus;
+  provisionedDate: string;
+  renewalDate: string;
+  requestId: string;
 }
 
-export interface ApprovalFunnelItem {
-  stage: string;              // "DRAFT", "PENDING_L1", etc.
-  count: number;
-  conversionRate: number;     // Percentage from previous stage
+export interface DcCapacityItem {
+  assetId: string;
+  clusterName: string;
+  totalVcpu: number;
+  usedVcpu: number;
+  freeVcpu: number;
+  totalRamGb: number;
+  usedRamGb: number;
+  freeRamGb: number;
+  totalStorageGb: number;
+  usedStorageGb: number;
+  freeStorageGb: number;
+  lastSynced: string;
 }
 
-// ✅ Main report data interface - clean and API-ready
-export interface SystemReportData {
-  summary: {
-    totalVMs: number;
-    activeRequests: number;
-    pendingApprovals: number;
-    avgApprovalTimeHours: number;
-    totalLicenses: number;
-    resourceUtilization: number;  // 0-100 percentage
-  };
-  envDistribution: EnvDistributionItem[];
-  typeDistribution: TypeDistributionItem[];
-  statusDistribution: StatusDistributionItem[];
-  trends: TrendDataPoint[];
-  topRequesters: TopRequesterItem[];
-  departmentBreakdown: DepartmentBreakdownItem[];
-  resourceMetrics: ResourceMetricItem[];
-  approvalFunnel: ApprovalFunnelItem[];
-  timestamp: string;  // ISO string
+export interface RequestDashboardItem {
+  id: string;
+  requestId: string;
+  type: RequestType;
+  requester: string;
+  project: string;
+  environment: Environment;
+  status: RequestStatus;
+  currentApprover: string;
+  submittedAt: string;
+  updatedAt: string;
+  agingDays: number;
 }
 
-// ✅ For export data rows
-export interface ExportReportRow {
-  RequestID: string;
-  SystemName: string;
-  ProjectName: string;
-  RequestType: RequestType;
-  Status: RequestStatus;
-  Environment: Environment;
-  Requester: string;
-  Email: string;
-  Department: string;
-  CreatedDate: string;      // Formatted: "yyyy-MM-dd HH:mm"
-  ApprovedDate: string;     // "yyyy-MM-dd" or "Pending"
-  ProvisionedDate: string;  // "yyyy-MM-dd" or "N/A"
-  vCPU: number | null;
-  RAM_GB: number | null;
-  Storage_GB: number | null;
-  ApprovalLevel: string;
-  ApprovalDecision: string;
+export interface RenewalItem {
+  id: string;
+  vmName: string;
+  ownerName: string;
+  project: string;
+  environment: Environment;
+  renewalDate: string;
+  daysRemaining: number;
+  status: VmStatus;
+  lastRenewed: string;
 }
+
+export interface AuditTrailItem {
+  id: string;
+  timestamp: string;
+  actor: string;
+  role: string | string[];
+  action: string;
+  entityType: string;
+  entityId: string;
+  ipAddress: string;
+  details: {
+    before?: unknown;
+    after?: unknown;
+  } | null;
+}
+
+export type ReportType = 
+  | 'user-allocation' 
+  | 'vm-inventory' 
+  | 'dc-capacity' 
+  | 'requests' 
+  | 'renewals' 
+  | 'audit-trail';

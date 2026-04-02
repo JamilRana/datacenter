@@ -3,18 +3,18 @@ import prisma from "./prisma";
 import { ROLES } from "./roles";
 import { sendApprovalNotification } from "./email";
 
-export async function createNotification(userId: string, type: string, message: string) {
+export async function createNotification(userId: string, type: string, message: string, link?: string) {
   try {
     await prisma.notification.create({
       data: {
         userId,
         type,
         message,
+        link,
         isRead: false,
       },
     });
 
-    // Optional: Email/SMS integration stub
     console.log(`[NOTIFICATION] User ${userId}: ${message}`);
   } catch (error) {
     console.error("Failed to create notification:", error);
@@ -41,10 +41,10 @@ export async function notifyApprovers(requestId: string, systemName: string) {
     await createNotification(
       approver.id,
       "APPROVAL_REQUIRED",
-      `New request "${systemName}" requires your approval (ID: ${requestId})`
+      `New request "${systemName}" requires your approval`,
+      `/approvals/${requestId}`
     );
 
-    // Send email notification to approver
     if (approver.email) {
       await sendApprovalNotification(
         approver.email,
@@ -62,7 +62,8 @@ export async function notifyRequester(userId: string, systemName: string, status
   await createNotification(
     userId,
     "STATUS_UPDATE",
-    `Your request "${systemName}" status updated to: ${status.replace(/_/g, " ")}`
+    `Your request "${systemName}" status updated to: ${status.replace(/_/g, " ")}`,
+    `/requests/${systemName.toLowerCase().replace(/\s+/g, '-')}`
   );
 }
 
@@ -71,7 +72,8 @@ export async function notifyDirector(userId: string, systemName: string, request
   await createNotification(
     userId,
     "DIRECTOR_ESCALATION",
-    `Request "${systemName}" (ID: ${requestId}) escalated to you for final approval`
+    `Request "${systemName}" escalated to you for final approval`,
+    `/approvals/${requestId}`
   );
 }
 
@@ -108,7 +110,8 @@ export async function notifyDCOps(requestId: string, systemName: string) {
     await createNotification(
       user.id,
       "EXECUTION_READY",
-      `Request "${systemName}" (ID: ${requestId}) has been APPROVED and is ready for execution.`
+      `Request "${systemName}" has been APPROVED and is ready for execution.`,
+      `/inventory/vms`
     );
 
     // Send email notification to DCOps

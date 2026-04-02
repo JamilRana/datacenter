@@ -498,3 +498,48 @@ export async function getExportData(
     };
   });
 }
+
+export async function fetchVmReport(params: Record<string, unknown>) {
+  const { getVmReport } = await import("@/lib/reports/vmReport");
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+  
+  return getVmReport({
+    ...params,
+    userId: session.user.id,
+    userRoles: session.user.roles,
+  });
+}
+
+export async function fetchApprovalReport(params: Record<string, unknown>) {
+  const { getApprovalReport } = await import("@/lib/reports/approvalReport");
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+  
+  return getApprovalReport({
+    ...params,
+    userRoles: session.user.roles,
+  });
+}
+
+export async function fetchHardwareReport(params: Record<string, unknown>) {
+  const { getHardwareReport } = await import("@/lib/reports/hardwareReport");
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+  
+  return getHardwareReport({
+    ...params,
+    userRoles: session.user.roles,
+  });
+}
+
+export async function fetchUserReport(params: Record<string, unknown>) {
+  const { getUserReport } = await import("@/lib/reports/userReport");
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+  
+  return getUserReport({
+    ...params,
+    userRoles: session.user.roles,
+  });
+}

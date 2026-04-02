@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import prisma from "@/lib/prisma";
 import { authOptions } from "@/lib/authOptions";
 import { Prisma, RequestStatus, RequestType, ApprovalEntityType, Environment } from "@prisma/client";
-import { generateApprovals } from "./request-actions";
+import { generateApprovals } from "./approval-actions";
 import { revalidatePath } from "next/cache";
 
 // Get list of decommission requests (for dashboard)

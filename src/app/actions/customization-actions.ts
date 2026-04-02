@@ -12,7 +12,7 @@ import {
   RequestType,
   Prisma
 } from "@prisma/client";
-import { generateApprovals } from "./request-actions";
+import { generateApprovals } from "./approval-actions";
 import { isAdmin } from "@/lib/utils";
 import { Environment, VmStatus, CustomizationStatus as CustomizationStatusEnum } from "@/types/enums";
 

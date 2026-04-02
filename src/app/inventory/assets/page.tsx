@@ -8,12 +8,18 @@ import { useEffect, useState } from "react";
 import { PhysicalAsset } from "@/types/inventory";
 import { fetchAllAssets } from "@/app/actions/asset-actions";
 import { AssetModal } from "../components/AssetModal";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Server, MapPin, HardDrive } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Download } from "lucide-react";
 import { exportToCsv } from "@/lib/export-utils";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { StatCard } from "@/components/analytics/StatCard";
+import { InventoryChart } from "@/components/analytics/InventoryChart";
+import { RecentActivity } from "@/components/analytics/RecentActivity";
+import { fetchHardwareAnalytics } from "@/app/actions/analytics-actions";
+import { HardwareAnalytics } from "@/lib/analytics/hardwareAnalytics";
 
 export default function AssetsPage({
   searchParams,
@@ -24,6 +30,7 @@ export default function AssetsPage({
   const router = useRouter();
   const [assets, setAssets] = useState<PhysicalAsset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hardwareAnalytics, setHardwareAnalytics] = useState<HardwareAnalytics | null>(null);
 
   const page = searchParams.page ? parseInt(searchParams.page, 10) : 1;
 
@@ -35,17 +42,24 @@ export default function AssetsPage({
     }
 
     // REQUESTERS cannot view physical hardware assets
-    if (session.user.roles.includes(ROLES.REQUESTER) && 
-        !session.user.roles.includes(ROLES.ADMIN) && 
-        !session.user.roles.includes(ROLES.DCOPS)) {
+    const userRoles = session.user.roles || [];
+    const isAdminOrDcops = userRoles.some(r => 
+      ["ADMIN", "DC_OPS"].includes(r.toUpperCase())
+    );
+    
+    if (userRoles.includes(ROLES.REQUESTER) && !isAdminOrDcops) {
       router.push("/inventory/vms");
       return;
     }
 
     const fetchAssets = async () => {
       try {
-        const res = await fetchAllAssets(page);
+        const [res, analytics] = await Promise.all([
+          fetchAllAssets(page),
+          fetchHardwareAnalytics()
+        ]);
         setAssets(res.assets as PhysicalAsset[]);
+        setHardwareAnalytics(analytics);
       } catch (error) {
         console.log(error);
       } finally {
@@ -114,6 +128,71 @@ export default function AssetsPage({
           )}
         </div>
       </div>
+
+      {/* Analytics Dashboard */}
+      {hardwareAnalytics && (
+        <div className="space-y-6">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <StatCard
+              title="Total Assets"
+              value={hardwareAnalytics.summary.total}
+              icon={Server}
+              description="All hardware assets"
+            />
+            <StatCard
+              title="By Type"
+              value={hardwareAnalytics.byType.length}
+              icon={HardDrive}
+              description="Asset types"
+            />
+            <StatCard
+              title="Locations"
+              value={hardwareAnalytics.byLocation.length}
+              icon={MapPin}
+              description="Unique locations"
+            />
+          </div>
+
+          {/* Charts */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>
+              <CardContent className="p-4">
+                <InventoryChart
+                  title="Assets by Type"
+                  data={hardwareAnalytics.byType.map(t => ({ name: t.type, value: t.count }))}
+                  type="bar"
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <InventoryChart
+                  title="Assets by Location"
+                  data={hardwareAnalytics.byLocation.map(l => ({ name: l.location, value: l.count }))}
+                  type="pie"
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Recent Activity */}
+          {hardwareAnalytics.recentActivity && hardwareAnalytics.recentActivity.length > 0 && (
+            <RecentActivity
+              title="Recent Hardware Activity"
+              activities={hardwareAnalytics.recentActivity.map(a => ({
+                id: a.id,
+                action: a.action,
+                entityType: a.entityType,
+                entityId: a.entityId,
+                actorName: a.actorName,
+                details: a.details,
+                createdAt: a.createdAt,
+              }))}
+            />
+          )}
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <AssetListClient initialAssets={assets} canEdit={canEdit} />

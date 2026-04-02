@@ -1,34 +1,39 @@
 // src/middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
-  // Only apply middleware to protected routes
-  const protectedPaths = ["/admin", "/inventory"];
-  const isProtectedPath = protectedPaths.some(path => pathname.startsWith(path));
-  
-  if (!isProtectedPath) {
-    return NextResponse.next();
+  const token = await getToken({ 
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET 
+  });
+
+  // If trying to access /auth and token exists, redirect to dashboard
+  if (pathname.startsWith("/auth") && token) {
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
-  const isProd = process.env.NODE_ENV === "production";
-  const tokenName = isProd ? "__Secure-next-auth.session-token" : "next-auth.session-token";
-  const token = request.cookies.get(tokenName);
-
-  if (!token) {
+  // If no token and not accessing /auth, redirect to /auth
+  // Excluding static files and api routes
+  if (!token && !pathname.startsWith("/auth") && !pathname.startsWith("/api") && !pathname.startsWith("/_next")) {
     return NextResponse.redirect(new URL("/auth", request.url));
   }
 
-  // Allow the request to proceed
-  // Full role check happens server-side in the components
   return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    "/admin/:path*",
-    "/inventory/:path*",
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    "/((?!api|_next/static|_next/image|favicon.ico).*)",
   ],
 };

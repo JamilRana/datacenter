@@ -11,8 +11,7 @@ import {
   Eye, 
   Edit2, 
   Copy, 
-  AlertCircle, 
-  HardDrive 
+  AlertCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { detailsRequest } from "@/types/requests";
@@ -61,21 +60,29 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">System / Purpose</th>
+              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">System Name</th>
+              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Subdomain</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Environment</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Associated VM</th>
+              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">VMs</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
-            {requests.map((req) => (
+            <tbody className="divide-y divide-slate-200">
+            {requests.map((req) => {
+              const vmCount = req.vmInstances?.length || 0;
+              return (
               <tr key={req.id} className="hover:bg-slate-50/50 transition-colors">
                 <td className="px-6 py-4">
                   <div className="font-medium text-slate-900">{req.systemName}</div>
                   <div className="text-xs text-slate-500 truncate max-w-[200px]">{req.purpose}</div>
+                </td>
+                <td className="px-6 py-4">
+                  <span className="text-sm text-slate-600 font-mono">
+                    {req.subdomain || "—"}
+                  </span>
                 </td>
                 <td className="px-6 py-4">
                   <Badge variant="outline" className="font-normal border-slate-200 bg-slate-50">
@@ -103,20 +110,14 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
                     {req.status.toString().toLowerCase().replace(/_/g, " ")}
                   </Badge>
                 </td>
-                <td className="px-6 py-4">
-                  {req.vmInstances && req.vmInstances.length > 0 ? (
-                    <div className="flex flex-col gap-1">
-                      {req.vmInstances.map((vm) => (
-                        <Link 
-                          key={vm.id} 
-                          href={`/inventory/vms/${vm.id}`}
-                          className="text-xs font-medium text-blue-600 hover:underline flex items-center gap-1"
-                        >
-                          <HardDrive className="h-3 w-3" />
-                          {vm.hostname || vm.ipAddress || "Provisioning..."}
-                        </Link>
-                      ))}
-                    </div>
+                <td className="px-6 py-4 text-center">
+                  {vmCount > 0 ? (
+                    <Link 
+                      href={`/inventory/vms?search=${encodeURIComponent(req.systemName)}`}
+                      className="inline-flex items-center justify-center min-w-[28px] h-6 px-2 rounded-full bg-indigo-100 text-indigo-700 text-sm font-medium hover:bg-indigo-200 transition-colors"
+                    >
+                      {vmCount}
+                    </Link>
                   ) : (
                     <span className="text-xs text-slate-400">—</span>
                   )}
@@ -165,7 +166,7 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
                   </div>
                 </td>
               </tr>
-            ))}
+            );})}
           </tbody>
         </table>
       </div>

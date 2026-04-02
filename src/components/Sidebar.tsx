@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { ROLES } from "@/lib/roles";
+import { NotificationBell } from "@/components/NotificationBell";
 import {
   Server,
   PlusCircle,
@@ -46,6 +47,11 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
       title: "Dashboard",
       href: "/",
       icon: LayoutDashboard,
+    },
+    {
+      title: "My VMs",
+      href: "/my-vms",
+      icon: UserCircle,
     },
     {
       title: "Requests",
@@ -131,15 +137,18 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
             MIS DC Portal
           </span>
         </Link>
-        {mobile && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setMobileOpen(false)}
-          >
-            <X className="h-5 w-5" />
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          {mobile && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setMobileOpen(false)}
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Navigation */}
@@ -253,9 +262,11 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const shouldShowSidebar = status !== "unauthenticated";
+  
   return (
     <>
-      {session && (
+      {shouldShowSidebar && (
         <>
           {/* Mobile Toggle */}
           <div className="lg:hidden fixed top-4 left-4 z-50">

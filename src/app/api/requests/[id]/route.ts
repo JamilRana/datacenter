@@ -67,11 +67,18 @@ export async function PATCH(
     
     let updated;
     if (existingRequest && existingRequest.requestType === "DECOMMISSION") {
-      updated = await editDecommissionRequest(formData) as { id: string };
+      const response = await editDecommissionRequest(formData) as { id: string } | { success: boolean; data?: { id: string } };
+      updated = 'success' in response ? response.data : response;
     } else if (existingRequest) {
-      updated = await editRequest(formData) as { id: string };
+      const response = await editRequest(formData) as { id: string } | { success: boolean; data?: { id: string } };
+      updated = 'success' in response ? response.data : response;
     } else {
-      updated = await updateCustomizationRequest(requestId,formData) as { id: string };
+      const response = await updateCustomizationRequest(requestId, formData) as { id: string } | { success: boolean; data?: { id: string } };
+      updated = 'success' in response ? response.data : response;
+    }
+    
+    if (!updated?.id) {
+      return NextResponse.json({ error: "Failed to update request" }, { status: 500 });
     }
     
     return NextResponse.json(

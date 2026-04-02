@@ -18,7 +18,9 @@ import {
   Calendar,
   Loader2,
   MessageSquare,
-  ArrowUpDown
+  ArrowUpDown,
+  ArrowUpRight,
+  Undo2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,9 +29,9 @@ import Link from "next/link";
 import { canUserApprove } from "@/lib/roles";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { handleApprovalDecision, executeRequest, executeRequestWithVmInputs } from "@/app/actions/approval-actions";
+import { handleApprovalDecision, executeRequest, forwardToLevel } from "@/app/actions/approval-actions";
 import { DashboardRequest } from "@/types/approvals";
-import { VmExecutionModal } from "./VmExecutionModal";
+import { ProvisionVMModal } from "./ProvisionVMModal";
 
 interface ApproverRequest extends Omit<DashboardRequest, "createdAt"> {
   createdAt: string | Date;
@@ -67,29 +69,91 @@ const REQUEST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: 
 export function ApproverDashboardClient({ 
   initialRequests, 
   userRoles,
-  currentUserId 
+  currentUserId
 }: { 
   initialRequests: ApproverRequest[], 
   userRoles: string[],
-  currentUserId: string 
+  currentUserId: string,
 }) {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(""); // Default empty (shows all)
   const [typeFilter, setTypeFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+
+  // Determine if user is admin (has ADMIN role)
+  const isAdmin = userRoles.includes("ADMIN");
+  const isDCOps = userRoles.includes("DC_OPS");
+
+  // Sort requests - pending first, then by date
+  const sortedRequests = [...initialRequests].sort((a, b) => {
+    const aPending = a.status?.startsWith("PENDING_L") ? 0 : 1;
+    const bPending = b.status?.startsWith("PENDING_L") ? 0 : 1;
+    if (aPending !== bPending) return aPending - bPending;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+
+  // Client-side metrics - different for DCOPS vs approvers
+  interface DCOpsMetrics {
+    totalVisible: number;
+    pendingExecutionCount: number;
+    partiallyExecutedCount: number;
+    executedCount: number;
+  }
+
+  interface ApproverMetrics {
+    totalVisible: number;
+    pendingCount: number;
+    approvedCount: number;
+    rejectedCount: number;
+    executedCount: number;
+  }
+
+  let clientMetrics: DCOpsMetrics | ApproverMetrics;
+  if (isDCOps) {
+    // DCOPS sees: pending execution (APPROVED), partially executed, executed
+    clientMetrics = {
+      totalVisible: initialRequests.length,
+      pendingExecutionCount: initialRequests.filter(r => r.status === 'APPROVED').length,
+      partiallyExecutedCount: initialRequests.filter(r => r.status === 'PARTIALLY_PROVISIONED').length,
+      executedCount: initialRequests.filter(r => r.status === 'PROVISIONED' || r.status === 'CLOSED').length,
+    };
+  } else {
+    // Approvers/Admins see: pending approval, approved, rejected, executed
+    clientMetrics = {
+      totalVisible: initialRequests.length,
+      pendingCount: initialRequests.filter(r => r.status?.startsWith('PENDING_L')).length,
+      approvedCount: initialRequests.filter(r => r.status === 'APPROVED' || r.status === 'PROVISIONED' || r.status === 'PARTIALLY_PROVISIONED').length,
+      rejectedCount: initialRequests.filter(r => r.status === 'REJECTED').length,
+      executedCount: initialRequests.filter(r => r.status === 'PROVISIONED' || r.status === 'PARTIALLY_PROVISIONED' || r.status === 'CLOSED').length,
+    };
+  }
+
+  const handleFilterClick = (filter: string) => {
+    setStatusFilter(filter.toLowerCase());
+  };
   
   const [isPending, startTransition] = useTransition();
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
+  const [selectedAction, setSelectedAction] = useState<"APPROVED" | "REJECTED" | "RETURNED" | "FORWARDED" | null>(null);
+  const [forwardLevel, setForwardLevel] = useState<number | null>(null);
   const [quickComments, setQuickComments] = useState("");
-  const [vmExecutionModal, setVmExecutionModal] = useState<{
+  const [provisionModal, setProvisionModal] = useState<{
     open: boolean;
     requestId: string;
-    systemName: string;
-    quantity: number;
-    subdomain?: string | null;
-  }>({ open: false, requestId: "", systemName: "", quantity: 1 });
+    requestQuantity: number;
+    existingVmsCount: number;
+    defaultSubdomain: string;
+    requesterId: string;
+  }>({ 
+    open: false, 
+    requestId: "", 
+    requestQuantity: 1, 
+    existingVmsCount: 0,
+    defaultSubdomain: "",
+    requesterId: ""
+  });
 
   // ✅ DETERMINE CURRENT APPROVAL LEVEL FROM STATUS (returns number)
   const getCurrentLevel = (status: string): number | null => {
@@ -131,12 +195,33 @@ export function ApproverDashboardClient({
     return requestType === "CUSTOMIZED" ? "CUSTOMIZATION" : "REQUEST";
   };
 
-  const filteredRequests = initialRequests.filter(req => {
+  const filteredRequests = sortedRequests.filter(req => {
     const matchesSearch = 
       req.systemName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       req.requester?.name?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesStatus = statusFilter === "all" || req.status === statusFilter;
+    // Status filter mapping - handle different status formats
+    let matchesStatus = true;
+    if (statusFilter === "pending") {
+      matchesStatus = req.status?.startsWith("PENDING_L") || false;
+    } else if (statusFilter === "approved") {
+      matchesStatus = req.status === 'APPROVED' || req.status === 'PROVISIONED' || req.status === 'PARTIALLY_PROVISIONED';
+    } else if (statusFilter === "rejected") {
+      matchesStatus = req.status === 'REJECTED';
+    } else if (statusFilter === "executed") {
+      matchesStatus = req.status === 'PROVISIONED' || req.status === 'PARTIALLY_PROVISIONED' || req.status === 'CLOSED';
+    } else if (statusFilter === "pending_execution") {
+      // DCOPS: pending execution = APPROVED (ready for provisioning)
+      matchesStatus = req.status === 'APPROVED';
+    } else if (statusFilter === "partial") {
+      // DCOPS: partially executed = PARTIALLY_PROVISIONED
+      matchesStatus = req.status === 'PARTIALLY_PROVISIONED';
+    } else if (statusFilter === "closed") {
+      // DCOPS: closed requests
+      matchesStatus = req.status === 'CLOSED';
+    }
+    // Empty statusFilter shows everything (default view)
+    
     const matchesType = typeFilter === "all" || req.requestType === typeFilter;
 
     let matchesDate = true;
@@ -149,23 +234,30 @@ export function ApproverDashboardClient({
     return matchesSearch && matchesStatus && matchesType && matchesDate;
   });
 
-  // ✅ UPDATED: Now accepts approvalId instead of requestId
+  // ✅ Handles all approval actions: APPROVE, REJECT, RETURN, FORWARD
   async function onQuickAction(
     approvalId: string, 
     entityType: "REQUEST" | "CUSTOMIZATION", 
-    decision: "APPROVED" | "REJECTED"
+    decision: "APPROVED" | "REJECTED" | "RETURNED" | "FORWARDED",
+    targetLevel?: number
   ) {
-    if (decision === "REJECTED" && !quickComments.trim()) {
-      toast.error("Comments are required for rejection");
+    if ((decision === "REJECTED" || decision === "RETURNED") && !quickComments.trim()) {
+      toast.error("Comments are required for rejection or return");
       return;
     }
 
     startTransition(async () => {
       try {
-        // ✅ PASS approvalId (not requestId) to server action
-        await handleApprovalDecision(approvalId, decision as ApprovalDecision, quickComments);
-        toast.success(`Request ${decision.toLowerCase()} successfully`);
+        if (decision === "FORWARDED" && targetLevel) {
+          await forwardToLevel(approvalId, targetLevel, quickComments || `Forwarded to level ${targetLevel}`);
+          toast.success(`Request forwarded to level ${targetLevel}`);
+        } else {
+          await handleApprovalDecision(approvalId, decision as ApprovalDecision, quickComments);
+          toast.success(`Request ${decision.toLowerCase()} successfully`);
+        }
         setActiveActionId(null);
+        setSelectedAction(null);
+        setForwardLevel(null);
         setQuickComments("");
         router.refresh();
       } catch (error) {
@@ -190,29 +282,146 @@ export function ApproverDashboardClient({
     });
   }
 
-  function openVmExecutionModal(req: ApproverRequest) {
-    setVmExecutionModal({
+  function openProvisionModal(req: ApproverRequest) {
+    const requestQuantity = req.quantity || 1;
+    const existingVmsCount = req.vmInstances?.length || 0;
+    const requesterId = req.requester?.id || "";
+    const subdomain = req.subdomain || "";
+    
+    setProvisionModal({
       open: true,
       requestId: req.id,
-      systemName: req.systemName || "VM",
-      quantity: (req as unknown as { quantity?: number }).quantity || 1,
-      subdomain: (req as unknown as { subdomain?: string | null }).subdomain,
+      requestQuantity,
+      existingVmsCount,
+      defaultSubdomain: subdomain,
+      requesterId,
     });
-  }
-
-  async function handleVmExecute(requestId: string, vmInputs: {
-    sequenceNumber: number;
-    hostname: string;
-    ipAddress: string;
-    publicIpAddress: string;
-    subdomain: string;
-  }[]) {
-    await executeRequestWithVmInputs(requestId, vmInputs, "Executed via dashboard");
-    router.refresh();
   }
 
   return (
     <div className="space-y-6">
+      {/* Metrics Cards - Different for DCOPS vs Approvers/Admins */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        {isDCOps ? (
+          // DCOPS sees: Pending Execution, Partially Executed, Executed
+          <>
+            <button
+              onClick={() => handleFilterClick("")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">All Requests</p>
+              <p className="text-2xl font-bold text-slate-900">{clientMetrics.totalVisible || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("PENDING_EXECUTION")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "pending_execution" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Pending Execution</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as DCOpsMetrics).pendingExecutionCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("PARTIAL")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "partial" ? "ring-2 ring-orange-500 bg-orange-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Partial Executed</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as DCOpsMetrics).partiallyExecutedCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("EXECUTED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "executed" ? "ring-2 ring-green-500 bg-green-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Executed</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as DCOpsMetrics).executedCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("CLOSED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "closed" ? "ring-2 ring-slate-500 bg-slate-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Closed</p>
+              <p className="text-2xl font-bold text-slate-900">0</p>
+            </button>
+          </>
+        ) : isAdmin ? (
+          // Admin sees: All Requests, Pending, Approved, Rejected, Executed
+          <>
+            <button
+              onClick={() => handleFilterClick("")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">All Requests</p>
+              <p className="text-2xl font-bold text-slate-900">{clientMetrics.totalVisible || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("PENDING")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "pending" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Pending</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).pendingCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("APPROVED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "approved" ? "ring-2 ring-emerald-500 bg-emerald-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Approved</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).approvedCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("REJECTED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "rejected" ? "ring-2 ring-red-500 bg-red-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Rejected</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).rejectedCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("EXECUTED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "executed" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Executed</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).executedCount || 0}</p>
+            </button>
+          </>
+        ) : (
+          // Non-admin approvers see: Assigned, Pending, Approved, Rejected, Executed
+          <>
+            <button
+              onClick={() => handleFilterClick("")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Assigned</p>
+              <p className="text-2xl font-bold text-slate-900">{clientMetrics.totalVisible || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("PENDING")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "pending" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Pending</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).pendingCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("APPROVED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "approved" ? "ring-2 ring-emerald-500 bg-emerald-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Approved</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).approvedCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("REJECTED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "rejected" ? "ring-2 ring-red-500 bg-red-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Rejected</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).rejectedCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("EXECUTED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "executed" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Executed</p>
+              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).executedCount || 0}</p>
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Filters Bar */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -421,9 +630,41 @@ export function ApproverDashboardClient({
                               <Button
                                 variant="ghost"
                                 size="sm"
+                                className="h-8 text-xs text-orange-700 hover:bg-orange-50"
+                                onClick={() => {
+                                  setActiveActionId(req.id);
+                                  setSelectedAction("RETURNED");
+                                  setQuickComments("");
+                                }}
+                                disabled={isPending}
+                                title="Return to draft"
+                              >
+                                <Undo2 className="h-3 w-3 mr-1" />
+                                Return
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-xs text-blue-700 hover:bg-blue-50"
+                                onClick={() => {
+                                  setActiveActionId(req.id);
+                                  setSelectedAction("FORWARDED");
+                                  setForwardLevel((requestLevel || 0) + 1);
+                                  setQuickComments("");
+                                }}
+                                disabled={isPending}
+                                title="Forward to higher level"
+                              >
+                                <ArrowUpRight className="h-3 w-3 mr-1" />
+                                Forward
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 className="h-8 text-xs text-red-700 hover:bg-red-50"
                                 onClick={() => {
                                   setActiveActionId(req.id);
+                                  setSelectedAction("REJECTED");
                                   setQuickComments("");
                                 }}
                                 disabled={isPending}
@@ -443,7 +684,7 @@ export function ApproverDashboardClient({
                               onClick={() => {
                                 // For NEW_VM, show the modal to collect VM details
                                 if (req.requestType === "NEW_VM") {
-                                  openVmExecutionModal(req);
+                                  openProvisionModal(req);
                                 } else {
                                   // For other types (DECOMMISSION, RENEWAL, CUSTOMIZED), execute directly
                                   onQuickExecute(req.id);
@@ -468,17 +709,44 @@ export function ApproverDashboardClient({
                           </Link>
                         </div>
 
-                        {/* ✅ INLINE COMMENT INPUT - Only for actionable rejections */}
-                        {activeActionId === req.id && canShowApprovalButtons && approvalId && (
+                        {/* ✅ INLINE COMMENT INPUT - For Reject/Return/Forward actions */}
+                        {activeActionId === req.id && canShowApprovalButtons && approvalId && selectedAction && (
                           <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
                             <div className="flex items-start gap-2">
-                              <MessageSquare className="h-4 w-4 text-orange-500 mt-1 flex-shrink-0" />
+                              <MessageSquare className={`h-4 w-4 mt-1 flex-shrink-0 ${
+                                selectedAction === "REJECTED" ? "text-red-500" : 
+                                selectedAction === "RETURNED" ? "text-orange-500" : "text-blue-500"
+                              }`} />
                               <div className="flex-1">
+                                {selectedAction === "FORWARDED" && (
+                                  <div className="mb-2 flex items-center gap-2">
+                                    <label className="text-xs font-medium text-slate-600">Forward to Level:</label>
+                                    <select
+                                      className="h-8 px-2 text-sm border border-slate-200 rounded bg-white"
+                                      value={forwardLevel || (requestLevel || 0) + 1}
+                                      onChange={(e) => setForwardLevel(parseInt(e.target.value, 10))}
+                                    >
+                                      {requestLevel && Array.from({ length: 5 - requestLevel }, (_, i) => (
+                                        <option key={i + 1} value={requestLevel + i + 1}>
+                                          Level {requestLevel + i + 1}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
                                 <Textarea
-                                  placeholder="Required: Explain reason for rejection..."
+                                  placeholder={
+                                    selectedAction === "REJECTED" ? "Required: Explain reason for rejection..." :
+                                    selectedAction === "RETURNED" ? "Required: Explain reason for returning to draft..." :
+                                    "Optional: Add comments for forwarding..."
+                                  }
                                   value={quickComments}
                                   onChange={(e) => setQuickComments(e.target.value)}
-                                  className="min-h-[60px] text-sm border-orange-200 focus:border-orange-400"
+                                  className={`min-h-[60px] text-sm ${
+                                    selectedAction === "REJECTED" ? "border-red-200 focus:border-red-400" :
+                                    selectedAction === "RETURNED" ? "border-orange-200 focus:border-orange-400" :
+                                    "border-blue-200 focus:border-blue-400"
+                                  }`}
                                 />
                                 <div className="flex justify-end gap-2 mt-2">
                                   <Button
@@ -486,6 +754,8 @@ export function ApproverDashboardClient({
                                     size="sm"
                                     onClick={() => {
                                       setActiveActionId(null);
+                                      setSelectedAction(null);
+                                      setForwardLevel(null);
                                       setQuickComments("");
                                     }}
                                     disabled={isPending}
@@ -493,15 +763,31 @@ export function ApproverDashboardClient({
                                     Cancel
                                   </Button>
                                   <Button
-                                    variant="destructive"
+                                    variant={selectedAction === "REJECTED" ? "destructive" : "default"}
                                     size="sm"
-                                    onClick={() => onQuickAction(approvalId, entityType, "REJECTED")}
-                                    disabled={isPending || !quickComments.trim()}
+                                    className={
+                                      selectedAction === "RETURNED" ? "bg-orange-600 hover:bg-orange-700" :
+                                      selectedAction === "FORWARDED" ? "bg-blue-600 hover:bg-blue-700" : ""
+                                    }
+                                    onClick={() => {
+                                      if (selectedAction === "FORWARDED" && forwardLevel) {
+                                        onQuickAction(approvalId, entityType, "FORWARDED", forwardLevel);
+                                      } else if (selectedAction === "RETURNED") {
+                                        onQuickAction(approvalId, entityType, "RETURNED");
+                                      } else {
+                                        onQuickAction(approvalId, entityType, "REJECTED");
+                                      }
+                                    }}
+                                    disabled={isPending || (
+                                      (selectedAction === "REJECTED" || selectedAction === "RETURNED") && !quickComments.trim()
+                                    )}
                                   >
                                     {isPending ? (
                                       <Loader2 className="h-4 w-4 animate-spin" />
                                     ) : (
-                                      'Confirm Reject'
+                                      selectedAction === "REJECTED" ? "Confirm Reject" :
+                                      selectedAction === "RETURNED" ? "Confirm Return" :
+                                      `Forward to L${forwardLevel}`
                                     )}
                                   </Button>
                                 </div>
@@ -537,15 +823,16 @@ export function ApproverDashboardClient({
         </div>
       </div>
 
-      {/* VM Execution Modal */}
-      <VmExecutionModal
-        open={vmExecutionModal.open}
-        onOpenChange={(open) => setVmExecutionModal(prev => ({ ...prev, open }))}
-        requestId={vmExecutionModal.requestId}
-        systemName={vmExecutionModal.systemName}
-        quantity={vmExecutionModal.quantity}
-        requestSubdomain={vmExecutionModal.subdomain}
-        onExecute={handleVmExecute}
+      {/* Provision VM Modal */}
+      <ProvisionVMModal
+        open={provisionModal.open}
+        onOpenChange={(open) => setProvisionModal(prev => ({ ...prev, open }))}
+        requestId={provisionModal.requestId}
+        requestQuantity={provisionModal.requestQuantity}
+        existingVmsCount={provisionModal.existingVmsCount}
+        defaultSubdomain={provisionModal.defaultSubdomain}
+        requesterId={provisionModal.requesterId}
+        onSuccess={() => router.refresh()}
       />
     </div>
   );

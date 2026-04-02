@@ -22,9 +22,13 @@ export default function CustomizationRequestsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<CustomizationRequestType | null>(null);
   const [modalMode, setModalMode] = useState<"create" | "view" | "edit">("view");
-  const currentPage = 1;
+  const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const perPage = 10;
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
   const isMounted = useRef(true);
 
   const fetchData = async () => {
@@ -236,7 +240,7 @@ export default function CustomizationRequestsPage() {
             </Card>
           ))}
           <div className="flex justify-center mt-6">
-            <Pagination totalPages={totalPages} />
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} />
           </div>
         </div>
       )}

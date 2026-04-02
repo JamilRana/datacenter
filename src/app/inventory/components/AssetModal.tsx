@@ -11,7 +11,7 @@ import {
   DialogFooter
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Plus, Loader2, Server, Tag } from "lucide-react";
+import { Plus, Loader2, Server, Tag, Cpu, HardDrive, Wifi, Zap } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
@@ -34,10 +34,12 @@ interface AssetModalProps {
 export function AssetModal({ asset, mode = "create" }: AssetModalProps) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [selectedType, setSelectedType] = useState<string>(asset?.type || "SERVER");
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    
     if (mode === "edit" && asset) {
       formData.append("id", asset.id);
     }
@@ -92,8 +94,12 @@ export function AssetModal({ asset, mode = "create" }: AssetModalProps) {
               <Input id="name" name="name" defaultValue={asset?.name} placeholder="Hyp-Node-01" required />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="type">Asset Type</Label>
-              <Select name="type" defaultValue={asset?.type || AssetType.SERVER}>
+              <Label>Asset Type</Label>
+              <Select 
+                name="type" 
+                value={selectedType}
+                onValueChange={(value) => setSelectedType(value)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select type" />
                 </SelectTrigger>
@@ -132,25 +138,117 @@ export function AssetModal({ asset, mode = "create" }: AssetModalProps) {
 
           <hr className="border-slate-100" />
 
-          {/* Type-Specific Specs (Optional) */}
+          {/* Type-Specific Specs */}
           <div className="space-y-4">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <Tag className="h-3 w-3" /> Technical Specifications (Optional)
+              <Tag className="h-3 w-3" /> Technical Specifications
             </h4>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="cpuCores">CPU Cores</Label>
-                <Input id="cpuCores" name="cpuCores" type="number" defaultValue={asset?.cpuCores || ""} />
+            
+            {/* Server-specific fields */}
+            {selectedType === "SERVER" && (
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="cpuCores" className="flex items-center gap-1">
+                    <Cpu className="h-3 w-3" /> CPU Cores
+                  </Label>
+                  <Input id="cpuCores" name="cpuCores" type="number" defaultValue={asset?.cpuCores || ""} placeholder="32" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ramGb" className="flex items-center gap-1">
+                    <HardDrive className="h-3 w-3" /> RAM (GB)
+                  </Label>
+                  <Input id="ramGb" name="ramGb" type="number" defaultValue={asset?.ramGb || ""} placeholder="128" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="storageGb" className="flex items-center gap-1">
+                    <HardDrive className="h-3 w-3" /> Storage (GB)
+                  </Label>
+                  <Input id="storageGb" name="storageGb" type="number" defaultValue={asset?.storageGb || ""} placeholder="2000" />
+                </div>
+                <div className="space-y-2 col-span-3">
+                  <Label htmlFor="graphicsCardModel">Graphics Card Model</Label>
+                  <Input id="graphicsCardModel" name="graphicsCardModel" defaultValue={asset?.graphicsCardModel || ""} placeholder="NVIDIA Quadro P4000" />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="ramGb">RAM (GB)</Label>
-                <Input id="ramGb" name="ramGb" type="number" defaultValue={asset?.ramGb || ""} />
+            )}
+
+            {/* Network device fields */}
+            {(selectedType === "ROUTER" || selectedType === "SWITCH" || selectedType === "FIREWALL") && (
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="interfaces" className="flex items-center gap-1">
+                    <Wifi className="h-3 w-3" /> Interfaces
+                  </Label>
+                  <Input id="interfaces" name="interfaces" type="number" defaultValue={asset?.interfaces || ""} placeholder="48" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="throughputGbps">Throughput (Gbps)</Label>
+                  <Input id="throughputGbps" name="throughputGbps" type="number" step="0.1" defaultValue={asset?.throughputGbps || ""} placeholder="100" />
+                </div>
+                {(selectedType === "ROUTER" || selectedType === "SWITCH") && (
+                  <div className="space-y-2">
+                    <Label htmlFor="vlanSupport">VLAN Support</Label>
+                    <Select name="vlanSupport" defaultValue={asset?.vlanSupport ? "true" : "false"}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="true">Yes</SelectItem>
+                        <SelectItem value="false">No</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="storageGb">Storage (GB)</Label>
-                <Input id="storageGb" name="storageGb" type="number" defaultValue={asset?.storageGb || ""} />
+            )}
+
+            {/* Storage-specific fields */}
+            {(selectedType === "STORAGE" || selectedType === "UPS") && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="capacityTb" className="flex items-center gap-1">
+                    <Zap className="h-3 w-3" /> Capacity (TB)
+                  </Label>
+                  <Input id="capacityTb" name="capacityTb" type="number" step="0.1" defaultValue={asset?.capacityTb || ""} placeholder="10" />
+                </div>
+                {selectedType === "STORAGE" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="noOfDisks">Number of Disks</Label>
+                    <Input id="noOfDisks" name="noOfDisks" type="number" defaultValue={asset?.noOfDisks || ""} placeholder="12" />
+                  </div>
+                )}
               </div>
-            </div>
+            )}
+
+            {/* Console Server */}
+            {selectedType === "CONSOLE_SERVER" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="interfaces" className="flex items-center gap-1">
+                    <Wifi className="h-3 w-3" /> Ports
+                  </Label>
+                  <Input id="interfaces" name="interfaces" type="number" defaultValue={asset?.interfaces || ""} placeholder="16" />
+                </div>
+              </div>
+            )}
+
+            {/* Generic fields for OTHER or fallback */}
+            {selectedType === "OTHER" && (
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="cpuCores">CPU Cores</Label>
+                  <Input id="cpuCores" name="cpuCores" type="number" defaultValue={asset?.cpuCores || ""} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ramGb">RAM (GB)</Label>
+                  <Input id="ramGb" name="ramGb" type="number" defaultValue={asset?.ramGb || ""} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="storageGb">Storage (GB)</Label>
+                  <Input id="storageGb" name="storageGb" type="number" defaultValue={asset?.storageGb || ""} />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -161,6 +259,18 @@ export function AssetModal({ asset, mode = "create" }: AssetModalProps) {
               type="date" 
               defaultValue={asset?.warrantyExpiry ? new Date(asset.warrantyExpiry).toISOString().split('T')[0] : ""} 
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="details">Additional Details (JSON)</Label>
+            <textarea 
+              id="details" 
+              name="details" 
+              className="flex min-h-[80px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+              defaultValue={asset?.details ? JSON.stringify(asset.details, null, 2) : ""}
+              placeholder='{"notes": "Additional info", "rackPosition": "A1"}'
+            />
+            <p className="text-xs text-slate-400">Enter valid JSON for additional type-specific fields</p>
           </div>
 
           <DialogFooter className="bg-white border-t p-6">

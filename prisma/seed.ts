@@ -135,6 +135,44 @@ async function main() {
     ["REQUESTER"]
   );
 
+  // 3. Seed ApprovalWorkflow table
+  console.log("🌱 Seeding approval workflows...");
+
+  const workflows = [
+    // NEW_VM workflow
+    { requestType: "NEW_VM", level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
+    { requestType: "NEW_VM", level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
+    { requestType: "NEW_VM", level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
+    { requestType: "NEW_VM", level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
+
+    // CUSTOMIZED workflow
+    { requestType: "CUSTOMIZED", level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
+    { requestType: "CUSTOMIZED", level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
+    { requestType: "CUSTOMIZED", level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
+    { requestType: "CUSTOMIZED", level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
+
+    // DECOMMISSION workflow
+    { requestType: "DECOMMISSION", level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: true },
+    { requestType: "DECOMMISSION", level: 2, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
+
+    // RENEWAL workflow
+    { requestType: "RENEWAL", level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
+    { requestType: "RENEWAL", level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
+    { requestType: "RENEWAL", level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
+    { requestType: "RENEWAL", level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
+  ];
+
+  for (const wf of workflows) {
+    await prisma.approvalWorkflow.upsert({
+      where: {
+        requestType_level: { requestType: wf.requestType, level: wf.level },
+      },
+      update: {},
+      create: wf,
+    });
+  }
+  console.log("✅ Approval workflows seeded");
+
   console.log("\n🎉 Seeding completed successfully!");
 }
 

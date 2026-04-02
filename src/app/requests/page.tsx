@@ -1,11 +1,11 @@
 // src/app/requests/page.tsx
 "use client";
 import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { RequestList } from "./components/RequestList";
-import { getRequests } from "@/app/actions/request-actions";
+import { getRequests, getRequestStats } from "@/app/actions/request-actions";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
@@ -19,73 +19,134 @@ import { Badge } from "@/components/ui/badge";
 
 type RequestType = "NEW_VM" | "CUSTOMIZED" | "DECOMMISSION";
 
+interface RequestStats {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  byType: Record<string, number>;
+}
+
+const STORAGE_KEY = "requests_page_state";
+
+function getStoredState() {
+  if (typeof window === "undefined") return { tab: "ALL" as RequestType | "ALL", page: 1 };
+  try {
+    const stored = sessionStorage.getItem(STORAGE_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch {}
+  return { tab: "ALL" as RequestType | "ALL", page: 1 };
+}
+
+function saveState(tab: RequestType | "ALL", page: number) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ tab, page }));
+  } catch {}
+}
+
 export default function MyRequestsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [currentPage, setCurrentPage] = useState(() => {
-    const pageParam = searchParams.get("page");
-    return pageParam ? parseInt(pageParam, 10) : 1;
-  });
+  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
   const [requestsData, setRequestsData] = useState<{
     requests: detailsRequest[];
     total: number;
     totalPages: number;
     currentPage: number;
   } | null>(null);
+  const [stats, setStats] = useState<RequestStats>({
+    total: 0, pending: 0, approved: 0, rejected: 0, byType: {}
+  });
   const [activeTab, setActiveTab] = useState<RequestType | "ALL">("ALL");
   const [filters, setFilters] = useState({
     status: "ALL",
-    type: "ALL",
     search: "",
   });
+  const isFirstRender = useRef(true);
+  const initializedRef = useRef(false);
+  const PAGE_SIZE = 10;
 
+  // Initialize from sessionStorage on mount (only once)
   useEffect(() => {
-    if (status === "loading" || !session) return;
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const filterWithType = {
-          ...filters,
-          type: activeTab === "ALL" ? "ALL" : activeTab,
-        };
-        const data = await getRequests(filterWithType, currentPage, 10);
-        setRequestsData({
-          ...data,
-          requests: data.requests as unknown as detailsRequest[]
-        });
-      } catch (err) {
-        console.error("Failed to fetch requests", err);
-      } finally {
-        setLoading(false);
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    
+    const stored = getStoredState();
+    if (stored.tab !== activeTab) setActiveTab(stored.tab);
+    if (stored.page !== currentPage) setCurrentPage(stored.page);
+    
+    setLoading(false);
+  }, [activeTab, currentPage]);
+
+  const fetchingRef = useRef(false);
+
+  const fetchData = useCallback(async () => {
+    if (!session?.user?.id || !initializedRef.current || fetchingRef.current) return;
+    
+    fetchingRef.current = true;
+    setListLoading(true);
+    try {
+      const activeType = activeTab === "ALL" ? undefined : activeTab;
+      const filterWithType = {
+        ...filters,
+        type: activeTab === "ALL" ? "ALL" : activeTab,
+      };
+
+      const [statsRes, requestsRes] = await Promise.all([
+        getRequestStats(activeType),
+        getRequests(filterWithType, currentPage, PAGE_SIZE)
+      ]);
+
+      if (statsRes.success && statsRes.data) {
+        setStats(statsRes.data);
       }
-    };
-    fetchData();
-  }, [session, status, filters, currentPage, activeTab]);
+
+      if (requestsRes.success && requestsRes.data) {
+        setRequestsData({
+          requests: requestsRes.data.requests as unknown as detailsRequest[],
+          total: requestsRes.data.total,
+          totalPages: requestsRes.data.totalPages,
+          currentPage: requestsRes.data.currentPage
+        });
+      }
+    } catch (err) {
+      console.error("Failed to fetch dashboard data", err);
+    } finally {
+      setListLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [session?.user?.id, activeTab, filters, currentPage]);
 
   useEffect(() => {
-    if (currentPage === 1 && !searchParams.toString()) return;
-    const params = new URLSearchParams(searchParams.toString());
-    if (currentPage > 1) {
-      params.set("page", currentPage.toString());
-    } else {
-      params.delete("page");
+    if (status === "loading" || !session?.user?.id || !initializedRef.current) return;
+    fetchData();
+  }, [status, session?.user?.id, fetchData]);
+
+  // Save state to sessionStorage when it changes (but not on first render)
+  useEffect(() => {
+    if (!initializedRef.current || isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
     }
-    router.push(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [currentPage, pathname, router, searchParams]);
+    saveState(activeTab, currentPage);
+  }, [activeTab, currentPage]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleFilterChange = (key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
     setCurrentPage(1);
   };
 
-  const stats = {
-    total: requestsData?.requests?.length || 0,
-    pending: requestsData?.requests?.filter((r) => r.status?.startsWith("PENDING")).length || 0,
-    approved: requestsData?.requests?.filter((r) => r.status === "APPROVED").length || 0,
-    rejected: requestsData?.requests?.filter((r) => r.status === "REJECTED").length || 0,
+  const handleTabChange = (tab: RequestType | "ALL") => {
+    setActiveTab(tab);
+    setCurrentPage(1);
   };
 
   const requestTypeCards = [
@@ -98,7 +159,6 @@ export default function MyRequestsPage() {
       color: "bg-blue-50 border-blue-200 hover:border-blue-400",
       iconBg: "bg-blue-100",
       iconColor: "text-blue-600",
-      count: requestsData?.requests?.filter(r => r.requestType === "NEW_VM").length || 0,
     },
     {
       type: "CUSTOMIZED" as RequestType,
@@ -109,7 +169,6 @@ export default function MyRequestsPage() {
       color: "bg-amber-50 border-amber-200 hover:border-amber-400",
       iconBg: "bg-amber-100",
       iconColor: "text-amber-600",
-      count: requestsData?.requests?.filter(r => r.requestType === "CUSTOMIZED").length || 0,
     },
     {
       type: "DECOMMISSION" as RequestType,
@@ -120,7 +179,6 @@ export default function MyRequestsPage() {
       color: "bg-red-50 border-red-200 hover:border-red-400",
       iconBg: "bg-red-100",
       iconColor: "text-red-600",
-      count: requestsData?.requests?.filter(r => r.requestType === "DECOMMISSION").length || 0,
     },
   ];
 
@@ -218,7 +276,7 @@ export default function MyRequestsPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="text-xs font-bold">
-                      {card.count}
+                      {stats.byType[card.type] || 0}
                     </Badge>
                     <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-1 transition-all" />
                   </div>
@@ -238,7 +296,7 @@ export default function MyRequestsPage() {
       {/* Request Type Tabs */}
       <div className="flex gap-2 border-b border-slate-200 pb-1">
         <button
-          onClick={() => setActiveTab("ALL")}
+          onClick={() => handleTabChange("ALL")}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === "ALL"
               ? "text-indigo-600 border-b-2 border-indigo-600"
@@ -250,7 +308,7 @@ export default function MyRequestsPage() {
         {requestTypeCards.map((card) => (
           <button
             key={card.type}
-            onClick={() => setActiveTab(card.type)}
+            onClick={() => handleTabChange(card.type)}
             className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2 ${
               activeTab === card.type
                 ? "text-indigo-600 border-b-2 border-indigo-600"
@@ -259,7 +317,7 @@ export default function MyRequestsPage() {
           >
             <card.icon className="h-4 w-4" />
             {card.type === "NEW_VM" ? "New VM" : card.type === "CUSTOMIZED" ? "Customize" : "Decommission"}
-            <Badge variant="secondary" className="text-xs">{card.count}</Badge>
+            <Badge variant="secondary" className="text-xs">{stats.byType[card.type] || 0}</Badge>
           </button>
         ))}
       </div>
@@ -301,7 +359,7 @@ export default function MyRequestsPage() {
       </div>
 
       {/* Request List */}
-      {loading ? (
+      {listLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
         </div>
@@ -310,8 +368,17 @@ export default function MyRequestsPage() {
           <RequestList requests={requestsData?.requests || []} />
           {requestsData && requestsData.totalPages > 1 && (
             <div className="mt-6 flex justify-center">
-              <Pagination totalPages={requestsData.totalPages} />
+              <Pagination 
+                currentPage={currentPage} 
+                totalPages={requestsData.totalPages} 
+                onPageChange={handlePageChange}
+              />
             </div>
+          )}
+          {requestsData && requestsData.totalPages === 1 && requestsData.total > 0 && (
+            <p className="text-center text-sm text-slate-500 mt-4">
+              Showing {((currentPage - 1) * PAGE_SIZE) + 1}-{Math.min(currentPage * PAGE_SIZE, requestsData.total)} of {requestsData.total} requests
+            </p>
           )}
         </>
       )}

@@ -37,8 +37,15 @@ export function RequestDetails({
   const fetchRequestData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getDetailedRequest(requestId);
-      setData(res);
+      const response = await getDetailedRequest(requestId);
+      if (!response) {
+        setData(null);
+        return;
+      }
+      // Handle both ApiResponse and raw data for backwards compatibility
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const requestData = (response as any).success ? (response as any).data : response;
+      setData(requestData as detailsRequest | null);
     } catch (error) {
       toast.error(`Failed to load request data: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {

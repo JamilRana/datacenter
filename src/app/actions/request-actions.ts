@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
-import { 
-  Prisma,
+import { uploadBuffer, deleteFile } from "@/lib/services/minio.service";
+import { Prisma,
   ApprovalDecision, 
   ApprovalEntityType,  
   AttachmentType, 
@@ -20,8 +20,9 @@ import {
   Protocol
 } from "@prisma/client";
 import { notifyApprovers } from "@/lib/notifications";
-import { writeFile, mkdir } from "fs/promises";
+import { unlink } from "fs/promises";
 import path from "path";
+import * as fs from "fs";
 import { AdditionalDisk, FirewallPort } from "@/types/requests";
 import { detailsRequest } from "@/types/requests";
 import { ROLES, hasRole } from "@/lib/roles";
@@ -109,14 +110,16 @@ export async function createRequest(formData: FormData) {
 
     // Handle security report upload
     if (securityFile && securityFile.size > 0) {
-      const uploadDir = path.join(process.cwd(), "uploads", requestId);
-      await mkdir(uploadDir, { recursive: true });
-      const filePath = path.join(uploadDir, securityFile.name);
       const buffer = Buffer.from(await securityFile.arrayBuffer());
-      await writeFile(filePath, buffer);
+      const uploadResult = await uploadBuffer(buffer, securityFile.name, `requests/${requestId}`);
+      
+      if (!uploadResult.success) {
+        throw new Error(`Failed to upload security report: ${uploadResult.error}`);
+      }
+      
       attachments.push({
         fileName: securityFile.name,
-        filePath: `/uploads/${requestId}/${securityFile.name}`,
+        filePath: uploadResult.key || "",
         attachmentType: AttachmentType.SECURITY_REPORT,
         uploadedBy: userId,
       });
@@ -124,14 +127,16 @@ export async function createRequest(formData: FormData) {
 
     // Handle justification document upload
     if (justificationFile && justificationFile.size > 0) {
-      const uploadDir = path.join(process.cwd(), "uploads", requestId);
-      await mkdir(uploadDir, { recursive: true });
-      const filePath = path.join(uploadDir, justificationFile.name);
       const buffer = Buffer.from(await justificationFile.arrayBuffer());
-      await writeFile(filePath, buffer);
+      const uploadResult = await uploadBuffer(buffer, justificationFile.name, `requests/${requestId}`);
+      
+      if (!uploadResult.success) {
+        throw new Error(`Failed to upload justification document: ${uploadResult.error}`);
+      }
+      
       attachments.push({
         fileName: justificationFile.name,
-        filePath: `/uploads/${requestId}/${justificationFile.name}`,
+        filePath: uploadResult.key || "",
         attachmentType: AttachmentType.JUSTIFICATION,
         uploadedBy: userId,
       });
@@ -316,14 +321,16 @@ export async function editRequest(formData: FormData) {
 
     // Handle security report upload
     if (securityFile && securityFile.size > 0) {
-      const uploadDir = path.join(process.cwd(), "uploads", requestId);
-      await mkdir(uploadDir, { recursive: true });
-      const filePath = path.join(uploadDir, securityFile.name);
       const buffer = Buffer.from(await securityFile.arrayBuffer());
-      await writeFile(filePath, buffer);
+      const uploadResult = await uploadBuffer(buffer, securityFile.name, `requests/${requestId}`);
+      
+      if (!uploadResult.success) {
+        throw new Error(`Failed to upload security report: ${uploadResult.error}`);
+      }
+      
       attachments.push({
         fileName: securityFile.name,
-        filePath: `/uploads/${requestId}/${securityFile.name}`,
+        filePath: uploadResult.key || "",
         attachmentType: AttachmentType.SECURITY_REPORT,
         uploadedBy: userId,
       });
@@ -331,14 +338,16 @@ export async function editRequest(formData: FormData) {
 
     // Handle justification document upload
     if (justificationFile && justificationFile.size > 0) {
-      const uploadDir = path.join(process.cwd(), "uploads", requestId);
-      await mkdir(uploadDir, { recursive: true });
-      const filePath = path.join(uploadDir, justificationFile.name);
       const buffer = Buffer.from(await justificationFile.arrayBuffer());
-      await writeFile(filePath, buffer);
+      const uploadResult = await uploadBuffer(buffer, justificationFile.name, `requests/${requestId}`);
+      
+      if (!uploadResult.success) {
+        throw new Error(`Failed to upload justification document: ${uploadResult.error}`);
+      }
+      
       attachments.push({
         fileName: justificationFile.name,
-        filePath: `/uploads/${requestId}/${justificationFile.name}`,
+        filePath: uploadResult.key || "",
         attachmentType: AttachmentType.JUSTIFICATION,
         uploadedBy: userId,
       });
@@ -378,6 +387,59 @@ export async function editRequest(formData: FormData) {
       await tx.additionalDisk.deleteMany({ where: { requestId } });
       await tx.firewallPort.deleteMany({ where: { requestId } });
       await tx.networkAccessEntry.deleteMany({ where: { requestId } });
+
+      // Handle removed attachments
+      const rawRemovedAttachments = formData.get("removedAttachments")?.toString();
+      console.log("Raw removed attachments:", rawRemovedAttachments);
+      if (rawRemovedAttachments) {
+        const removedIds = JSON.parse(rawRemovedAttachments) as string[];
+        console.log("Removed IDs:", removedIds);
+        if (removedIds.length > 0) {
+          // Fetch attachments to get file paths before deleting
+          const attachmentsToDelete = await tx.attachment.findMany({
+            where: { id: { in: removedIds } },
+            select: { filePath: true }
+          });
+          
+          // Delete physical files
+          for (const att of attachmentsToDelete) {
+            if (att.filePath) {
+              // Handle various path formats: "/uploads/...", "uploads/...", or MinIO keys
+              const normalizedPath = att.filePath.replace(/^\/uploads\//, "uploads/");
+              
+              if (normalizedPath.startsWith("uploads/")) {
+                // Local file - delete from filesystem
+                const localPath = normalizedPath.replace("uploads/", "");
+                const fullPath = path.join(process.cwd(), "uploads", localPath);
+                try {
+                  if (fs.existsSync(fullPath)) {
+                    await unlink(fullPath);
+                    console.log("Deleted local file:", fullPath);
+                  }
+                } catch (err) {
+                  console.error("Failed to delete local file:", fullPath, err);
+                }
+              } else {
+                // MinIO file - delete from MinIO
+                try {
+                  await deleteFile(normalizedPath);
+                  console.log("Deleted MinIO file:", normalizedPath);
+                } catch (err) {
+                  console.error("Failed to delete MinIO file:", normalizedPath, err);
+                }
+              }
+            }
+          }
+          
+          // Delete from database
+          await tx.attachment.deleteMany({
+            where: {
+              id: { in: removedIds },
+              requestId
+            }
+          });
+        }
+      }
 
       // ✅ CRITICAL FIX: DO NOT include requesterId/developerId in update
       // Prisma automatically preserves existing relation values
@@ -896,7 +958,11 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
     attachments: (request.attachments || []).map((a) => ({
       id: a.id,
       fileName: a.fileName,
-      filePath: a.filePath,
+      filePath: a.filePath 
+        ? a.filePath.startsWith("/uploads") 
+          ? a.filePath.replace("/uploads", "/api/files/uploads")
+          : `/api/files/${a.filePath}`
+        : a.filePath,
       attachmentType: a.attachmentType,
       uploadedBy: a.uploadedBy,
       createdAt: a.createdAt,
@@ -1012,10 +1078,13 @@ export async function getRequests(
   ]);
 
   return {
-    requests: requests.map(r => transformRequestListItem(r)),
-    total,
-    totalPages: Math.ceil(total / pageSize),
-    currentPage: page
+    success: true,
+    data: {
+      requests: requests.map(r => transformRequestListItem(r)),
+      total,
+      totalPages: Math.ceil(total / pageSize),
+      currentPage: page
+    }
   };
 }
 
@@ -1089,3 +1158,40 @@ export async function deleteRequest(requestId: string) {
 }
 
 
+export async function getRequestStats(requestType?: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return { success: false, error: "Unauthorized" };
+
+  const isAdmin = hasRole(session.user.roles, ROLES.ADMIN) || hasRole(session.user.roles, ROLES.DCOPS);
+  const baseWhere: Prisma.RequestWhereInput = {
+    ...(!isAdmin ? { requesterId: session.user.id } : {}),
+    ...(requestType && requestType !== "ALL" ? { requestType: requestType as RequestType } : {}),
+  };
+
+  const [total, pending, approved, rejected, byTypeRaw] = await Promise.all([
+    prisma.request.count({ where: baseWhere }),
+    prisma.request.count({
+      where: {
+        ...baseWhere,
+        status: { in: [RequestStatus.PENDING_L1, RequestStatus.PENDING_L2, RequestStatus.PENDING_L3, RequestStatus.PENDING_L4] },
+      },
+    }),
+    prisma.request.count({ where: { ...baseWhere, status: RequestStatus.APPROVED } }),
+    prisma.request.count({ where: { ...baseWhere, status: RequestStatus.REJECTED } }),
+    prisma.request.groupBy({
+      by: ["requestType"],
+      where: isAdmin ? {} : { requesterId: session.user.id },
+      _count: true,
+    }),
+  ]);
+
+  const byType: Record<string, number> = {};
+  for (const entry of byTypeRaw) {
+    byType[entry.requestType] = entry._count;
+  }
+
+  return {
+    success: true,
+    data: { total, pending, approved, rejected, byType },
+  };
+}

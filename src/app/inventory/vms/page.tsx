@@ -2,22 +2,25 @@
 "use client";
 
 import React from "react";
-import { useRouter } from "next/navigation";
 import { getInventoryMetrics, InventoryMetrics } from "@/app/actions/inventory-actions";
 import { VmListClient } from "@/app/inventory/components/VmListClient";
 import { CapacityDashboardClient } from "@/app/inventory/components/CapacityDashboardClient";
-import { BarChart3, ChevronLeft, Server } from "lucide-react";
+import { BarChart3, ChevronLeft, Server, HardDrive, Activity, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useSession } from "next-auth/react";
 import { fetchAllVms } from "@/app/actions/vm-actions";
 import { useEffect, useState } from "react";
 import { SerializedVmInstance } from "@/types/vm";
 import { ManualVmModal } from "@/app/inventory/components/ManualVmModal";
-import { ROLES } from "@/lib/roles";
 import Link from "next/link";
 import { exportToCsv } from "@/lib/export-utils";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StatCard } from "@/components/analytics/StatCard";
+import { InventoryChart } from "@/components/analytics/InventoryChart";
+import { StatusDistribution } from "@/components/analytics/StatusDistribution";
+import { RecentActivity } from "@/components/analytics/RecentActivity";
+import { fetchVmAnalytics } from "@/app/actions/analytics-actions";
 
 export default function VmInventoryPage({
   searchParams,
@@ -25,37 +28,41 @@ export default function VmInventoryPage({
   searchParams: { page?: string };
 }) {
   const { data: session, status } = useSession();
-  const router = useRouter();
   const [metrics, setMetrics] = useState<InventoryMetrics | null>(null);
   const [vms, setVms] = useState<SerializedVmInstance[]>([]);
   const [loading, setLoading] = useState(true);
+  const [vmAnalytics, setVmAnalytics] = useState<Awaited<ReturnType<typeof fetchVmAnalytics>> | null>(null);
 
   const page = searchParams.page ? parseInt(searchParams.page, 10) : 1;
 
-  useEffect(() => {
-    if (status === "loading") return;
-    if (!session) {
-      router.push("/auth");
-      return;
-    }
+  const fetchingRef = React.useRef(false);
 
+  useEffect(() => {
+    if (status === "loading" || !session?.user?.id) return;
+    
     const fetchVmLists = async () => {
+      if (fetchingRef.current) return;
+      fetchingRef.current = true;
+      
       try {
-        const [metricsRes, vmsData] = await Promise.all([
+        const [metricsRes, vmsData, analytics] = await Promise.all([
           getInventoryMetrics(),
-          fetchAllVms(page)
+          fetchAllVms(page),
+          fetchVmAnalytics()
         ]);
         setMetrics(metricsRes);
         setVms(vmsData.vms);
+        setVmAnalytics(analytics);
       } catch (error) {
         console.error("Failed to fetch VM lists:", error);
       } finally {
         setLoading(false);
+        fetchingRef.current = false;
       }
     };
     
     fetchVmLists();
-  }, [session, status, page, router]);
+  }, [session?.user?.id, status, page]);
 
   if (status === "loading" || loading) {
     return (
@@ -71,12 +78,13 @@ export default function VmInventoryPage({
 
   if (!session) return null;
 
-  const userRoles = session.user.roles;
+  const userRoles = session.user.roles || [];
   const isManagement = userRoles.some(r => 
-    ["ADMIN", ROLES.DCOPS, "APPROVER_L1", "APPROVER_L2", "APPROVER_L3"].includes(r)
+    ["ADMIN", "DC_OPS", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3", "APPROVER_L4"].includes(r.toUpperCase())
   );
-  
-  const canAddManually = userRoles.includes("ADMIN") || userRoles.includes(ROLES.DCOPS);
+  const canAddManually = userRoles.some(r => 
+    ["ADMIN", "DC_OPS"].includes(r.toUpperCase())
+  );
 
   const handleExport = () => {
     const exportData = vms.map(vm => ({
@@ -103,7 +111,7 @@ export default function VmInventoryPage({
       <nav className="flex items-center gap-2 text-sm text-slate-500">
         <Link href="/inventory" className="hover:text-indigo-600 flex items-center gap-1">
           <ChevronLeft className="h-4 w-4" />
-          Inventory Hub
+          Inventory Hub 
         </Link>
         <span>/</span>
         <span className="text-slate-900 font-medium">VM Instances</span>
@@ -158,7 +166,123 @@ export default function VmInventoryPage({
         />
       </div>
 
-      {metrics && isManagement && (
+      {/* Analytics Dashboard - Only for Admin/DCOPS */}
+      {vmAnalytics && (
+        <div className="space-y-6">
+          {/* Analytics Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <StatCard
+              title="Total VMs"
+              value={vmAnalytics.summary.total}
+              icon={Server}
+              description="All VM instances"
+            />
+            <StatCard
+              title="Active"
+              value={vmAnalytics.summary.active}
+              icon={Activity}
+              description="Running VMs"
+            />
+            <StatCard
+              title="Suspended"
+              value={vmAnalytics.summary.suspended}
+              icon={Zap}
+              description="Suspended VMs"
+            />
+            <StatCard
+              title="Retired"
+              value={vmAnalytics.summary.retired}
+              icon={HardDrive}
+              description="Decommissioned VMs"
+            />
+          </div>
+
+          {/* Analytics Charts */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <InventoryChart
+              title="VMs by Owner"
+              type="bar"
+              data={vmAnalytics.byOwner.map(d => ({ name: d.ownerName, value: d.count }))}
+            />
+            <InventoryChart
+              title="VMs by Domain"
+              type="pie"
+              data={vmAnalytics.byDomain.map(d => ({ name: d.subdomain, value: d.count }))}
+            />
+            <InventoryChart
+              title="VMs by Status"
+              type="bar"
+              data={vmAnalytics.byStatus.map(d => ({ name: d.status, value: d.count }))}
+            />
+            <StatusDistribution
+              title="VM Status Distribution"
+              data={vmAnalytics.byStatus.map(s => ({
+                status: s.status,
+                count: s.count,
+                color: s.status === "ACTIVE" ? "#22c55e" : s.status === "SUSPENDED" ? "#f97316" : "#64748b"
+              }))}
+            />
+          </div>
+
+          {/* Resource Allocation Charts */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="md:col-span-1">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">CPU Allocation by Owner</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <InventoryChart
+                  title=""
+                  type="bar"
+                  data={vmAnalytics.resourceAllocation.map(d => ({ name: d.ownerName, value: d.totalCpu }))}
+                />
+              </CardContent>
+            </Card>
+            <Card className="md:col-span-1">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">RAM Allocation by Owner (GB)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <InventoryChart
+                  title=""
+                  type="bar"
+                  data={vmAnalytics.resourceAllocation.map(d => ({ name: d.ownerName, value: d.totalRam }))}
+                />
+              </CardContent>
+            </Card>
+            <Card className="md:col-span-1">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Storage Allocation by Owner (GB)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <InventoryChart
+                  title=""
+                  type="bar"
+                  data={vmAnalytics.resourceAllocation.map(d => ({ name: d.ownerName, value: d.totalStorage }))}
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Recent Activity */}
+          {vmAnalytics.recentActivity && vmAnalytics.recentActivity.length > 0 && (
+            <RecentActivity
+              title="Recent VM Activity"
+              activities={vmAnalytics.recentActivity.map(a => ({
+                id: a.id,
+                action: a.action,
+                entityType: a.entityType,
+                entityId: a.entityId,
+                actorName: a.actorName,
+                details: a.details,
+                createdAt: a.createdAt,
+              }))}
+            />
+          )}
+        </div>
+   )}
+
+      {metrics && (
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="bg-slate-50 border-b">
             <div className="flex items-center gap-2">

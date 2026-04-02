@@ -66,6 +66,14 @@ export interface PhysicalAsset {
   cpuCores: number | null;
   ramGb: number | null;
   storageGb: number | null;
+  graphicsCardModel: string | null;
+  graphicsCardSpec: string | null;
+  interfaces: number | null;
+  throughputGbps: number | null;
+  vlanSupport: boolean | null;
+  capacityTb: number | null;
+  noOfDisks: number | null;
+  details: Record<string, unknown> | null;
   createdAt: string | Date;
   warrantyExpiry: Date | string | null;
 }

@@ -21,7 +21,7 @@ export function Navbar() {
   const isDCOPSorAdmin = hasRole(ROLES.DCOPS) || hasRole(ROLES.ADMIN);
   const isRequester = hasRole(ROLES.REQUESTER);
   const isDeveloper = hasRole(ROLES.DEVELOPER);
-  const canCreateRequest = isRequester || isDeveloper;
+  const canCreateRequest = isRequester || isDeveloper || isDCOPSorAdmin;
 
   const isActive = (path: string) => {
     if (path === "/" && pathname === "/") return true;

@@ -65,4 +65,7 @@ export interface DashboardRequest {
   requester: Requester | null;
   targetVm?: { hostname: string | null } | null;
   approvals?: Approval[];
+  quantity?: number;
+  vmInstances?: { length: number };
+  subdomain?: string | null;
 }

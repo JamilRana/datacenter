@@ -5,14 +5,18 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { RequestDetails } from "@/app/requests/components/RequestDetail";
 import { ApprovalPanel } from "../components/ApprovalPanel";
+import { ProvisionVMModal } from "../components/ProvisionVMModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Timeline } from "../components/Timeline";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { detailsRequest } from "@/types/requests";
 import { getDetailedRequest } from "@/app/actions/request-actions";
 import { CustomizationRequest } from "@/types/customization";
 import { getCustomizationRequest } from "@/app/actions/customization-actions";
 import { CustomizationRequestDetails } from "@/app/requests/customize/components/CustomizationRequestDetails";
+import { Server } from "lucide-react";
+import { ROLES } from "@/lib/roles";
 
 type EntityType = "request" | "customization";
 
@@ -23,9 +27,18 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
   const [customizationRequest, setCustomizationRequest] = useState<CustomizationRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showProvisionModal, setShowProvisionModal] = useState(false);
   
   // ✅ GET ENTITY TYPE FROM QUERY PARAM (avoids double fetch)
   const entityType = (searchParams.get("type") as EntityType) || null;
+  
+  const userRoles = session?.user?.roles || [];
+  const isDCOps = userRoles.includes(ROLES.DCOPS) || userRoles.includes(ROLES.ADMIN);
+  
+  const requestStatus = request?.status;
+  const canProvision = isDCOps && 
+    (requestStatus === "APPROVED" || requestStatus === "PARTIALLY_PROVISIONED") &&
+    entityType === "request";
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -48,9 +61,13 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
 
         // ✅ SINGLE FETCH BASED ON TYPE
         if (entityType === "request") {
-          const data = await getDetailedRequest(params.id);
+          const response = await getDetailedRequest(params.id);
+          if (!response) throw new Error("Request not found");
+          // Handle both ApiResponse and raw data for backwards compatibility
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const data = (response as any).success ? (response as any).data : response;
           if (!data) throw new Error("Request not found");
-          setRequest(data);
+          setRequest(data as detailsRequest);
           setCustomizationRequest(null);
         } else if (entityType === "customization") {
           const data = await getCustomizationRequest(params.id);
@@ -100,6 +117,12 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
           </div>
           <p className="text-slate-500">ID: {params.id}</p>
         </div>
+        {canProvision && (
+          <Button onClick={() => setShowProvisionModal(true)}>
+            <Server className="h-4 w-4 mr-2" />
+            Provision VMs
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -167,6 +190,23 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
         <ApprovalPanel
           approvals={displayRequest?.approvals || displayCustomization?.approvals || []}
           requestType={isCustomization ? "CUSTOMIZED" : displayRequest?.requestType}
+        />
+      )}
+
+      {/* Provision VM Modal */}
+      {showProvisionModal && request && (
+        <ProvisionVMModal
+          open={showProvisionModal}
+          onOpenChange={setShowProvisionModal}
+          requestId={request.id}
+          requestQuantity={request.quantity}
+          existingVmsCount={request.vmInstances?.length || 0}
+          defaultSubdomain={request.subdomain || ""}
+          requesterId={request.requesterId}
+          onSuccess={() => {
+            // Refresh the page to show updated data
+            window.location.reload();
+          }}
         />
       )}
     </div>

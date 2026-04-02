@@ -15,7 +15,7 @@ import { ArrowUp, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { 
   handleApprovalDecision, 
-  forwardToDirector 
+  forwardToLevel 
 } from "@/app/actions/approval-actions";
 import { Approval } from "@/types/approvals";
 import { useSession } from "next-auth/react";
@@ -89,8 +89,10 @@ export function ApprovalPanel({
     
     setLoading(true);
     try {
-      const result = await forwardToDirector(
+      const targetLevel = (activeApproval.level || 0) + 1;
+      const result = await forwardToLevel(
         activeApproval.id, 
+        targetLevel,
         forwardComments.trim()
       );
       

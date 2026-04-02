@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
+import { getAttachmentUrl } from "@/app/actions/file-actions";
 import {
   Upload,
   Plus,
@@ -87,6 +88,35 @@ export function RequestForm({
     securityReport?: { id: string; fileName: string; filePath: string };
     justification?: { id: string; fileName: string; filePath: string };
   }>({});
+  const [attachmentUrls, setAttachmentUrls] = useState<{
+    securityReport?: string;
+    justification?: string;
+  }>({});
+  const [removedAttachments, setRemovedAttachments] = useState<string[]>([]);
+  const [draftSaved, setDraftSaved] = useState(false);
+  const [formValid, setFormValid] = useState(false);
+
+  // Required fields to validate
+  const requiredFields = [
+    "systemName",
+    "purpose", 
+    "environment",
+    "osName",
+    "osVersion",
+    "subDomain",
+  ];
+
+  const checkFormValidity = () => {
+    const form = formRef.current;
+    if (!form) return;
+
+    const formData = new FormData(form);
+    const isValid = requiredFields.every(field => {
+      const value = formData.get(field);
+      return value && String(value).trim() !== "";
+    });
+    setFormValid(isValid);
+  };
 
   // Hardware values
   const [vcpuValue, setVcpuValue] = useState<string>("2");
@@ -96,7 +126,6 @@ export function RequestForm({
   // Controlled values
   const [environment, setEnvironment] = useState<string>("PRODUCTION");
   const [raid, setRaid] = useState<string>("NONE");
-  const [sslProvider, setSslProvider] = useState<string>("MIS");
   const [requiredPublicIP, setRequiredPublicIP] = useState<boolean>(false);
   const [vpnRequired, setVpnRequired] = useState<boolean>(false);
   const [renewalRequired, setRenewalRequired] = useState<boolean>(false);
@@ -125,7 +154,6 @@ export function RequestForm({
 
       if (prefillData.environment) setEnvironment(prefillData.environment.toString());
       if (prefillData.raid) setRaid(prefillData.raid.toString());
-      if (prefillData.sslProvider) setSslProvider(prefillData.sslProvider.toString());
       if (prefillData.requiredPublicIP !== undefined) setRequiredPublicIP(!!prefillData.requiredPublicIP);
       if (prefillData.vpnRequired !== undefined) setVpnRequired(!!prefillData.vpnRequired);
       if (prefillData.renewalRequired !== undefined) setRenewalRequired(!!prefillData.renewalRequired);
@@ -137,6 +165,11 @@ export function RequestForm({
     }
   }, [prefillData, isDeveloper, userId]);
 
+  // Check form validity on mount and on input changes
+  useEffect(() => {
+    checkFormValidity();
+  }, [prefillData, isEditing]);
+
   // Load prefill data
   useEffect(() => {
     const loadCopyData = async () => {
@@ -146,17 +179,25 @@ export function RequestForm({
       }
 
       try {
-        let data: detailsRequest | null = null;
+        let requestData: detailsRequest | null = null;
         if (copyFrom) {
-          data = await getDetailedRequest(copyFrom);
+          const response = await getDetailedRequest(copyFrom);
+          if (response) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            requestData = (response as any).success ? (response as any).data ?? null : response;
+          }
         } else if (isEditing && editId) {
-          data = await getDetailedRequest(editId);
+          const response = await getDetailedRequest(editId);
+          if (response) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            requestData = (response as any).success ? (response as any).data ?? null : response;
+          }
         }
-        setPrefillData(data || null);
+        setPrefillData(requestData);
 
-        if (data) {
+        if (requestData) {
            setAdditionalDisks(
-             data?.additionalDisks?.map(d => ({
+             requestData?.additionalDisks?.map(d => ({
                sequence: d.sequence,
                sizeGb: d.sizeGb,
                purpose: d.purpose || "",
@@ -164,7 +205,7 @@ export function RequestForm({
            );
 
            setFirewallPorts(
-             data?.firewallPorts?.map(p => ({
+             requestData?.firewallPorts?.map(p => ({
                port: p.port,
                protocol: p.protocol || Protocol.TCP,
                purpose: p.purpose || "",
@@ -172,17 +213,27 @@ export function RequestForm({
              })) || [{ port: 80, protocol: Protocol.TCP, purpose: "HTTP", source: "" }]
            );
 
-           setNetworkAccess(data?.networkAccess?.map(n => n.accessType) || ["LOCAL"]);
+            setNetworkAccess(requestData?.networkAccess?.map((n: { accessType: string }) => n.accessType) || ["LOCAL"]);
 
-           // Load existing attachments
-           const attachments = data.attachments || [];
-           const securityRep = attachments.find(a => a.attachmentType === "SECURITY_REPORT");
-           const justification = attachments.find(a => a.attachmentType === "JUSTIFICATION");
-           setExistingAttachments({
-             securityReport: securityRep ? { id: securityRep.id, fileName: securityRep.fileName, filePath: securityRep.filePath } : undefined,
-             justification: justification ? { id: justification.id, fileName: justification.fileName, filePath: justification.filePath } : undefined,
-           });
-         }
+            // Load existing attachments
+            const attachments = requestData?.attachments || [];
+            const securityRep = attachments.find((a: { attachmentType: string }) => a.attachmentType === "SECURITY_REPORT");
+            const justification = attachments.find((a: { attachmentType: string }) => a.attachmentType === "JUSTIFICATION");
+            setExistingAttachments({
+              securityReport: securityRep ? { id: securityRep.id, fileName: securityRep.fileName, filePath: securityRep.filePath } : undefined,
+              justification: justification ? { id: justification.id, fileName: justification.fileName, filePath: justification.filePath } : undefined,
+            });
+
+            // Fetch attachment URLs from MinIO
+            if (securityRep?.filePath) {
+              const url = await getAttachmentUrl(securityRep.filePath);
+              setAttachmentUrls(prev => ({ ...prev, securityReport: url }));
+            }
+            if (justification?.filePath) {
+              const url = await getAttachmentUrl(justification.filePath);
+              setAttachmentUrls(prev => ({ ...prev, justification: url }));
+            }
+          }
 
          setSecurityReport(null);
          setJustificationDoc(null);
@@ -258,6 +309,12 @@ export function RequestForm({
     formData.append("vaReportSubmitted", securityReport ? "true" : "false");
     formData.append("justificationSubmitted", justificationDoc ? "true" : "false");
 
+    // Removed attachments
+    console.log("Submitting - removedAttachments:", removedAttachments);
+    if (removedAttachments.length > 0) {
+      formData.append("removedAttachments", JSON.stringify(removedAttachments));
+    }
+
     // ✅ AUTO-FILL DEVELOPER INFO FOR DEVELOPERS (schema has flat fields + relation)
     if (isDeveloper && session?.user) {
       formData.set("developerName", session.user.name || "");
@@ -281,7 +338,21 @@ export function RequestForm({
       const result = await response.json();
       if (response.ok) {
         toast.success(`Request ${submitType === "submit" ? "submitted for approval" : "saved as draft"}!`);
-        window.location.href = "/requests";
+        
+        if (submitType === "draft") {
+          // Mark draft as saved, enable submit button
+          setDraftSaved(true);
+          // If editing existing, reload to show saved state
+          if (isEditing) {
+            window.location.reload();
+          } else {
+            // Clear form for new request after saving draft
+            formRef.current?.reset();
+          }
+        } else {
+          // Submit - stay on page
+          window.location.reload();
+        }
       } else {
         toast.error(result.error || "Submission failed");
       }
@@ -309,6 +380,7 @@ export function RequestForm({
       ref={formRef}
       key={copyFrom || "new-request"}
       className="max-w-6xl mx-auto space-y-10 pb-28"
+      onChange={checkFormValidity}
     >
       {/* Prefill Banner */}
       {copyFrom && (
@@ -426,7 +498,7 @@ export function RequestForm({
         <CardHeader className="bg-slate-50/70 border-b border-slate-300">
           <div className="flex items-center gap-2">
             <Code className="w-5 h-5 text-purple-600" />
-            <CardTitle className="text-base text-slate-700">Technology Stack</CardTitle>
+            <CardTitle className="text-base text-slate-700">Technology Stack *</CardTitle>
           </div>
         </CardHeader>
         <CardContent className="space-y-4 pt-4">
@@ -484,7 +556,7 @@ export function RequestForm({
         <CardContent className="pt-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* ✅ REQUESTER = RESPONSIBLE PERSON (auto-set, no manual input) */}
           <div>
-            <Label className="font-medium mb-3 block">Developer</Label>
+            <Label className="font-medium mb-3 block">Developer *</Label>
             <div className="space-y-3">
               <Input
                 name="developerName"
@@ -743,6 +815,7 @@ export function RequestForm({
               <Input
                 name="subdomain"
                 placeholder="e.g., app.example.com"
+		required
                 defaultValue={getDefaultValue(prefillData?.subdomain, "")}
               />
             </div>
@@ -869,26 +942,6 @@ export function RequestForm({
               />
             </div>
 
-            {/* SSL */}
-            <div className="pt-4">
-              <div className="mt-2">
-                <Select
-                  name="sslProvider"
-                  value={sslProvider}
-                  onValueChange={setSslProvider}
-                >
-                  <Label>SSL Provider</Label>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="REQUESTER">Requester</SelectItem>
-                    <SelectItem value="MIS">MIS</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
             {/* Firewall Ports */}
             <div className="pt-4">
               <Label>Firewall Port Requirements</Label>
@@ -984,7 +1037,7 @@ export function RequestForm({
           <CardContent className="pt-6 space-y-6">
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Security Assessment (Software Testing Report) *</Label>
+                <Label>Security Assessment (Software Testing Report)</Label>
                 {existingAttachments.securityReport && (
                   <div className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-200 mb-2">
                     <div className="flex items-center gap-2">
@@ -992,14 +1045,34 @@ export function RequestForm({
                       <span className="text-sm text-emerald-700">{existingAttachments.securityReport.fileName}</span>
                       <span className="text-xs text-emerald-500">(uploaded)</span>
                     </div>
-                    <a 
-                      href={existingAttachments.securityReport.filePath} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-xs text-emerald-600 hover:text-emerald-800 underline"
-                    >
-                      View
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <a 
+                        href={attachmentUrls.securityReport || existingAttachments.securityReport.filePath} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-xs text-emerald-600 hover:text-emerald-800 underline"
+                      >
+                        View
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const id = existingAttachments.securityReport?.id;
+                          console.log("Remove clicked, id:", id);
+                          if (id) {
+                            setRemovedAttachments(prev => {
+                              console.log("New removedAttachments:", [...prev, id]);
+                              return [...prev, id];
+                            });
+                          }
+                          setExistingAttachments(prev => ({ ...prev, securityReport: undefined }));
+                          setAttachmentUrls(prev => ({ ...prev, securityReport: undefined }));
+                        }}
+                        className="text-xs text-red-500 hover:text-red-700"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div className="flex items-center gap-3 border-2 border-dashed border-slate-300 rounded-lg p-4 bg-slate-50">
@@ -1023,14 +1096,34 @@ export function RequestForm({
                       <span className="text-sm text-blue-700">{existingAttachments.justification.fileName}</span>
                       <span className="text-xs text-blue-500">(uploaded)</span>
                     </div>
-                    <a 
-                      href={existingAttachments.justification.filePath} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:text-blue-800 underline"
-                    >
-                      View
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <a 
+                        href={attachmentUrls.justification || existingAttachments.justification.filePath} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:text-blue-800 underline"
+                      >
+                        View
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const id = existingAttachments.justification?.id;
+                          console.log("Remove clicked, id:", id);
+                          if (id) {
+                            setRemovedAttachments(prev => {
+                              console.log("New removedAttachments:", [...prev, id]);
+                              return [...prev, id];
+                            });
+                          }
+                          setExistingAttachments(prev => ({ ...prev, justification: undefined }));
+                          setAttachmentUrls(prev => ({ ...prev, justification: undefined }));
+                        }}
+                        className="text-xs text-red-500 hover:text-red-700"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div className="flex items-center gap-3 border border-slate-300 rounded-lg p-2">
@@ -1089,19 +1182,19 @@ export function RequestForm({
         <Button
           variant="outline"
           size="lg"
-          disabled={isSubmitting}
+          disabled={isSubmitting || !formValid}
           type="button"
           onClick={() => handleSubmit("draft")}
         >
           Save as Draft
         </Button>
         
-        {/* ✅ ONLY SHOW SUBMIT BUTTON TO REQUESTERS */}
+        {/* ✅ ONLY SHOW SUBMIT BUTTON TO REQUESTERS - Enable after draft saved or when editing */}
         {!isDeveloper && (
           <Button
             size="lg"
             className="bg-blue-600 hover:bg-blue-700 px-10"
-            disabled={isSubmitting}
+            disabled={isSubmitting || (!isEditing && !draftSaved)}
             type="button"
             onClick={() => handleSubmit("submit")}
           >

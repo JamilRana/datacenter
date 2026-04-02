@@ -17,7 +17,8 @@ export async function fetchDashboardData(
   userRoles: string[], 
   isAdmin: boolean,
   page: number = 1,
-  pageSize: number = 20
+  pageSize: number = 20,
+  decisionFilter?: "PENDING" | "APPROVED" | "REJECTED" | "EXECUTED"
 ) {
   const skip = (page - 1) * pageSize;
 
@@ -43,64 +44,300 @@ export async function fetchDashboardData(
   // ✅ DEFINE FILTERING LOGIC
   // Admins see everything in target statuses
   // DCOps see everything in APPROVED status
-  // Approvers see ONLY what is assigned to them
+  // Approvers see ONLY what is assigned to them (matching their level)
   
+  const levelMapping: Record<string, number> = {
+    "APPROVER_L1": 1,
+    "APPROVER_L2": 2,
+    "APPROVER_L3": 3,
+    [ROLES.L4_APPROVER]: 4,
+  };
+  
+  const userApprovalLevels = userRoles
+    .map(role => levelMapping[role])
+    .filter((lvl): lvl is number => lvl !== undefined);
+
+  // Admins see everything - regardless of also having approver role
+  const isAdminUser = userRoles.includes(ROLES.ADMIN);
+  const isDCOps = userRoles.includes(ROLES.DCOPS);
+
+  console.log("User roles:", userRoles);
+  console.log("User approval levels:", userApprovalLevels);
+  console.log("Is admin:", isAdminUser);
+  console.log("Is DCOPS:", isDCOps);
+
   let requestWhere: Prisma.RequestWhereInput;
-  if (isAdmin) {
-    requestWhere = { status: { in: pendingRequestStatuses as RequestStatus[] } };
-  } else {
+  if (isAdminUser) {
+    // Admins see everything (all non-draft requests)
+    requestWhere = { status: { not: RequestStatus.DRAFT } };
+  } else if (isDCOps) {
+    // DCOPS see approved (pending provisioning) and provisioned requests
     const orConditions: Prisma.RequestWhereInput[] = [
-      { 
-        status: { in: pendingRequestStatuses.filter(s => s !== RequestStatus.APPROVED && s !== RequestStatus.PROVISIONED) as RequestStatus[] },
-        approvals: { some: { approverId: userId, decision: ApprovalDecision.PENDING } }
-      }
+      { status: RequestStatus.APPROVED },
+      { status: RequestStatus.PROVISIONED },
+      { status: RequestStatus.PARTIALLY_PROVISIONED },
+      { status: RequestStatus.CLOSED },
     ];
-    if (userRoles.includes(ROLES.DCOPS)) {
-      orConditions.push({ status: { in: [RequestStatus.APPROVED, RequestStatus.PROVISIONED] } });
-    }
     requestWhere = { OR: orConditions };
+  } else if (userApprovalLevels.length > 0) {
+    // For approvers (even if they also have admin), show only their level
+    const orConditions: Prisma.RequestWhereInput[] = [];
+    
+    for (const level of userApprovalLevels) {
+      const pendingStatus = `PENDING_L${level}` as RequestStatus;
+      orConditions.push({
+        status: pendingStatus,
+        approvals: { 
+          some: { 
+            approverId: userId, 
+            decision: ApprovalDecision.PENDING,
+            level: level
+          } 
+        }
+      });
+    }
+    
+    // DCOps can also see approved/provisioned requests
+    if (userRoles.includes(ROLES.DCOPS)) {
+      orConditions.push({ status: { in: [RequestStatus.APPROVED, RequestStatus.PROVISIONED, RequestStatus.PARTIALLY_PROVISIONED] } });
+    }
+    
+    requestWhere = { OR: orConditions };
+  } else if (isDCOps) {
+    // DCOPS see approved/provisioned/closed requests
+    const orConditions: Prisma.RequestWhereInput[] = [
+      { status: RequestStatus.APPROVED },
+      { status: RequestStatus.PROVISIONED },
+      { status: RequestStatus.PARTIALLY_PROVISIONED },
+      { status: RequestStatus.CLOSED },
+    ];
+    requestWhere = { OR: orConditions };
+  } else {
+    // No approval roles - fallback
+    requestWhere = { status: { in: [] } };
   }
 
   let customizationWhere: Prisma.CustomizationRequestWhereInput;
-  if (isAdmin) {
-    customizationWhere = { status: { in: pendingCustomizationStatuses as CustomizationStatus[] } };
-  } else {
+  if (isAdminUser) {
+    // Admins see everything (all non-draft customizations)
+    customizationWhere = { 
+      status: { not: CustomizationStatus.DRAFT },
+      ...(decisionFilter && { approvals: { some: { decision: decisionFilter as ApprovalDecision } } })
+    };
+  } else if (isDCOps) {
+    // DCOPS see approved/applied customizations
     const orConditions: Prisma.CustomizationRequestWhereInput[] = [
-      { 
-        status: { in: pendingCustomizationStatuses.filter(s => s !== CustomizationStatus.APPROVED && s !== CustomizationStatus.APPLIED) as CustomizationStatus[] },
-        approvals: { some: { approverId: userId, decision: ApprovalDecision.PENDING } }
-      }
+      { status: CustomizationStatus.APPROVED },
+      { status: CustomizationStatus.APPLIED },
     ];
+    customizationWhere = { OR: orConditions };
+  } else if (userApprovalLevels.length > 0) {
+    // For approvers, only show requests at their approval level
+    const orConditions: Prisma.CustomizationRequestWhereInput[] = [];
+    
+    for (const level of userApprovalLevels) {
+      const pendingStatus = `PENDING_L${level}` as CustomizationStatus;
+      orConditions.push({
+        status: pendingStatus,
+        approvals: { 
+          some: { 
+            approverId: userId, 
+            decision: ApprovalDecision.PENDING,
+            level: level
+          } 
+        }
+      });
+    }
+    
+    // DCOps can also see approved/applied customizations
     if (userRoles.includes(ROLES.DCOPS)) {
       orConditions.push({ status: { in: [CustomizationStatus.APPROVED, CustomizationStatus.APPLIED] } });
     }
+    
     customizationWhere = { OR: orConditions };
+  } else {
+    // No approval roles - fallback
+    customizationWhere = { status: { in: [] } };
   }
 
-  // ✅ CORRECT ENUM USAGE FOR EACH MODEL
+  // ✅ Apply status filter (not decision filter) to match MetricCard links
+  // The filter param ?filter=PENDING should filter by request status
+  let statusFilter: RequestStatus[] | undefined;
+  let customizationStatusFilter: CustomizationStatus[] | undefined;
+  
+  if (decisionFilter === "PENDING") {
+    statusFilter = pendingRequestStatuses as RequestStatus[];
+    customizationStatusFilter = pendingCustomizationStatuses as CustomizationStatus[];
+  } else if (decisionFilter === "APPROVED") {
+    statusFilter = [RequestStatus.APPROVED, RequestStatus.PROVISIONED, RequestStatus.PARTIALLY_PROVISIONED];
+    customizationStatusFilter = [CustomizationStatus.APPROVED, CustomizationStatus.APPLIED];
+  } else if (decisionFilter === "REJECTED") {
+    statusFilter = [RequestStatus.REJECTED];
+    customizationStatusFilter = [CustomizationStatus.REJECTED];
+  } else if (decisionFilter === "EXECUTED") {
+    statusFilter = [RequestStatus.PROVISIONED, RequestStatus.PARTIALLY_PROVISIONED, RequestStatus.CLOSED];
+    customizationStatusFilter = [CustomizationStatus.APPLIED];
+  }
+
+  // Build the WHERE clause for the list (respects filter)
+  let listRequestWhere = { ...requestWhere };
+  let listCustomizationWhere = { ...customizationWhere };
+  
+  if (statusFilter) {
+    if (isAdminUser) {
+      listRequestWhere = { status: { in: statusFilter } };
+    } else if (isDCOps) {
+      // DCOPS see approved/provisioned/closed regardless of filter
+      listRequestWhere = { status: { in: statusFilter } };
+    } else {
+      const orConditions: Prisma.RequestWhereInput[] = [];
+      
+      // For non-admin, filter based on user's approval levels + DCOPS execution rights
+      if (statusFilter) {
+        const pendingStatuses = statusFilter.filter(s => 
+          s !== RequestStatus.APPROVED && 
+          s !== RequestStatus.PROVISIONED && 
+          s !== RequestStatus.PARTIALLY_PROVISIONED
+        );
+        const executedStatusesFilter = statusFilter.filter(s => 
+          s === RequestStatus.APPROVED || 
+          s === RequestStatus.PROVISIONED || 
+          s === RequestStatus.PARTIALLY_PROVISIONED
+        );
+        
+        if (pendingStatuses.length > 0) {
+          // Filter by user's approval levels
+          const levelConditions: Prisma.RequestWhereInput[] = [];
+          for (const level of userApprovalLevels) {
+            levelConditions.push({
+              status: `PENDING_L${level}` as RequestStatus,
+              approvals: { 
+                some: { 
+                  approverId: userId, 
+                  decision: ApprovalDecision.PENDING,
+                  level: level
+                } 
+              }
+            });
+          }
+          orConditions.push({ OR: levelConditions });
+        }
+        if (executedStatusesFilter.length > 0) {
+          orConditions.push({ status: { in: executedStatusesFilter } });
+        }
+      }
+      listRequestWhere = orConditions.length > 0 ? { OR: orConditions } : requestWhere;
+      console.log("List Request Where:", JSON.stringify(listRequestWhere));
+    }
+  }
+
+  if (customizationStatusFilter) {
+    if (isAdminUser) {
+      listCustomizationWhere = { status: { in: customizationStatusFilter } };
+    } else {
+      const orConditions: Prisma.CustomizationRequestWhereInput[] = [];
+      
+      const pendingStatuses = customizationStatusFilter.filter(s => 
+        s !== CustomizationStatus.APPROVED && s !== CustomizationStatus.APPLIED
+      );
+      const executedStatusesFilter = customizationStatusFilter.filter(s => 
+        s === CustomizationStatus.APPROVED || s === CustomizationStatus.APPLIED
+      );
+      
+        if (pendingStatuses.length > 0) {
+          // Filter by user's approval levels
+          const levelConditions: Prisma.CustomizationRequestWhereInput[] = [];
+          for (const level of userApprovalLevels) {
+            levelConditions.push({
+              status: `PENDING_L${level}` as CustomizationStatus,
+              approvals: { 
+                some: { 
+                  approverId: userId, 
+                  decision: ApprovalDecision.PENDING,
+                  level: level
+                } 
+              }
+            });
+          }
+          orConditions.push({ OR: levelConditions });
+        }
+      if (executedStatusesFilter.length > 0) {
+        orConditions.push({ status: { in: executedStatusesFilter } });
+      }
+      
+      listCustomizationWhere = orConditions.length > 0 ? { OR: orConditions } : customizationWhere;
+    }
+  }
+
+  // ✅ EXECUTED statuses include PARTIALLY_PROVISIONED
+  const executedStatusesList: RequestStatus[] = [RequestStatus.PROVISIONED, RequestStatus.PARTIALLY_PROVISIONED, RequestStatus.CLOSED];
+  
+  // Get filtered counts when filter is active
+  let filteredTotal = 0;
+  if (decisionFilter) {
+    const [filteredReq, filteredCust] = await Promise.all([
+      prisma.request.count({ where: listRequestWhere }),
+      prisma.customizationRequest.count({ where: listCustomizationWhere }),
+    ]);
+    filteredTotal = filteredReq + filteredCust;
+  }
+  
   const [
     reqTotal, reqPending, reqApproved, reqRejected, reqExecuted,
     custTotal, custPending, custApproved, custRejected, custExecuted
   ] = await Promise.all([
-    // Request metrics
-    prisma.request.count({ where: isAdmin ? {} : { status: { not: RequestStatus.DRAFT } } }),
-    prisma.request.count({ where: requestWhere }),
-    prisma.request.count({ where: { status: RequestStatus.APPROVED } }),
-    prisma.request.count({ where: { status: RequestStatus.REJECTED } }),
-    prisma.request.count({ where: { status: { in: [RequestStatus.PROVISIONED, RequestStatus.CLOSED] } } }),
+    // Request metrics - ALL non-draft requests (for "Assigned" card)
+    prisma.request.count({ where: isAdminUser ? {} : { status: { not: RequestStatus.DRAFT } } }),
     
-    // Customization metrics
+    // Pending - use requestWhere which respects level filtering
+    prisma.request.count({ where: requestWhere }),
+    
+    // Approved - only count if user can see approved (DCOPS or Admin)
+    userRoles.includes(ROLES.DCOPS) || isAdminUser 
+      ? prisma.request.count({ where: { status: RequestStatus.APPROVED } })
+      : Promise.resolve(0),
+    
+    // Rejected - use level filtering for approvers
+    prisma.request.count({ 
+      where: isAdminUser 
+        ? { status: RequestStatus.REJECTED }
+        : { status: RequestStatus.REJECTED, approvals: { some: { approverId: userId } } }
+    }),
+    
+    // Executed - only DCOPS and Admins see executed
+    userRoles.includes(ROLES.DCOPS) || isAdminUser
+      ? prisma.request.count({ where: { status: { in: executedStatusesList } } })
+      : Promise.resolve(0),
+    
+    // Customization metrics - ALL non-draft (for "Assigned" card)
     prisma.customizationRequest.count({ where: { status: { not: CustomizationStatus.DRAFT } } }),
+    
+    // Pending - using customizationWhere
     prisma.customizationRequest.count({ where: customizationWhere }),
-    prisma.customizationRequest.count({ where: { status: CustomizationStatus.APPROVED } }),
-    prisma.customizationRequest.count({ where: { status: CustomizationStatus.REJECTED } }),
-    prisma.customizationRequest.count({ where: { status: CustomizationStatus.APPLIED } }),
+    
+    // Approved - only count if user can see approved
+    userRoles.includes(ROLES.DCOPS) || isAdminUser 
+      ? prisma.customizationRequest.count({ where: { status: CustomizationStatus.APPROVED } })
+      : Promise.resolve(0),
+    
+    // Rejected - use level filtering
+    prisma.customizationRequest.count({ 
+      where: isAdminUser 
+        ? { status: CustomizationStatus.REJECTED }
+        : { status: CustomizationStatus.REJECTED, approvals: { some: { approverId: userId } } }
+    }),
+    
+    // Applied - only DCOPS and Admins see applied
+    userRoles.includes(ROLES.DCOPS) || isAdminUser
+      ? prisma.customizationRequest.count({ where: { status: CustomizationStatus.APPLIED } })
+      : Promise.resolve(0),
   ]);
 
-  // ✅ FETCH WITH RELATIONS
+  // ✅ FETCH WITH RELATIONS - Uses filtered WHERE clauses
+  console.log("Fetching requests with listRequestWhere:", JSON.stringify(listRequestWhere));
   const [requests, customizations] = await Promise.all([
     prisma.request.findMany({
-      where: requestWhere,
+      where: listRequestWhere,
       include: { 
         requester: { select: { id: true, name: true, email: true, designation: true } },
         targetVm: { select: { hostname: true, id: true } },
@@ -109,6 +346,7 @@ export async function fetchDashboardData(
             approver: { select: { id: true, name: true, email: true, designation: true } }
           }
         },
+        vmInstances: { select: { id: true } },
       },
       orderBy: { createdAt: "desc" },
       skip,
@@ -155,7 +393,10 @@ export async function fetchDashboardData(
       targetVm: req.requestType === RequestType.DECOMMISSION && req.targetVm 
         ? { hostname: req.targetVm.hostname } 
         : null,
-      approvals: req.approvals
+      approvals: req.approvals,
+      quantity: req.quantity,
+      vmInstances: { length: req.vmInstances.length },
+      subdomain: req.subdomain,
     })),
     
     // Customization requests
@@ -185,11 +426,19 @@ export async function fetchDashboardData(
 
   return {
     metrics: {
-      totalVisible: reqTotal + custTotal,
-      pendingCount: reqPending + custPending,
-      approvedCount: reqApproved + custApproved,
-      rejectedCount: reqRejected + custRejected,
-      executedCount: reqExecuted + custExecuted,
+      totalVisible: decisionFilter ? filteredTotal : reqTotal + custTotal,
+      pendingCount: decisionFilter 
+        ? (decisionFilter === "PENDING" ? filteredTotal : 0)
+        : reqPending + custPending,
+      approvedCount: decisionFilter 
+        ? (decisionFilter === "APPROVED" ? filteredTotal : 0)
+        : reqApproved + custApproved,
+      rejectedCount: decisionFilter 
+        ? (decisionFilter === "REJECTED" ? filteredTotal : 0)
+        : reqRejected + custRejected,
+      executedCount: decisionFilter 
+        ? (decisionFilter === "EXECUTED" ? filteredTotal : 0)
+        : reqExecuted + custExecuted,
     },
     requests: dashboardRequests,
     userRoles,

@@ -178,8 +178,8 @@ model VmInstance {
   requestId             String?
   sequenceNumber        Int
   ownerId               String?
-  hostname              String?
-  ipAddress             String?
+  hostname              String?                @unique
+  ipAddress             String?                @unique
   publicIpAddress       String?
   status                VmStatus               @default(ACTIVE)
   renewalDate           DateTime?
@@ -192,6 +192,8 @@ model VmInstance {
   currentSpecId         String?                @unique
   subdomain             String?
   environment           Environment?
+  hostAssetId           String?
+  hostAsset             Asset?                 @relation("HostedOnAsset", fields: [hostAssetId], references: [id])
   auditLogs             AuditLog[]             @relation("VmAudit")
   customizationHistory  CustomizationHistory[]
   customizationRequests CustomizationRequest[] @relation("CustomizationTarget")
@@ -199,15 +201,14 @@ model VmInstance {
   decommissionRequests  Request[]              @relation("DecommissionTarget")
   currentSpec           VmSpec?                @relation("CurrentVmSpec", fields: [currentSpecId], references: [id])
   owner                 User?                  @relation("VmOwner", fields: [ownerId], references: [id])
-  request               Request?               @relation("RequestVms", fields: [requestId], references: [id])
+  request               Request?                @relation("RequestVms", fields: [requestId], references: [id])
 
   @@unique([requestId, sequenceNumber])
   @@index([ownerId])
   @@index([status])
-  @@index([hostname])
-  @@index([ipAddress])
   @@index([ownerId, status])
   @@index([environment, status])
+  @@index([hostAssetId])
   @@map("vm_instances")
 }
 
@@ -410,7 +411,9 @@ model Asset {
   vlanSupport       Boolean?
   capacityTb        Float?
   noOfDisks         Int?
+  details           Json?
   createdAt         DateTime          @default(now())
+  vms               VmInstance[]      @relation("HostedOnAsset")
   licenses          SoftwareLicense[] @relation("AssetToSoftwareLicense")
 }
 
@@ -426,11 +429,26 @@ model SystemSetting {
   @@index([category])
 }
 
+model ApprovalWorkflow {
+  id          String   @id @default(uuid())
+  requestType String   // NEW_VM, CUSTOMIZED, DECOMMISSION, RENEWAL
+  level       Int
+  role        String   // APPROVER_L1, APPROVER_L2, APPROVER_L3, APPROVER_L4, DC_OPS
+  roleLabel   String?  // Human readable label like "Section Officer", "Director"
+  isFinal     Boolean  @default(false) // If true, this is the final approval level
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([requestType, level])
+  @@index([requestType])
+}
+
 model Notification {
   id        String   @id @default(uuid())
   userId    String
   type      String
   message   String
+  link      String?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
@@ -451,6 +469,7 @@ enum RequestStatus {
   APPROVED
   REJECTED
   PROVISIONED
+  PARTIALLY_PROVISIONED
   CLOSED
   REQUESTER_APPROVED
   PENDING_L4
@@ -518,6 +537,7 @@ enum ApprovalDecision {
   APPROVED
   REJECTED
   RETURNED
+  FORWARDED
 }
 
 enum ApprovalEntityType {

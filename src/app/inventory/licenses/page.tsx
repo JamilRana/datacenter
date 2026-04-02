@@ -3,7 +3,7 @@
 
 import { useRouter } from "next/navigation";
 import { ROLES } from "@/lib/roles";
-import { FileText, ChevronLeft, Trash2 } from "lucide-react";
+import { FileText, ChevronLeft, Trash2, AlertTriangle, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { format, differenceInDays } from "date-fns";
@@ -17,6 +17,11 @@ import { DeleteConfirmationModal } from "../components/DeleteConfirmationModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { exportToCsv } from "@/lib/export-utils";
 import { Download } from "lucide-react";
+import { StatCard } from "@/components/analytics/StatCard";
+import { InventoryChart } from "@/components/analytics/InventoryChart";
+import { RecentActivity } from "@/components/analytics/RecentActivity";
+import { fetchLicenseAnalytics } from "@/app/actions/analytics-actions";
+import { LicenseAnalytics } from "@/lib/analytics/licenseAnalytics";
 
 export default function LicensesPage({
   searchParams,
@@ -27,6 +32,7 @@ export default function LicensesPage({
   const router = useRouter();
   const [licenses, setLicenses] = useState<SoftwareLicense[]>([]);
   const [loading, setLoading] = useState(true);
+  const [licenseAnalytics, setLicenseAnalytics] = useState<LicenseAnalytics | null>(null);
 
   const page = searchParams.page ? parseInt(searchParams.page, 10) : 1;
 
@@ -39,19 +45,26 @@ export default function LicensesPage({
     }
 
     // REQUESTERS cannot view licenses
-    if (session.user.roles.includes(ROLES.REQUESTER) && 
-        !session.user.roles.includes(ROLES.ADMIN) && 
-        !session.user.roles.includes(ROLES.DCOPS)) {
+    const userRoles = session.user.roles || [];
+    const isAdminOrDcops = userRoles.some(r => 
+      ["ADMIN", "DC_OPS"].includes(r.toUpperCase())
+    );
+    
+    if (userRoles.includes(ROLES.REQUESTER) && !isAdminOrDcops) {
       router.push("/inventory/vms");
       return;
     }
 
     const getLicenses = async () => {
       try {
-        const res = await fetchLicenseDetails(page);
+        const [res, analytics] = await Promise.all([
+          fetchLicenseDetails(page),
+          fetchLicenseAnalytics()
+        ]);
         if (res.licenses) {
           setLicenses(res.licenses as SoftwareLicense[]);
         }
+        setLicenseAnalytics(analytics);
       } catch (err) {
         console.error("Failed to fetch licenses:", err);
       } finally {
@@ -116,6 +129,93 @@ export default function LicensesPage({
           )}
         </div>
       </div>
+
+      {/* Analytics Dashboard */}
+      {licenseAnalytics && (
+        <div className="space-y-6">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <StatCard
+              title="Total Licenses"
+              value={licenseAnalytics.summary.total}
+              icon={FileText}
+              description="All software licenses"
+            />
+            <StatCard
+              title="Expiring Soon"
+              value={licenseAnalytics.summary.expiringSoon}
+              icon={AlertTriangle}
+              description="Within 30 days"
+            />
+            <StatCard
+              title="Expiring This Month"
+              value={licenseAnalytics.summary.expiringThisMonth}
+              icon={Clock}
+              description="In current month"
+            />
+          </div>
+
+          {/* Charts */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>
+              <CardContent className="p-4">
+                <InventoryChart
+                  title="Licenses by Vendor"
+                  data={licenseAnalytics.byVendor.map(v => ({ name: v.vendor, value: v.count }))}
+                  type="bar"
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <InventoryChart
+                  title="Licenses by Type"
+                  data={licenseAnalytics.byType.map(t => ({ name: t.type, value: t.count }))}
+                  type="pie"
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Expiring Licenses Alert */}
+          {licenseAnalytics.expiringLicenses.length > 0 && (
+            <Card className="border-orange-200 bg-orange-50">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle className="h-5 w-5 text-orange-500" />
+                  <span className="font-bold text-orange-800">Licenses Expiring Soon</span>
+                </div>
+                <div className="space-y-2">
+                  {licenseAnalytics.expiringLicenses.slice(0, 5).map(lic => (
+                    <div key={lic.id} className="flex justify-between items-center text-sm">
+                      <span className="text-orange-900">{lic.name} ({lic.vendor})</span>
+                      <span className="text-orange-700 font-medium">
+                        {lic.expiryDate ? format(new Date(lic.expiryDate), "MMM dd, yyyy") : "N/A"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Recent Activity */}
+          {licenseAnalytics.recentActivity && licenseAnalytics.recentActivity.length > 0 && (
+            <RecentActivity
+              title="Recent License Activity"
+              activities={licenseAnalytics.recentActivity.map(a => ({
+                id: a.id,
+                action: a.action,
+                entityType: a.entityType,
+                entityId: a.entityId,
+                actorName: a.actorName,
+                details: a.details,
+                createdAt: a.createdAt,
+              }))}
+            />
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {licenses.map((lic) => (
