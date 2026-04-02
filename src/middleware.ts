@@ -8,7 +8,8 @@ export async function middleware(request: NextRequest) {
   
   const token = await getToken({ 
     req: request,
-    secret: process.env.NEXTAUTH_SECRET 
+    secret: process.env.NEXTAUTH_SECRET,
+    secureCookie: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
   });
 
   // If trying to access /auth and token exists, redirect to dashboard
