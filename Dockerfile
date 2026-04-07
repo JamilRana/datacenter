@@ -32,8 +32,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
-# ✅ install runtime deps (FIXED)
-RUN npm install -g prisma ts-node typescript dotenv
+# ✅ install runtime deps (tsx is modern, faster alternative to ts-node)
+RUN npm install -g prisma tsx
 
 # ✅ copy public and static files
 COPY --from=builder /app/public ./public
@@ -44,7 +44,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 
 # ✅ also copy prisma directory for migrations
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./
+COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.js ./
+COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
 
 USER nextjs
 
