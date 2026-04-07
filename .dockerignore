@@ -13,6 +13,5 @@ Dockerfile
 docker-compose.yml
 scripts
 prisma/migrations
-prisma/seed.ts
 public/uploads/*
 uploads/*

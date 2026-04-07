@@ -28,22 +28,22 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# ✅ create user
 RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
-# ✅ install runtime deps (tsx is modern, faster alternative to ts-node)
+# Install runtime deps
 RUN npm install -g prisma tsx
 
-# ✅ copy public and static files
+# 1. Copy the standalone files FIRST
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+
+# 2. Copy the static/public files
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# ✅ copy standalone output (this creates the server.js in root)
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-
-# ✅ also copy prisma directory for migrations
-COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+# 3. FORCE copy the entire prisma directory into the final /app/prisma
+# Note: Using ./prisma/ (with slash) helps ensure the directory structure
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma/
 COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.js ./
 COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
