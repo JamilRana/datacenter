@@ -5,6 +5,8 @@ WORKDIR /app
 
 # Install dependencies based on the preferred package manager
 COPY package.json package-lock.json ./
+# Copy prisma directory for the 'prisma generate' postinstall script
+COPY prisma ./prisma
 RUN npm ci
 
 # Stage 2: Builder
@@ -40,6 +42,8 @@ RUN adduser --system --uid 1001 nextjs
 
 # Copy public/ to serve from within the container
 COPY --from=builder /app/public ./public
+# Copy prisma directory so db push/migrate can be run from within the container
+COPY --from=builder /app/prisma ./prisma
 
 # Automatically leverage output traces to reduce image size
 # https://nextjs.org/docs/advanced-features/output-file-tracing
