@@ -35,8 +35,16 @@ RUN addgroup --system --gid 1001 nodejs \
 # ✅ install runtime deps (FIXED)
 RUN npm install -g prisma ts-node typescript dotenv
 
-# ✅ copy files with correct ownership (CRITICAL FIX)
-COPY --from=builder --chown=nextjs:nodejs /app ./
+# ✅ copy public and static files
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# ✅ copy standalone output (this creates the server.js in root)
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+
+# ✅ also copy prisma directory for migrations
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./
 
 USER nextjs
 
