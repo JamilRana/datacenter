@@ -78,7 +78,7 @@ export function UserAllocationTable({
   useEffect(() => {
     console.log("UserAllocationTable: dateRange changed", dateRange);
     loadData();
-  }, [loadData, sorting]);
+  }, [loadData, sorting, dateRange]);
 
   const columns: ColumnDef<UserAllocationSummary>[] = [
     {

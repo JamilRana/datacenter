@@ -78,7 +78,7 @@ export function VmInventoryTable({ dateRange }: { dateRange?: { from: Date; to: 
   useEffect(() => {
     console.log("VmInventoryTable: dateRange changed", dateRange);
     loadData();
-  }, [loadData, sorting]);
+  }, [loadData, sorting, dateRange]);
 
   const columns: ColumnDef<VmInventoryItem>[] = [
     {

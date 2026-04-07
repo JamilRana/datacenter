@@ -117,7 +117,7 @@ export function RequestForm({
       return value && String(value).trim() !== "";
     });
     setFormValid(isValid);
-  }, [requiredFields]); // requiredFields is defined outside the component or should be stable
+  }, []); // requiredFields is now outside the component, so it's a stable dependency
 
   // Hardware values
   const [vcpuValue, setVcpuValue] = useState<string>("2");
