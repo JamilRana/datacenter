@@ -32,7 +32,7 @@ RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
 # Install runtime deps
-RUN npm install -g prisma tsx
+RUN npm install -g prisma tsx bcryptjs
 
 # 1. Copy the standalone files FIRST
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
