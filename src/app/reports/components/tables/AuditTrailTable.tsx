@@ -1,7 +1,7 @@
 // src/app/reports/components/tables/AuditTrailTable.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { 
   Table, 
   TableBody, 
@@ -36,11 +36,7 @@ export function AuditTrailTable({ dateRange }: { dateRange?: { from: Date; to: D
   const [pageSize] = useState(10);
   const [selectedLog, setSelectedLog] = useState<AuditTrailItem | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, [page, pageSize, dateRange]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getAuditTrailReport({
@@ -56,7 +52,11 @@ export function AuditTrailTable({ dateRange }: { dateRange?: { from: Date; to: D
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, pageSize, dateRange]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleExport = (formatType: 'xlsx' | 'csv') => {
     const dataToExport = data.map(item => ({

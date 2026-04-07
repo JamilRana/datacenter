@@ -1,6 +1,6 @@
 // src/app/requests/customize/page.tsx
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { CustomizationModal } from "./components/CustomizationModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,7 +31,7 @@ export default function CustomizationRequestsPage() {
   };
   const isMounted = useRef(true);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [requestsRes, vmsRes] = await Promise.all([
@@ -86,7 +86,7 @@ export default function CustomizationRequestsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentPage, perPage]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -94,7 +94,7 @@ export default function CustomizationRequestsPage() {
     return () => {
       isMounted.current = false;
     };
-  }, [currentPage, perPage]);
+  }, [fetchData]);
 
   const handleOpenModal = (
     request: CustomizationRequestType | null,

@@ -1,7 +1,7 @@
 // src/app/reports/components/tables/VmInventoryTable.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { 
   Table, 
   TableBody, 
@@ -54,12 +54,7 @@ export function VmInventoryTable({ dateRange }: { dateRange?: { from: Date; to: 
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [sorting, setSorting] = useState<SortingState>([]);
 
-  useEffect(() => {
-    console.log("VmInventoryTable: dateRange changed", dateRange);
-    loadData();
-  }, [page, pageSize, sorting, envFilter, statusFilter, dateRange]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getVmInventoryReport({
@@ -78,7 +73,12 @@ export function VmInventoryTable({ dateRange }: { dateRange?: { from: Date; to: 
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, pageSize, envFilter, statusFilter, searchTerm, dateRange]);
+
+  useEffect(() => {
+    console.log("VmInventoryTable: dateRange changed", dateRange);
+    loadData();
+  }, [loadData, sorting]);
 
   const columns: ColumnDef<VmInventoryItem>[] = [
     {

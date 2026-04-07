@@ -1,7 +1,7 @@
 // src/app/reports/components/tables/RequestsTable.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { 
   Table, 
   TableBody, 
@@ -54,11 +54,7 @@ export function RequestsTable({ dateRange }: { dateRange?: { from: Date; to: Dat
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [sorting, setSorting] = useState<SortingState>([]);
 
-  useEffect(() => {
-    loadData();
-  }, [page, pageSize, sorting, statusFilter, dateRange]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getRequestsReport({
@@ -76,7 +72,11 @@ export function RequestsTable({ dateRange }: { dateRange?: { from: Date; to: Dat
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, pageSize, statusFilter, searchTerm, dateRange]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData, sorting]);
 
   const getStatusBadge = (status: RequestStatus) => {
     switch (status) {

@@ -1,7 +1,7 @@
 // src/app/reports/components/tables/UserAllocationTable.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { 
   Table, 
   TableBody, 
@@ -56,12 +56,7 @@ export function UserAllocationTable({
   const [searchTerm, setSearchTerm] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
 
-  useEffect(() => {
-    console.log("UserAllocationTable: dateRange changed", dateRange);
-    loadData();
-  }, [page, pageSize, sorting, dateRange]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getUserAllocationReport({
@@ -78,7 +73,12 @@ export function UserAllocationTable({
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, pageSize, searchTerm, dateRange]);
+
+  useEffect(() => {
+    console.log("UserAllocationTable: dateRange changed", dateRange);
+    loadData();
+  }, [loadData, sorting]);
 
   const columns: ColumnDef<UserAllocationSummary>[] = [
     {

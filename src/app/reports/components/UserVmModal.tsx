@@ -1,7 +1,7 @@
 // src/app/reports/components/UserVmModal.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { 
   Dialog, 
   DialogContent, 
@@ -47,12 +47,6 @@ export function UserVmModal({ userId, userName, isOpen, onClose }: UserVmModalPr
   const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
-    if (userId && isOpen) {
-      loadDetails();
-    }
-  }, [userId, isOpen]);
-
-  useEffect(() => {
     if (searchTerm === "") {
       setFilteredVms(vms);
     } else {
@@ -66,7 +60,7 @@ export function UserVmModal({ userId, userName, isOpen, onClose }: UserVmModalPr
     }
   }, [searchTerm, vms]);
 
-  async function loadDetails() {
+  const loadDetails = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
     try {
@@ -78,7 +72,13 @@ export function UserVmModal({ userId, userName, isOpen, onClose }: UserVmModalPr
     } finally {
       setLoading(false);
     }
-  }
+  }, [userId]);
+
+  useEffect(() => {
+    if (userId && isOpen) {
+      loadDetails();
+    }
+  }, [userId, isOpen, loadDetails]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {

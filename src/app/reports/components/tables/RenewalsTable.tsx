@@ -1,7 +1,7 @@
 // src/app/reports/components/tables/RenewalsTable.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { 
   Table, 
   TableBody, 
@@ -50,11 +50,7 @@ export function RenewalsTable({ dateRange }: { dateRange?: { from: Date; to: Dat
   const [searchTerm, setSearchTerm] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
 
-  useEffect(() => {
-    loadData();
-  }, [page, pageSize, sorting, dateRange]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getRenewalsReport({
@@ -71,7 +67,11 @@ export function RenewalsTable({ dateRange }: { dateRange?: { from: Date; to: Dat
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, pageSize, searchTerm, dateRange]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData, sorting]);
 
   const handleReminder = (vmName: string, owner: string) => {
     toast.success(`Reminder notification sent to ${owner} regarding ${vmName}`);

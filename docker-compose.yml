@@ -8,9 +8,6 @@ services:
     ports:
       - "80:3000"
     environment:
-      # These environment variables will override .env within the container
-      # Let's use the .env.production as the base
-      # DATABASE_URL will point to the 'db' service in the docker network
       - NODE_ENV=production
     env_file:
       - .env.production
@@ -19,6 +16,14 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+    # 👇 important for prisma + migrations
+    command: >
+      sh -c "
+        npx prisma migrate deploy &&
+        npx prisma db seed &&
+        node server.js
+      "
 
   db:
     image: postgres:16-alpine
@@ -49,10 +54,10 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "9000:9000" # API
-      - "9001:9001" # Console
+      - "9000:9000"
+      - "9001:9001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9000/minio/health/live"]
       interval: 5s
       timeout: 5s
       retries: 5

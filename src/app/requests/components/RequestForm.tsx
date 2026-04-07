@@ -1,6 +1,6 @@
 // src/app/requests/components/RequestForm.tsx
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +37,15 @@ import { ROLES } from "@/lib/roles";
 import { getDetailedRequest } from "@/app/actions/request-actions";
 import { getRequesters } from "@/app/actions/user-actions";
 import { User } from "@/types/users";
+
+const requiredFields = [
+  "systemName",
+  "purpose", 
+  "environment",
+  "osName",
+  "osVersion",
+  "subDomain",
+];
 
 export function RequestForm({
   userId,
@@ -96,17 +105,9 @@ export function RequestForm({
   const [draftSaved, setDraftSaved] = useState(false);
   const [formValid, setFormValid] = useState(false);
 
-  // Required fields to validate
-  const requiredFields = [
-    "systemName",
-    "purpose", 
-    "environment",
-    "osName",
-    "osVersion",
-    "subDomain",
-  ];
+  // Required fields to validate (moved out of component)
 
-  const checkFormValidity = () => {
+  const checkFormValidity = useCallback(() => {
     const form = formRef.current;
     if (!form) return;
 
@@ -116,7 +117,7 @@ export function RequestForm({
       return value && String(value).trim() !== "";
     });
     setFormValid(isValid);
-  };
+  }, [requiredFields]); // requiredFields is defined outside the component or should be stable
 
   // Hardware values
   const [vcpuValue, setVcpuValue] = useState<string>("2");
@@ -168,7 +169,7 @@ export function RequestForm({
   // Check form validity on mount and on input changes
   useEffect(() => {
     checkFormValidity();
-  }, [prefillData, isEditing]);
+  }, [prefillData, isEditing, checkFormValidity]);
 
   // Load prefill data
   useEffect(() => {
