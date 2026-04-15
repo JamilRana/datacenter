@@ -1,9 +1,7 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: nextjs-app
+    image: jamilrana/datacenter:latest
+    container_name: datacenter-app
     restart: always
     ports:
       - "80:3000"
