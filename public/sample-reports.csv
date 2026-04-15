@@ -1,0 +1,4 @@
+email,reportingdate,division,district,suspected24h,confirmed24h,suspecteddeath24h,confirmeddeath24h,admitted24h,discharged24h
+user@example.com,2024-01-01,Dhaka,Dhaka,10,2,0,0,5,3
+user@example.com,2024-01-02,Dhaka,Dhaka,15,3,0,0,8,5
+user@example.com,2024-01-03,Chittagong,Chittagong,8,1,0,0,4,2

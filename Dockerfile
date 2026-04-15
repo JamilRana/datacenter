@@ -4,7 +4,7 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-COPY prisma ./prisma
+COPY prisma/schema.prisma ./prisma/
 
 RUN npm ci
 
@@ -15,9 +15,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN npx prisma generate
+# Remove seed.ts so it doesn't get copied
+RUN rm -f prisma/seed.ts
 
-ENV NEXT_TELEMETRY_DISABLED 1
+ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
 
@@ -31,32 +32,26 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
-# Install runtime deps
+# Install runtime deps globally
 RUN npm install -g prisma tsx
 
-# 1. Copy the standalone files FIRST
+# 1. Copy standalone files
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 
-# 2. Copy the static/public files
+# 2. Copy static/public files
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# 3. Copy required files for Prisma
+# 3. Copy Prisma + config files
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma/
 COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.js ./
 COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
 
-# Install bcryptjs locally in the app directory
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bcryptjs ./node_modules/bcryptjs
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bcryptjs ./node_modules/@types/bcryptjs 2>/dev/null || true
-
 USER nextjs
 
 EXPOSE 3000
-
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Run migrations and seed on startup
-CMD ["sh", "-c", "npx prisma migrate deploy && npx tsx prisma/seed.ts && node server.js"]
+CMD ["node", "server.js"]

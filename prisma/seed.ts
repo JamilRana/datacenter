@@ -1,10 +1,12 @@
 import { PrismaClient } from "@prisma/client";
+
 const prisma = new PrismaClient();
 
-import * as bcrypt from "bcryptjs";
+const DEFAULT_PASSWORD_HASH = "$2b$12$Bzh9f3m9u0ZqXWGYR.qEruN2N4G6UjP.pTqHrkEclJ3A/1v2u9W2u";
 
 async function main() {
-  // 1. Create/Upsert Roles
+  console.log("Starting seed...");
+
   const roleNames = [
     "DEVELOPER",
     "REQUESTER",
@@ -17,165 +19,164 @@ async function main() {
     "VIEW",
   ];
 
-  console.log("🌱 Seeding roles...");
-  for (const name of roleNames) {
+  for (const roleName of roleNames) {
     await prisma.role.upsert({
-      where: { name },
+      where: { name: roleName },
       update: {},
-      create: { name },
+      create: { name: roleName },
     });
   }
+  console.log("Roles created");
 
-  // 2. Helper function to create user with multiple roles
-  const createUserWithRoles = async (
-    email: string,
-    name: string,
-    designation: string,
-    roleNames: string[],
-    password: string = process.env.SEED_DEFAULT_PASSWORD || "Dghs@123"
-  ) => {
-    const salt = await bcrypt.genSalt(12);
-    const hashedPassword = await bcrypt.hash(password, salt);
+  const adminRole = await prisma.role.findUnique({ where: { name: "ADMIN" } });
+  const requesterRole = await prisma.role.findUnique({ where: { name: "REQUESTER" } });
+  const dcopsRole = await prisma.role.findUnique({ where: { name: "DC_OPS" } });
+  const approverL1Role = await prisma.role.findUnique({ where: { name: "APPROVER_L1" } });
+  const approverL2Role = await prisma.role.findUnique({ where: { name: "APPROVER_L2" } });
+  const approverL3Role = await prisma.role.findUnique({ where: { name: "APPROVER_L3" } });
+  const developerRole = await prisma.role.findUnique({ where: { name: "DEVELOPER" } });
 
-    // Create or find user
-    const user = await prisma.user.upsert({
-      where: { email },
-      update: { isActive: true },
-      create: {
-        email,
-        name,
-        password: hashedPassword,
-        designation,
-        isActive: true,
+  await prisma.user.upsert({
+    where: { email: "admin@dghs.gov.bd" },
+    update: {},
+    create: {
+      email: "admin@dghs.gov.bd",
+      name: "System Admin",
+      password: DEFAULT_PASSWORD_HASH,
+      designation: "Administrator",
+      organization: "DGHS",
+      contact: "",
+      isActive: true,
+      roles: {
+        create: [{ roleId: adminRole!.id }],
       },
-    });
+    },
+  });
 
-    // Assign multiple roles
-    for (const roleName of roleNames) {
-      const role = await prisma.role.findUnique({ where: { name: roleName } });
-      if (role) {
-        await prisma.userRole.upsert({
-          where: {
-            userId_roleId: {
-              userId: user.id,
-              roleId: role.id,
-            },
-          },
-          update: {},
-          create: {
-            userId: user.id,
-            roleId: role.id,
-          },
-        });
-      }
-    }
+  await prisma.user.upsert({
+    where: { email: "akber.hossain@mis.dghs.gov.bd" },
+    update: {},
+    create: {
+      email: "akber.hossain@mis.dghs.gov.bd",
+      name: "Akber Hossain",
+      password: DEFAULT_PASSWORD_HASH,
+      designation: "Programmer",
+      organization: "MIS, DGHS",
+      contact: "01234567891",
+      isActive: true,
+      roles: {
+        create: [{ roleId: requesterRole!.id }],
+      },
+    },
+  });
 
-    console.log(
-      `✅ User: ${name} (${email}) -> Roles: [${roleNames.join(", ")}]`
-    );
-    return user;
-  };
+  await prisma.user.upsert({
+    where: { email: "zulfiker@nns-solution.net" },
+    update: {},
+    create: {
+      email: "zulfiker@nns-solution.net",
+      name: "Zulfiker Ali",
+      password: DEFAULT_PASSWORD_HASH,
+      designation: "System Admin",
+      organization: "NNS Solution",
+      contact: "",
+      isActive: true,
+      roles: {
+        create: [{ roleId: dcopsRole!.id }],
+      },
+    },
+  });
 
-  // 3. Seed Users based on your requirements
+  await prisma.user.upsert({
+    where: { email: "ame@mis.dghs.gov.bd" },
+    update: {},
+    create: {
+      email: "ame@mis.dghs.gov.bd",
+      name: "Approver L1",
+      password: DEFAULT_PASSWORD_HASH,
+      designation: "AME",
+      organization: "DGHS",
+      contact: "01746605604",
+      isActive: true,
+      roles: {
+        create: [{ roleId: approverL1Role!.id }],
+      },
+    },
+  });
 
-  // L1 Approver + Admin
-  await createUserWithRoles(
-    "ame@mis.dghs.gov.bd",
-    "Younus Jamil Rana",
-    "Assistant Maintenance Engineer",
-    ["APPROVER_L1", "ADMIN","REQUESTER"]
-  );
+  await prisma.user.upsert({
+    where: { email: "me@mis.dghs.gov.bd" },
+    update: {},
+    create: {
+      email: "me@mis.dghs.gov.bd",
+      name: "Approver L2",
+      password: DEFAULT_PASSWORD_HASH,
+      designation: "Maintenance Engineer",
+      organization: "DGHS",
+      contact: "",
+      isActive: true,
+      roles: {
+        create: [{ roleId: approverL2Role!.id }],
+      },
+    },
+  });
 
-  // L2 Approver + Admin
-  await createUserWithRoles(
-    "me@mis.dghs.gov.bd",
-    "Kazi Fabliha Tasnim",
-    "Maintenance Engineer",
-    ["APPROVER_L2", "ADMIN","REQUESTER"]
-  );
+  await prisma.user.upsert({
+    where: { email: "sukhenbd@hotmail.com" },
+    update: {},
+    create: {
+      email: "sukhenbd@hotmail.com",
+      name: "Sukhendu Shekhor Roy",
+      password: DEFAULT_PASSWORD_HASH,
+      designation: "SSA",
+      organization: "DGHS",
+      contact: "01234567895",
+      isActive: true,
+      roles: {
+        create: [{ roleId: approverL3Role!.id }],
+      },
+    },
+  });
 
-  // L3 Approver + Admin
-  await createUserWithRoles(
-    "sukhen@mis.dghs.gov.bd",
-    "Sukhendu Shekhor Roy",
-    "Maintenance Engineer",
-    ["APPROVER_L3", "ADMIN","REQUESTER"]
-  );
+  console.log("Users created");
 
-  // DC Ops + View Access
-  await createUserWithRoles(
-    "dcops@mis.dghs.gov.bd",
-    "Datacenter Operations Team",
-    "DC Operations",
-    ["DC_OPS", "VIEW"]
-  );
-
-    await createUserWithRoles(
-    "director@mis.dghs.gov.bd",
-    "Director",
-    "Director",
-    ["APPROVER_L4", "ADMIN"]
-  );
-
-    await createUserWithRoles(
-    "dev@mis.dghs.gov.bd",
-    "Developer",
-    "Developer",
-    ["DEVELOPER", "ADMIN"]
-  );
-
-  // Devops / Requester
-  await createUserWithRoles(
-    "requester@mis.dghs.gov.bd",
-    "Sadman",
-    "Devops Engineer",
-    ["REQUESTER"]
-  );
-
-  // 3. Seed ApprovalWorkflow table
-  console.log("🌱 Seeding approval workflows...");
-
-  const workflows = [
-    // NEW_VM workflow
+  const workflowConfigs = [
     { requestType: "NEW_VM", level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
     { requestType: "NEW_VM", level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
-    { requestType: "NEW_VM", level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
-    { requestType: "NEW_VM", level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
-
-    // CUSTOMIZED workflow
+    { requestType: "NEW_VM", level: 3, role: "APPROVER_L3", roleLabel: "Director", isFinal: true },
+    { requestType: "NEW_VM", level: 4, role: "DC_OPS", roleLabel: "DC OPS Team", isFinal: false },
     { requestType: "CUSTOMIZED", level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
     { requestType: "CUSTOMIZED", level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
-    { requestType: "CUSTOMIZED", level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
-    { requestType: "CUSTOMIZED", level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
-
-    // DECOMMISSION workflow
+    { requestType: "CUSTOMIZED", level: 3, role: "APPROVER_L3", roleLabel: "Director", isFinal: true },
+    { requestType: "CUSTOMIZED", level: 4, role: "DC_OPS", roleLabel: "DC OPS Team", isFinal: false },
     { requestType: "DECOMMISSION", level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: true },
-    { requestType: "DECOMMISSION", level: 2, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
-
-    // RENEWAL workflow
+    { requestType: "DECOMMISSION", level: 2, role: "DC_OPS", roleLabel: "DC OPS Team", isFinal: false },
     { requestType: "RENEWAL", level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
     { requestType: "RENEWAL", level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
-    { requestType: "RENEWAL", level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
-    { requestType: "RENEWAL", level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
+    { requestType: "RENEWAL", level: 3, role: "APPROVER_L3", roleLabel: "Director", isFinal: true },
+    { requestType: "RENEWAL", level: 4, role: "DC_OPS", roleLabel: "DC OPS Team", isFinal: false },
   ];
 
-  for (const wf of workflows) {
+  for (const config of workflowConfigs) {
     await prisma.approvalWorkflow.upsert({
       where: {
-        requestType_level: { requestType: wf.requestType, level: wf.level },
+        id: `${config.requestType}-${config.level}`,
       },
-      update: {},
-      create: wf,
+      update: config,
+      create: {
+        id: `${config.requestType}-${config.level}`,
+        ...config,
+      },
     });
   }
-  console.log("✅ Approval workflows seeded");
+  console.log("Workflows created");
 
-  console.log("\n🎉 Seeding completed successfully!");
+  console.log("Seed completed successfully!");
 }
 
 main()
   .catch((e) => {
-    console.error("❌ Seeding failed:", e);
+    console.error("Seed error:", e);
     process.exit(1);
   })
   .finally(async () => {
