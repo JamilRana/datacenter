@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import * as xlsx from 'xlsx';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as bcrypt from 'bcryptjs';
 
 // Try to load .env if on host
 if (process.env.NODE_ENV !== 'production') {
@@ -36,6 +37,12 @@ function parseCsv(filePath: string) {
   return xlsx.utils.sheet_to_json(sheet, { defval: "" });
 }
 
+function parseSafeDate(dateStr: any) {
+  if (!dateStr || String(dateStr).trim() === "" || String(dateStr) === "\\N") return null;
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 async function main() {
   console.log("Starting seed with Prisma 7 Adapter...");
   
@@ -63,16 +70,136 @@ async function main() {
   }
   console.log("Roles created/verified");
 
-  // 2. Load Users from CSV
-  const userData = parseCsv(path.join(process.cwd(), 'data', 'user.csv'));
+  // 2. Helper function to create user with multiple roles
+  const createUserWithRoles = async (
+    email: string,
+    name: string,
+    designation: string,
+    roleNames: string[],
+    password: string = process.env.SEED_DEFAULT_PASSWORD || "Dghs@123"
+  ) => {
+    const salt = await bcrypt.genSalt(12);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create or find user
+    const user = await prisma.user.upsert({
+      where: { email },
+      update: { 
+        isActive: true,
+        name,
+        designation
+      },
+      create: {
+        email,
+        name,
+        password: hashedPassword,
+        designation,
+        isActive: true,
+      },
+    });
+
+    // Assign multiple roles
+    for (const roleName of roleNames) {
+      const roleId = roles[roleName];
+      if (roleId) {
+        await prisma.userRole.upsert({
+          where: {
+            userId_roleId: {
+              userId: user.id,
+              roleId: roleId,
+            },
+          },
+          update: {},
+          create: {
+            userId: user.id,
+            roleId: roleId,
+          },
+        });
+      }
+    }
+
+    console.log(
+      `✅ User: ${name} (${email}) -> Roles: [${roleNames.join(", ")}]`
+    );
+    return user;
+  };
+
+  // 3. Seed Core Users
+  console.log("🌱 Seeding core users...");
+  
+  const coreUsers = [
+    {
+      email: "ame@mis.dghs.gov.bd",
+      name: "Younus Jamil Rana",
+      designation: "Assistant Maintenance Engineer",
+      roles: ["APPROVER_L1", "ADMIN"],
+      csvIds: ["92", "107"]
+    },
+    {
+      email: "me@mis.dghs.gov.bd",
+      name: "Kazi Fabliha Tasnim",
+      designation: "Maintenance Engineer",
+      roles: ["APPROVER_L2", "ADMIN"],
+      csvIds: ["93"]
+    },
+    {
+      email: "sukhen@mis.dghs.gov.bd",
+      name: "Sukhendu Shekhor Roy",
+      designation: "Maintenance Engineer",
+      roles: ["APPROVER_L3", "ADMIN"],
+      csvIds: ["94"]
+    },
+    {
+      email: "dcops@mis.dghs.gov.bd",
+      name: "Datacenter Operations Team",
+      designation: "DC Operations",
+      roles: ["DC_OPS", "VIEW"],
+      csvIds: ["95"]
+    },
+    {
+      email: "requester@mis.dghs.gov.bd",
+      name: "Sadman",
+      designation: "Devops Engineer",
+      roles: ["REQUESTER"],
+      csvIds: ["96", "105"]
+    }
+  ];
+
   const userMap: Record<string, string> = {}; // csv_id -> prisma_id
+  const processedEmails = new Set<string>();
+
+  for (const coreUser of coreUsers) {
+    const user = await createUserWithRoles(
+      coreUser.email,
+      coreUser.name,
+      coreUser.designation,
+      coreUser.roles
+    );
+    processedEmails.add(coreUser.email);
+    for (const id of coreUser.csvIds) {
+      userMap[id] = user.id;
+    }
+  }
+
+  // 4. Load remaining Users from CSV
+  const userData = parseCsv(path.join(process.cwd(), 'data', 'user.csv'));
 
   console.log(`Processing ${userData.length} users from CSV...`);
 
 for (const row of userData as any[]) {
     const csvId = String(row.id || "");
-    const email = row.email || `user_${csvId}@placeholder.com`;
+    const rawEmail = String(row.email || "").trim();
+    const email = rawEmail || `user_${csvId}@placeholder.com`;
     
+    if (processedEmails.has(email) || userMap[csvId]) {
+      if (!userMap[csvId]) {
+        // If we have the email but not the ID mapping yet, add it
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+        if (existingUser) userMap[csvId] = existingUser.id;
+      }
+      continue;
+    }
+
     // Fallback logic to ensure name is NEVER undefined or empty
     const generatedName = (
       `${row.first_name || ""} ${row.last_name || ""}`.trim() || 
@@ -207,20 +334,20 @@ const user = await prisma.user.upsert({
       create: {
         requestType: RequestType.NEW_VM,
         status: statusMap[row.request_status] || RequestStatus.PENDING_L1,
-        systemName: row.facility_name || "N/A",
-        purpose: row.purpose_of_server || "N/A",
+        systemName: String(row.facility_name || "N/A"),
+        purpose: String(row.purpose_of_server || "N/A"),
         environment: envMap[row.hosted_service] || Environment.PRODUCTION,
         requesterId,
         serverType: serverTypeMap[row.server_type] || ServerType.OTHER,
         vcpu: parseInt(String(row.processor_required)) || 1,
         ramGb: parseInt(String(row.memory_ram)) || 1,
         storageGb: parseInt(String(row.space_for_os)) || 10,
-        osName: row.os_name || "Ubuntu",
-        osVersion: row.os_version || "22.04",
+        osName: String(row.os_name || "Ubuntu"),
+        osVersion: String(row.os_version || "22.04"),
         raid: raidMap[row.raid_configuration] || Raid.NONE,
         requestId: `REQ-${csvId.padStart(5, '0')}`,
-        submittedAt: row.request_date ? new Date(row.request_date) : new Date(),
-        provisionedAt: row.deployment_date ? new Date(row.deployment_date) : null,
+        submittedAt: parseSafeDate(row.request_date) || new Date(),
+        provisionedAt: parseSafeDate(row.deployment_date),
       }
     });
     requestMap[csvId] = request.id;
@@ -253,7 +380,7 @@ const user = await prisma.user.upsert({
         level: row.username === "Younus Jamil Rana" ? 1 : (row.username === "Kazi Fabliha Tasnim" ? 2 : 3),
         decision: decisionMap[row.server_status] || ApprovalDecision.FORWARDED,
         comments: row.history_comments || "",
-        decidedAt: row.cdt ? new Date(row.cdt) : new Date(),
+        decidedAt: parseSafeDate(row.cdt) || new Date(),
         entityType: ApprovalEntityType.REQUEST,
       }
     });
