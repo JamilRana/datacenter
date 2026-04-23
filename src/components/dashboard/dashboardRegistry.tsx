@@ -5,7 +5,7 @@ import { ROLES } from "@/lib/roles";
 import { AdminWidgets } from "./widgets/AdminWidgets";
 import { DcopsWidgets } from "./widgets/DcopsWidgets";
 import { RequesterWidgets } from "./widgets/RequesterWidgets";
-import { AdminDashboardData } from "@/lib/dashboard/adminDashboard";
+import { AdminDashboardData } from "@/types/dashboard";
 import { DcopsDashboardData } from "@/lib/dashboard/dcopsDashboard";
 import { RequesterDashboardData } from "@/lib/dashboard/requesterDashboard";
 

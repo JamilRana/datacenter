@@ -22,8 +22,13 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "MIS DC Portal",
-  description: "Virtual Machine Request and Provisioning System",
+  title: "MIS Datacenter",
+  description: "Monitor and Maintain Virtual Machine Request and Provisioning System.",
+  icons: {
+    icon: "/dghs_logo.svg",
+    shortcut: "/dghs_logo.svg",
+    apple: "/dghs_logo.svg",
+  },
 };
 
 export default function RootLayout({

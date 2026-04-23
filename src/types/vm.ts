@@ -85,17 +85,7 @@ export interface SerializedVmInstance {
   } | null;
 }
 
-export interface AuditLog {
-  id: string;
-  timestamp: Date;
-  action: string;
-  actorId: string;
-  actor?: { name: string; email: string };
-  details?: Record<string, unknown> | null;
-  entityType?: string | null;
-  entityId?: string | null;
-  vmId?: string | null;
-}
+import { AuditLog } from "./audit";
 
 // Add to @/types/vm.ts
 export interface SerializedVmSpecHistory {

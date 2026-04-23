@@ -1,18 +1,6 @@
 //types/requests.ts
 import { Approval } from "./approvals";
 import { CustomizationRequest } from "./customization";
-// import {
-//   RequestType,
-//   RequestStatus,
-//   Environment,
-//   ServerType,
-//   LicenseProvider,
-//   SSLProvider,
-//   Raid,
-//   NetworkAccess,
-//   Protocol,
-//   CustomizationStatus,
-// } from "./enums";
 
 import {
   RequestType,
@@ -28,6 +16,7 @@ import {
 } from "@prisma/client";
 
 import { VmInstance } from "./vm";
+import { Requester } from "./users";
 
 // Person interfaces (reusable)
 export interface Person {
@@ -195,13 +184,6 @@ export interface Request {
   additionalDisks: AdditionalDisk[];
   firewallPorts: FirewallPort[];
   networkAccess: NetworkAccessEntry[];
-}
-
-export interface Requester {
-  id: string;
-  name: string;
-  email: string;
-  designation?: string | null;
 }
 
 export interface RequestListItem extends Pick<Request, 

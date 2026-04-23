@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Image from "next/image";
 import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
@@ -61,8 +62,17 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
+          <div className="flex justify-center mb-4">
+            <Image
+              src="/mis_logo.png"
+              alt="MIS Logo"
+              width={64}
+              height={64}
+              className="object-contain"
+            />
+          </div>
           <CardTitle className="text-2xl font-bold text-center">
-            Datacenter Management
+            MIS DC Portal
           </CardTitle>
         </CardHeader>
         <CardContent>

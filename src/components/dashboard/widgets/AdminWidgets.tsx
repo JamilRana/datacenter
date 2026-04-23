@@ -3,7 +3,7 @@
 import { SummaryStatCard } from "@/components/dashboard/SummaryStatCard";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AdminDashboardData } from "@/lib/dashboard/adminDashboard";
+import { AdminDashboardData } from "@/types";
 import { Server, Users, Clock, Cpu } from "lucide-react";
 import { format } from "date-fns";
 

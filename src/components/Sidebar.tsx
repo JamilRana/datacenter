@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -129,10 +130,14 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
     <div className={cn("flex flex-col h-full", mobile && "p-4")}>
       {/* Logo */}
       <div className="flex items-center justify-between h-16 px-4 border-b border-slate-200">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="bg-indigo-600 p-1.5 rounded-lg text-white">
-            <Server size={20} />
-          </div>
+        <Link href="/" className="flex items-center gap-3">
+          <Image
+            src="/mis_logo.png"
+            alt="MIS Logo"
+            width={32}
+            height={32}
+            className="object-contain"
+          />
           <span className="font-bold text-xl tracking-tight text-slate-900">
             MIS DC Portal
           </span>

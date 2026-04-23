@@ -1,6 +1,7 @@
 import { Approval } from "./approvals";
+import { Request } from "./requests";
 import { CustomizationStatus, VmStatus, Environment } from "./enums";
-import { Requester } from "./requests";
+import { Requester } from "./users";
 
 export interface CustomizationRequest {
   id: string;
@@ -101,17 +102,5 @@ export interface NetworkAccessInput {
   accessType: "LOCAL" | "INTERNET" | "REMOTE";
 }
 
-// VmSpec for resulting spec
-export interface VmSpec {
-  id: string;
-  vmInstanceId: string;
-  vcpu: number;
-  ramGb: number;
-  storageGb: number;
-  osName?: string | null;
-  osVersion?: string | null;
-  raid?: "RAID0" | "RAID1" | "RAID5" | "RAID10" | "NONE" | null;
-  effectiveFrom: Date;
-  createdAt: Date;
-  customizationRequest?: CustomizationRequest | null;
-}
+
+import { VmSpec } from "./vm";

@@ -15,6 +15,13 @@ const adapter = new PrismaPg(pool);
 
 const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });
 
+// Log database connection status
+pool.connect().then(() => {
+  console.log('Successfully connected to the database');
+}).catch((err) => {
+  console.error('Database connection error:', err);
+});
+
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }

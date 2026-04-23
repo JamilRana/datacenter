@@ -1,5 +1,6 @@
 // src/types/approvals.ts
-import { CustomizationStatus, RequestStatus, RequestType } from "@prisma/client";
+import { CustomizationStatus, RequestStatus } from "@prisma/client";
+import { Requester } from "./users";
 
 export interface Approval {
   id: string;
@@ -28,31 +29,6 @@ export interface BaseCustomizationRequest {
   createdAt: Date;
   status: CustomizationStatus; // For CustomizationRequest model
   requester: Requester | null;
-}
-
-export interface VmInstance {
-  hostname: string | null;
-}
-
-export interface RequestItem extends BaseRequest {
-  requestType: RequestType;
-  systemName: string;
-  projectName: string | null;
-}
-
-export interface CustomizationRequestItem extends BaseCustomizationRequest {
-  targetVm: VmInstance | null;
-  vcpu?: number | null;
-  ramGb?: number | null;
-  storageGb?: number | null;
-  purpose?: string | null;
-}
-
-export interface Requester {
-  id: string;
-  name: string;
-  email: string;
-  designation?: string | null;
 }
 
 export interface DashboardRequest {

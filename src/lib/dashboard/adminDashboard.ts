@@ -1,65 +1,28 @@
-// lib/dashboard/adminDashboard.ts
 import prisma from "@/lib/prisma";
-
-export interface AdminDashboardStats {
-  totalVms: number;
-  totalUsers: number;
-  pendingApprovals: number;
-  totalCpuCores: number;
-  totalRamGb: number;
-}
-
-export interface MonthlyRequestTrend {
-  month: string;
-  requests: number;
-  approvals: number;
-  rejections: number;
-}
-
-export interface ApprovalDistribution {
-  status: string;
-  count: number;
-}
-
-export interface AuditLogEntry {
-  id: string;
-  action: string;
-  actorId: string;
-  entityType: string | null;
-  entityId: string | null;
-  timestamp: Date;
-  actor?: {
-    name: string;
-    email: string;
-  };
-}
-
-export interface AdminDashboardData {
-  stats: AdminDashboardStats;
-  monthlyTrends: MonthlyRequestTrend[];
-  approvalDistribution: ApprovalDistribution[];
-  recentAuditLogs: AuditLogEntry[];
-}
+import { getCachedData } from "@/lib/redis";
+import { AdminDashboardStats, MonthlyRequestTrend, ApprovalDistribution, AuditLogEntry, AdminDashboardData } from "@/types";
 
 export async function getAdminDashboardData(): Promise<AdminDashboardData> {
-  const [
-    stats,
-    monthlyTrends,
-    approvalDistribution,
-    recentAuditLogs,
-  ] = await Promise.all([
-    getAdminStats(),
-    getMonthlyRequestTrends(),
-    getApprovalDistribution(),
-    getRecentAuditLogs(),
-  ]);
+  return getCachedData('admin_dashboard_data', async () => {
+    const [
+      stats,
+      monthlyTrends,
+      approvalDistribution,
+      recentAuditLogs,
+    ] = await Promise.all([
+      getAdminStats(),
+      getMonthlyRequestTrends(),
+      getApprovalDistribution(),
+      getRecentAuditLogs(),
+    ]);
 
-  return {
-    stats,
-    monthlyTrends,
-    approvalDistribution,
-    recentAuditLogs,
-  };
+    return {
+      stats,
+      monthlyTrends,
+      approvalDistribution,
+      recentAuditLogs,
+    };
+  }, 300); // Cache for 5 minutes
 }
 
 async function getAdminStats(): Promise<AdminDashboardStats> {

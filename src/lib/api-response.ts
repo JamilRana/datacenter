@@ -1,6 +1,5 @@
 import { ApiResponse, PaginatedResponse } from "@/types";
 
-
 export function success<T>(data: T, message?: string): ApiResponse<T> {
   return {
     success: true,

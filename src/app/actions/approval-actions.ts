@@ -16,7 +16,7 @@ import {
 import { RoleService } from "@/lib/services/role.service";
 import { NotificationService } from "@/lib/services/notification.service";
 import { UserRole } from "@/lib/types/enums";
-import { ApiResponse } from "@/lib/types/api-response";
+import { ApiResponse } from "@/types";
 import { 
   getWorkflowConfig, 
   getStatusForLevel, 
@@ -26,6 +26,7 @@ import {
 import { redirect } from "next/navigation";
 import { fetchDashboardData } from "../approvals/lib";
 import { revalidatePath } from "next/cache";
+import { invalidateCache } from "@/lib/redis";
 
 export async function generateApprovals(
   tx: Prisma.TransactionClient,
@@ -422,6 +423,7 @@ export async function handleApprovalDecision(
       await NotificationService.notifyDCOps(entityId, systemName);
     }
 
+    await invalidateCache('admin_dashboard_data');
     return { success: true, data: { status: nextStatus, action: decision } };
   }, { timeout: 30000 });
 }
@@ -601,6 +603,7 @@ export async function executeRequest(requestId: string, notes?: string): Promise
     });
 
     revalidatePath("/inventory/vms");
+    await invalidateCache('admin_dashboard_data');
     return { success: true };
   }, { timeout: 15000 });
 }

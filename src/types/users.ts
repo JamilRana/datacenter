@@ -10,7 +10,7 @@ export interface User {
     roles: string[];
 }
 
-export interface UserRole {
+export interface UserRoleAssignment {
   userId: string;
   roleId: string;
   createdAt: Date;
@@ -30,4 +30,11 @@ export interface UserFormData {
   organization: string;
   contact: string;
   roles: string[];
+}
+
+export interface Requester {
+  id: string;
+  name: string;
+  email: string;
+  designation?: string | null;
 }
