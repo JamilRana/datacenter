@@ -1,12 +1,11 @@
 import { PrismaClient, RequestType, RequestStatus, ServerType, Environment, Protocol, Raid, LicenseProvider, ApprovalDecision, ApprovalEntityType } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
-import * as xlsx from 'xlsx';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as bcrypt from 'bcryptjs';
 
-// Try to load .env if on host
+// Load .env
 if (process.env.NODE_ENV !== 'production') {
   try {
     require('dotenv').config();
@@ -22,246 +21,75 @@ const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-const DEFAULT_PASSWORD_HASH = "$2b$12$8VAittz9caJlxlWrdb0JguKxj1v5yBL7DKwPj3X0ymGxPBxGg12kO";
+const DEFAULT_PASSWORD = process.env.SEED_DEFAULT_PASSWORD || "Dghs@123";
 
-// Helper to parse TSV/CSV using xlsx
-function parseCsv(filePath: string) {
-  if (!fs.existsSync(filePath)) {
-    console.warn(`File not found: ${filePath}`);
-    return [];
-  }
-  const content = fs.readFileSync(filePath);
-  const workbook = xlsx.read(content, { type: 'buffer' });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  return xlsx.utils.sheet_to_json(sheet, { defval: "" });
+/**
+ * Normalizes names to help with matching (e.g., handles "Md.", "Dr.", etc.)
+ */
+function normalizeName(name: string): string {
+  if (!name) return "";
+  return name.toLowerCase()
+    .replace(/^(md|dr|prof|mr|mrs|ms)\.?\s+/gi, '') // Remove common prefixes
+    .replace(/[^\w\s]/gi, '') // Remove punctuation
+    .trim();
 }
 
-function parseSafeDate(dateStr: any) {
-  if (!dateStr || String(dateStr).trim() === "" || String(dateStr) === "\\N") return null;
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? null : d;
-}
+async function seedUsers() {
+  console.log("🌱 Seeding Roles and Users from UserList.json...");
 
-async function main() {
-  console.log("Starting seed with Prisma 7 Adapter...");
-  
   // 1. Roles
-  const roleNames = [
-    "DEVELOPER",
-    "REQUESTER",
-    "APPROVER_L1",
-    "APPROVER_L2",
-    "APPROVER_L3",
-    "APPROVER_L4",
-    "DC_OPS",
-    "ADMIN",
-    "VIEW",
-  ];
-
-  const roles: Record<string, string> = {};
-  for (const roleName of roleNames) {
+  const roleNames = ["DEVELOPER", "REQUESTER", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3", "APPROVER_L4", "DC_OPS", "ADMIN", "VIEW"];
+  const rolesMap: Record<string, string> = {};
+  for (const name of roleNames) {
     const role = await prisma.role.upsert({
-      where: { name: roleName },
+      where: { name },
       update: {},
-      create: { name: roleName },
+      create: { name }
     });
-    roles[roleName] = role.id;
+    rolesMap[name] = role.id;
   }
-  console.log("Roles created/verified");
 
-  // 2. Helper function to create user with multiple roles
-  const createUserWithRoles = async (
-    email: string,
-    name: string,
-    designation: string,
-    roleNames: string[],
-    password: string = process.env.SEED_DEFAULT_PASSWORD || "Dghs@123"
-  ) => {
-    const salt = await bcrypt.genSalt(12);
-    const hashedPassword = await bcrypt.hash(password, salt);
+  // 2. Users from UserList.json
+  const userData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'UserList.json'), 'utf8'));
+  const hashedPassword = await bcrypt.hash(DEFAULT_PASSWORD, 12);
 
-    // Create or find user
-    const user = await prisma.user.upsert({
+  for (const user of userData) {
+    const email = user.email || `user_${Math.random().toString(36).substr(2, 9)}@dghs.gov.bd`;
+    const dbUser = await prisma.user.upsert({
       where: { email },
-      update: { 
+      update: {
+        name: user.name,
+        contact: user.contact || null,
+        designation: user.designation || null,
+        organization: user.organization || null,
         isActive: true,
-        name,
-        designation
       },
       create: {
         email,
-        name,
+        name: user.name,
+        contact: user.contact || null,
+        designation: user.designation || null,
+        organization: user.organization || null,
         password: hashedPassword,
-        designation,
         isActive: true,
-      },
+      }
     });
 
-    // Assign multiple roles
-    for (const roleName of roleNames) {
-      const roleId = roles[roleName];
+    const userRoles = user.roles || ["REQUESTER"];
+    for (const rName of userRoles) {
+      const roleId = rolesMap[rName.toUpperCase()];
       if (roleId) {
         await prisma.userRole.upsert({
-          where: {
-            userId_roleId: {
-              userId: user.id,
-              roleId: roleId,
-            },
-          },
+          where: { userId_roleId: { userId: dbUser.id, roleId } },
           update: {},
-          create: {
-            userId: user.id,
-            roleId: roleId,
-          },
+          create: { userId: dbUser.id, roleId }
         });
       }
     }
-
-    console.log(
-      `✅ User: ${name} (${email}) -> Roles: [${roleNames.join(", ")}]`
-    );
-    return user;
-  };
-
-  // 3. Seed Core Users
-  console.log("🌱 Seeding core users...");
-  
-  const coreUsers = [
-    {
-      email: "ame@mis.dghs.gov.bd",
-      name: "Younus Jamil Rana",
-      designation: "Assistant Maintenance Engineer",
-      roles: ["APPROVER_L1", "ADMIN"],
-      csvIds: ["92", "107"]
-    },
-    {
-      email: "me@mis.dghs.gov.bd",
-      name: "Kazi Fabliha Tasnim",
-      designation: "Maintenance Engineer",
-      roles: ["APPROVER_L2", "ADMIN"],
-      csvIds: ["93"]
-    },
-    {
-      email: "sukhen@mis.dghs.gov.bd",
-      name: "Sukhendu Shekhor Roy",
-      designation: "Maintenance Engineer",
-      roles: ["APPROVER_L3", "ADMIN"],
-      csvIds: ["94"]
-    },
-    {
-      email: "dcops@mis.dghs.gov.bd",
-      name: "Datacenter Operations Team",
-      designation: "DC Operations",
-      roles: ["DC_OPS", "VIEW"],
-      csvIds: ["95"]
-    },
-    {
-      email: "requester@mis.dghs.gov.bd",
-      name: "Sadman",
-      designation: "Devops Engineer",
-      roles: ["REQUESTER"],
-      csvIds: ["96", "105"]
-    }
-  ];
-
-  const userMap: Record<string, string> = {}; // csv_id -> prisma_id
-  const processedEmails = new Set<string>();
-
-  for (const coreUser of coreUsers) {
-    const user = await createUserWithRoles(
-      coreUser.email,
-      coreUser.name,
-      coreUser.designation,
-      coreUser.roles
-    );
-    processedEmails.add(coreUser.email);
-    for (const id of coreUser.csvIds) {
-      userMap[id] = user.id;
-    }
   }
-
-  // 4. Load remaining Users from CSV
-  const userData = parseCsv(path.join(process.cwd(), 'data', 'user.csv'));
-
-  console.log(`Processing ${userData.length} users from CSV...`);
-
-for (const row of userData as any[]) {
-    const csvId = String(row.id || "");
-    const rawEmail = String(row.email || "").trim();
-    const email = rawEmail || `user_${csvId}@placeholder.com`;
-    
-    if (processedEmails.has(email) || userMap[csvId]) {
-      if (!userMap[csvId]) {
-        // If we have the email but not the ID mapping yet, add it
-        const existingUser = await prisma.user.findUnique({ where: { email } });
-        if (existingUser) userMap[csvId] = existingUser.id;
-      }
-      continue;
-    }
-
-    // Fallback logic to ensure name is NEVER undefined or empty
-    const generatedName = (
-      `${row.first_name || ""} ${row.last_name || ""}`.trim() || 
-      row.user_id || 
-      `User ${csvId}`
-    );
-    // Determine roles based on user_type_server or other hints
-    const userRoles = [];
-    if (row.user_id === "approver1") userRoles.push(roles.APPROVER_L1);
-    if (row.user_id === "approver2") userRoles.push(roles.APPROVER_L2);
-    if (row.user_id === "approver3") userRoles.push(roles.APPROVER_L3);
-    if (row.user_id === "deployer") userRoles.push(roles.DC_OPS);
-    if (String(row.user_type_server).includes("2")) userRoles.push(roles.REQUESTER);
-    
-    if (userRoles.length === 0) userRoles.push(roles.REQUESTER);
-    if (["92", "93", "94", "95"].includes(csvId)) userRoles.push(roles.ADMIN);
-
-const user = await prisma.user.upsert({
-      where: { email },
-      update: {
-        name: generatedName, // Use the fallback here
-        designation: row.designation || null,
-        contact: row.phone || null,
-      },
-      create: {
-        email,
-        name: generatedName, // And use it here
-        password: row.password ? row.password : DEFAULT_PASSWORD_HASH,
-        designation: row.designation || null,
-        organization: "DGHS",
-        contact: row.phone || null,
-        isActive: true,
-        roles: {
-          create: Array.from(new Set(userRoles)).map(roleId => ({ roleId }))
-        }
-      }
-    });
-    userMap[csvId] = user.id;
-  }
-
-  // Add default system admin
-  await prisma.user.upsert({
-    where: { email: "admin@dghs.gov.bd" },
-    update: {},
-    create: {
-      email: "admin@dghs.gov.bd",
-      name: "System Admin",
-      password: DEFAULT_PASSWORD_HASH,
-      designation: "Administrator",
-      organization: "DGHS",
-      contact: "",
-      isActive: true,
-      roles: {
-        create: [{ roleId: roles.ADMIN }],
-      },
-    },
-  });
-
-  console.log("Users processed");
 
   // 3. Workflows
-  const workflowConfigs = [
+  const workflows = [
     { requestType: "NEW_VM", level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
     { requestType: "NEW_VM", level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
     { requestType: "NEW_VM", level: 3, role: "APPROVER_L3", roleLabel: "Director", isFinal: true },
@@ -278,121 +106,177 @@ const user = await prisma.user.upsert({
     { requestType: "RENEWAL", level: 4, role: "DC_OPS", roleLabel: "DC OPS Team", isFinal: false },
   ];
 
-  for (const config of workflowConfigs) {
+  for (const w of workflows) {
     await prisma.approvalWorkflow.upsert({
-      where: { id: `${config.requestType}-${config.level}` },
-      update: config,
-      create: { id: `${config.requestType}-${config.level}`, ...config },
+      where: { requestType_level: { requestType: w.requestType, level: w.level } },
+      update: w,
+      create: w
     });
   }
-  console.log("Workflows created");
 
-  // 4. Load Requests from CSV
-  const requestData = parseCsv(path.join(process.cwd(), 'data', 'server_req.csv'));
-  const requestMap: Record<string, string> = {};
+  console.log("✅ Roles, Users, and Workflows seeded.");
+}
 
-  console.log(`Processing ${requestData.length} requests from CSV...`);
+async function seedVMs() {
+  console.log("🌱 Seeding VM Inventory (Strict Matching)...");
 
-  for (const row of requestData as any[]) {
-    const csvId = String(row.id || "");
-    const userId = String(row.user_id);
-    const requesterId = userMap[userId] || userMap["96"];
+  // Fetch all existing users for mapping
+  const allUsers = await prisma.user.findMany();
+  const userEmailMap: Record<string, string> = {};
+  const userNameMap: Record<string, string> = {};
+  
+  allUsers.forEach(u => {
+    userEmailMap[u.email.toLowerCase()] = u.id;
+    userNameMap[normalizeName(u.name)] = u.id;
+  });
+
+  const vmData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'VmList.json'), 'utf8'));
+  const usedHostnames = new Set<string>();
+  const usedIps = new Set<string>();
+
+  let seededCount = 0;
+  let unassignedCount = 0;
+
+  for (const vm of vmData) {
+    // Only seed if it looks like a provisioned VM
+    const s = (vm.status || "").toLowerCase();
+    const isProvisioned = s.includes("deployed") || s.includes("approved") || vm.ip_address;
     
-    if (!requesterId) continue;
+    if (!isProvisioned) continue;
 
-    const statusMap: Record<string, RequestStatus> = {
-      "Approved & Deployed": RequestStatus.PROVISIONED,
-      "Approved": RequestStatus.APPROVED,
-      "Forwarded": RequestStatus.PENDING_L2,
-      "Rejected": RequestStatus.REJECTED,
-    };
+    let hostname = vm.server_name || `vm-${vm.id}`;
+    hostname = hostname.replace(/\s+/g, '-').toLowerCase();
+    
+    // Skip duplicates in CSV/JSON
+    if (usedHostnames.has(hostname)) continue;
+    
+    let ipAddress = vm.ip_address || null;
+    if (ipAddress && usedIps.has(ipAddress)) {
+      ipAddress = null;
+    }
 
-    const serverTypeMap: Record<string, ServerType> = {
-      "Application": ServerType.APPLICATION,
-      "Database": ServerType.DATABASE,
-      "Mail": ServerType.MAIL,
-      "FTP": ServerType.FTP,
-    };
+    usedHostnames.add(hostname);
+    if (ipAddress) usedIps.add(ipAddress);
 
-    const envMap: Record<string, Environment> = {
-      "Production": Environment.PRODUCTION,
-      "Development": Environment.DEVELOPMENT,
-      "Testing": Environment.TESTING,
-      "POC": Environment.TESTING,
-    };
+    // Try mapping to existing user
+    let userId: string | null = null;
+    
+    // 1. Try Email
+    if (vm.user_info?.email) {
+        userId = userEmailMap[vm.user_info.email.toLowerCase()] || null;
+    }
+    
+    // 2. Try Normalized Name if still null
+    if (!userId && vm.requester) {
+        userId = userNameMap[normalizeName(vm.requester)] || null;
+    }
 
-    const raidMap: Record<string, Raid> = {
-      "RAID 0": Raid.RAID0,
-      "RAID 1": Raid.RAID1,
-      "RAID 5": Raid.RAID5,
-      "RAID 10": Raid.RAID10,
-    };
+    if (!userId) unassignedCount++;
 
-    const request = await prisma.request.upsert({
-      where: { requestId: `REQ-${csvId.padStart(5, '0')}` },
-      update: {},
-      create: {
-        requestType: RequestType.NEW_VM,
-        status: statusMap[row.request_status] || RequestStatus.PENDING_L1,
-        systemName: String(row.facility_name || "N/A"),
-        purpose: String(row.purpose_of_server || "N/A"),
-        environment: envMap[row.hosted_service] || Environment.PRODUCTION,
-        requesterId,
-        serverType: serverTypeMap[row.server_type] || ServerType.OTHER,
-        vcpu: parseInt(String(row.processor_required)) || 1,
-        ramGb: parseInt(String(row.memory_ram)) || 1,
-        storageGb: parseInt(String(row.space_for_os)) || 10,
-        osName: String(row.os_name || "Ubuntu"),
-        osVersion: String(row.os_version || "22.04"),
-        raid: raidMap[row.raid_configuration] || Raid.NONE,
-        requestId: `REQ-${csvId.padStart(5, '0')}`,
-        submittedAt: parseSafeDate(row.request_date) || new Date(),
-        provisionedAt: parseSafeDate(row.deployment_date),
-      }
-    });
-    requestMap[csvId] = request.id;
-  }
-  console.log("Requests processed");
+    // Determine environment
+    let env: Environment = Environment.PRODUCTION;
+    if (hostname.includes("dev") || hostname.includes("test")) env = Environment.DEVELOPMENT;
+    else if (hostname.includes("stag")) env = Environment.STAGING;
 
-  // 5. Load History
-  const historyData = parseCsv(path.join(process.cwd(), 'data', 'server_req_history.csv'));
-  console.log(`Processing ${historyData.length} history entries...`);
+    // Hardware Parsing
+    const vcpu = parseInt(vm.cpu) || 1;
+    const ramGb = parseInt(vm.ram) || 1;
+    let storageGb = 0;
+    (vm.storage || "").split('+').forEach((p: string) => storageGb += parseInt(p) || 0);
+    if (storageGb === 0) storageGb = 20;
 
-  for (const row of historyData as any[]) {
-    const requestId = requestMap[String(row.server_id)];
-    const approverId = userMap[String(row.user_id)];
-
-    if (!requestId || !approverId) continue;
-
-    const decisionMap: Record<string, ApprovalDecision> = {
-      "Forwarded": ApprovalDecision.FORWARDED,
-      "Forwarded Final Approval": ApprovalDecision.FORWARDED,
-      "Final Approved": ApprovalDecision.APPROVED,
-      "Approved & Deployed": ApprovalDecision.APPROVED,
-      "Rejected": ApprovalDecision.REJECTED,
-      "Approved": ApprovalDecision.APPROVED,
-    };
-
-    await prisma.approval.create({
+    const vmInstance = await prisma.vmInstance.create({
       data: {
-        requestId,
-        approverId,
-        level: row.username === "Younus Jamil Rana" ? 1 : (row.username === "Kazi Fabliha Tasnim" ? 2 : 3),
-        decision: decisionMap[row.server_status] || ApprovalDecision.FORWARDED,
-        comments: row.history_comments || "",
-        decidedAt: parseSafeDate(row.cdt) || new Date(),
-        entityType: ApprovalEntityType.REQUEST,
+        sequenceNumber: 1,
+        hostname,
+        ipAddress,
+        status: "ACTIVE",
+        ownerId: userId, // NULL if no match found
+        environment: env,
+        subdomain: vm.subdomain || null,
+        provisionedAt: vm.deployment_date ? new Date(vm.deployment_date) : new Date(),
       }
     });
-  }
-  console.log("History entries processed");
 
-  console.log("Seed completed successfully!");
+    const spec = await prisma.vmSpec.create({
+      data: {
+        vmInstanceId: vmInstance.id,
+        vcpu,
+        ramGb,
+        storageGb,
+        osName: vm.os || "Ubuntu",
+        effectiveFrom: vm.deployment_date ? new Date(vm.deployment_date) : new Date(),
+      }
+    });
+
+    await prisma.vmInstance.update({
+      where: { id: vmInstance.id },
+      data: { currentSpecId: spec.id }
+    });
+
+    seededCount++;
+  }
+
+  console.log(`✅ Seeded ${seededCount} VM Instances.`);
+  if (unassignedCount > 0) {
+    console.log(`⚠️  ${unassignedCount} VMs could not be matched to a user in UserList.json and are unassigned.`);
+  }
+}
+
+async function clearInventory() {
+    console.log("🧹 Clearing existing inventory data...");
+    await prisma.vmSpec.deleteMany({});
+    await prisma.vmInstance.deleteMany({});
+    console.log("Inventory cleared.");
+}
+
+async function clearRequests() {
+    console.log("🧹 Clearing all request-related data (Requests, Notifications, Audits)...");
+    await prisma.notification.deleteMany({});
+    await prisma.auditLog.deleteMany({});
+    await prisma.approval.deleteMany({});
+    await prisma.request.deleteMany({});
+    console.log("Request data cleared.");
+}
+
+async function clearAll() {
+    console.log("🧨🧨🧨 PERFORMING FULL DATABASE WIPE...");
+    await prisma.notification.deleteMany({});
+    await prisma.auditLog.deleteMany({});
+    await prisma.approval.deleteMany({});
+    await prisma.vmSpec.deleteMany({});
+    await prisma.vmInstance.deleteMany({});
+    await prisma.request.deleteMany({});
+    await prisma.userRole.deleteMany({});
+    await prisma.user.deleteMany({});
+    await prisma.approvalWorkflow.deleteMany({});
+    await prisma.role.deleteMany({});
+    console.log("✅ Database is now completely empty.");
+}
+
+async function main() {
+  const arg = process.argv[2];
+
+  if (arg === '--users') {
+    await seedUsers();
+  } else if (arg === '--vms') {
+    await clearInventory();
+    await seedVMs();
+  } else if (arg === '--clear') {
+    await clearInventory();
+    await clearRequests();
+  } else if (arg === '--clear-all') {
+    await clearAll();
+  } else {
+    // If no arg, provide usage
+    console.log("Usage: npx tsx prisma/seed.ts [--users | --vms | --clear | --clear-all]");
+    console.log("Hint: Always run --users before --vms to ensure proper owner matching.");
+  }
 }
 
 main()
   .catch((e) => {
-    console.error("Seed error:", e);
+    console.error(e);
     process.exit(1);
   })
   .finally(async () => {

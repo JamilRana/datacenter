@@ -173,7 +173,7 @@ export async function getUserVms(
     ];
   }
 
-  if (filters.systemName) {
+  if (filters.systemName && filters.systemName !== "ALL") {
     where.request = { systemName: { contains: filters.systemName, mode: "insensitive" } };
   }
 

@@ -30,18 +30,18 @@ interface RequestStats {
 const STORAGE_KEY = "requests_page_state";
 
 function getStoredState() {
-  if (typeof window === "undefined") return { tab: "ALL" as RequestType | "ALL", page: 1 };
+  if (typeof window === "undefined") return { tab: "ALL" as RequestType | "ALL", page: 1, filters: { status: "ALL", search: "" } };
   try {
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) return JSON.parse(stored);
   } catch {}
-  return { tab: "ALL" as RequestType | "ALL", page: 1 };
+  return { tab: "ALL" as RequestType | "ALL", page: 1, filters: { status: "ALL", search: "" } };
 }
 
-function saveState(tab: RequestType | "ALL", page: number) {
+function saveState(tab: RequestType | "ALL", page: number, filters: Record<string, unknown>) {
   if (typeof window === "undefined") return;
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ tab, page }));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ tab, page, filters }));
   } catch {}
 }
 
@@ -49,7 +49,6 @@ export default function MyRequestsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [currentPage, setCurrentPage] = useState(1);
-  const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [requestsData, setRequestsData] = useState<{
     requests: detailsRequest[];
@@ -65,8 +64,10 @@ export default function MyRequestsPage() {
     status: "ALL",
     search: "",
   });
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const isFirstRender = useRef(true);
   const initializedRef = useRef(false);
+  const fetchingRef = useRef(false);
   const PAGE_SIZE = 10;
 
   // Initialize from sessionStorage on mount (only once)
@@ -75,13 +76,19 @@ export default function MyRequestsPage() {
     initializedRef.current = true;
     
     const stored = getStoredState();
-    if (stored.tab !== activeTab) setActiveTab(stored.tab);
-    if (stored.page !== currentPage) setCurrentPage(stored.page);
-    
-    setLoading(false);
-  }, [activeTab, currentPage]);
+    setActiveTab(stored.tab);
+    setCurrentPage(stored.page);
+    setFilters(stored.filters);
+  }, []);
 
-  const fetchingRef = useRef(false);
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(filters.search);
+      setCurrentPage(1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [filters.search]);
 
   const fetchData = useCallback(async () => {
     if (!session?.user?.id || !initializedRef.current || fetchingRef.current) return;
@@ -92,6 +99,7 @@ export default function MyRequestsPage() {
       const activeType = activeTab === "ALL" ? undefined : activeTab;
       const filterWithType = {
         ...filters,
+        search: debouncedSearch,
         type: activeTab === "ALL" ? "ALL" : activeTab,
       };
 
@@ -118,7 +126,7 @@ export default function MyRequestsPage() {
       setListLoading(false);
       fetchingRef.current = false;
     }
-  }, [session?.user?.id, activeTab, filters, currentPage]);
+  }, [session?.user?.id, activeTab, filters, debouncedSearch, currentPage]);
 
   useEffect(() => {
     if (status === "loading" || !session?.user?.id || !initializedRef.current) return;
@@ -131,8 +139,8 @@ export default function MyRequestsPage() {
       isFirstRender.current = false;
       return;
     }
-    saveState(activeTab, currentPage);
-  }, [activeTab, currentPage]);
+    saveState(activeTab, currentPage, filters);
+  }, [activeTab, currentPage, filters]);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -148,6 +156,14 @@ export default function MyRequestsPage() {
     setActiveTab(tab);
     setCurrentPage(1);
   };
+
+  if (status === "loading") {
+    return (
+      <div className="flex items-center justify-center p-20">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   const requestTypeCards = [
     {
@@ -182,18 +198,6 @@ export default function MyRequestsPage() {
     },
   ];
 
-  if (status === "loading" || loading) {
-    return (
-      <div className="p-6 md:p-10 max-w-7xl mx-auto space-y-6">
-        <div className="flex justify-between items-center h-10">
-          <div className="h-8 w-48 bg-slate-200 animate-pulse rounded" />
-          <div className="h-10 w-32 bg-slate-200 animate-pulse rounded" />
-        </div>
-        <div className="h-32 bg-slate-100 animate-pulse rounded-xl border border-slate-200" />
-        <div className="h-96 w-full bg-slate-100 animate-pulse rounded-xl border border-slate-200" />
-      </div>
-    );
-  }
 
   if (!session) {
     router.push("/auth");

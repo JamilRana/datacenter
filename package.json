@@ -8,6 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "db:seed": "tsx prisma/seed.ts",
+    "seed:users": "tsx prisma/seed.ts --users",
+    "seed:vms": "tsx prisma/seed.ts --vms",
+    "seed:clear": "tsx prisma/seed.ts --clear",
+    "seed:clear-all": "tsx prisma/seed.ts --clear-all",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -48,6 +52,7 @@
     "react-hook-form": "^7.69.0",
     "recharts": "^3.7.0",
     "shadcn": "^3.7.0",
+    "sharp": "^0.34.5",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",

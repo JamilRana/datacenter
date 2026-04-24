@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { Loader2, Plus, Search, Trash2, ToggleLeft, X } from "lucide-react";
 import { ROLES } from "@/lib/roles";
+import { toast } from "sonner";
 
 interface User {
   id: string;
@@ -27,6 +28,7 @@ interface User {
   email: string;
   designation?: string;
   organization?: string;
+  contact?: string;
   isActive: boolean;
   roles: string[];
   createdAt: Date;
@@ -40,6 +42,7 @@ const roleOptions = [
   { value: "APPROVER_L2", label: "Approver Level 2" },
   { value: "APPROVER_L3", label: "Approver Level 3" },
   { value: "APPROVER_L4", label: "Approver Level 4" },
+  { value: "DEVELOPER", label: "Developer" },
 ];
 
 export default function UserManagementPage() {
@@ -61,9 +64,21 @@ export default function UserManagementPage() {
     email: "",
     designation: "",
     organization: "",
+    contact: "",
     password: "",
     roles: [] as string[],
   });
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1); // Reset to page 1 on new search
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -75,7 +90,12 @@ export default function UserManagementPage() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const usersData = await getUsers({ page, pageSize: 10, search, status: userStatus as "active" | "inactive" | "all" });
+        const usersData = await getUsers({ 
+          page, 
+          pageSize: 10, 
+          search: debouncedSearch, 
+          status: userStatus as "active" | "inactive" | "all" 
+        });
         setUsers(usersData.users);
         setTotal(usersData.total);
       } catch (error) {
@@ -86,23 +106,29 @@ export default function UserManagementPage() {
     };
 
     fetchData();
-  }, [session, status, router, page, search, userStatus]);
+  }, [session, status, router, page, debouncedSearch, userStatus]);
 
   const handleSubmit = async () => {
     try {
       setSaving(true);
       if (editingUser) {
         await updateUser(editingUser.id, formData);
+        toast.success("User updated successfully");
       } else {
         await createUser(formData);
+        toast.success("User created successfully");
       }
       setIsDialogOpen(false);
       setEditingUser(null);
-      setFormData({ name: "", email: "", designation: "", organization: "", password: "", roles: [] });
-      const usersData = await getUsers({ page, pageSize: 10, search, status: userStatus as "active" | "inactive" | "all" });
+      setFormData({ name: "", email: "", designation: "", organization: "", contact: "", password: "", roles: [] });
+      
+      // Force refresh data
+      const usersData = await getUsers({ page, pageSize: 10, search: debouncedSearch, status: userStatus as "active" | "inactive" | "all" });
       setUsers(usersData.users);
-    } catch (error) {
+      setTotal(usersData.total);
+    } catch (error: any) {
       console.error("Failed to save user:", error);
+      toast.error(error.message || "Failed to save user");
     } finally {
       setSaving(false);
     }
@@ -111,10 +137,12 @@ export default function UserManagementPage() {
   const handleToggleStatus = async (userId: string) => {
     try {
       await toggleUserStatus(userId);
-      const usersData = await getUsers({ page, pageSize: 10, search, status: userStatus as "active" | "inactive" | "all" });
+      toast.success("User status toggled");
+      const usersData = await getUsers({ page, pageSize: 10, search: debouncedSearch, status: userStatus as "active" | "inactive" | "all" });
       setUsers(usersData.users);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to toggle user status:", error);
+      toast.error(error.message || "Failed to toggle status");
     }
   };
 
@@ -125,6 +153,7 @@ export default function UserManagementPage() {
       email: user.email,
       designation: user.designation || "",
       organization: user.organization || "",
+      contact: user.contact || "",
       password: "",
       roles: user.roles,
     });
@@ -135,16 +164,19 @@ export default function UserManagementPage() {
     if (!confirm("Are you sure you want to delete this user?")) return;
     try {
       await deleteUser(userId);
-      const usersData = await getUsers({ page, pageSize: 10, search, status: userStatus as "active" | "inactive" | "all" });
+      toast.success("User deleted successfully");
+      const usersData = await getUsers({ page, pageSize: 10, search: debouncedSearch, status: userStatus as "active" | "inactive" | "all" });
       setUsers(usersData.users);
-    } catch (error) {
+      setTotal(usersData.total);
+    } catch (error: any) {
       console.error("Failed to delete user:", error);
+      toast.error(error.message || "Failed to delete user");
     }
   };
 
   const openCreateDialog = () => {
     setEditingUser(null);
-    setFormData({ name: "", email: "", designation: "", organization: "", password: "", roles: [] });
+    setFormData({ name: "", email: "", designation: "", organization: "", contact: "", password: "", roles: [] });
     setIsDialogOpen(true);
   };
 
@@ -157,7 +189,7 @@ export default function UserManagementPage() {
     }
   };
 
-  if (status === "loading" || loading) {
+  if (status === "loading") {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -208,7 +240,7 @@ export default function UserManagementPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
+                <TableHead>Mobile/Email</TableHead>
                 <TableHead>Organization</TableHead>
                 <TableHead>Roles</TableHead>
                 <TableHead>Status</TableHead>
@@ -217,7 +249,15 @@ export default function UserManagementPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.length === 0 ? (
+              {loading && users.length === 0 ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell colSpan={7} className="py-4">
+                      <div className="h-6 bg-slate-100 animate-pulse rounded" />
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : users.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-slate-500">
                     No users found
@@ -225,9 +265,14 @@ export default function UserManagementPage() {
                 </TableRow>
               ) : (
                 users.map((user) => (
-                  <TableRow key={user.id}>
+                  <TableRow key={user.id} className={loading ? "opacity-50" : ""}>
                     <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{user.email}</span>
+                        {user.contact && <span className="text-xs text-slate-500">{user.contact}</span>}
+                      </div>
+                    </TableCell>
                     <TableCell>{user.organization || "-"}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
@@ -314,6 +359,10 @@ export default function UserManagementPage() {
                 <div>
                   <label className="text-sm font-medium block mb-1">Organization</label>
                   <Input value={formData.organization} onChange={(e) => setFormData({ ...formData, organization: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium block mb-1">Contact/Mobile</label>
+                  <Input value={formData.contact} onChange={(e) => setFormData({ ...formData, contact: e.target.value })} />
                 </div>
                 <div>
                   <label className="text-sm font-medium block mb-2">Roles</label>

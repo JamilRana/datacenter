@@ -9,6 +9,7 @@ export interface CreateUserInput {
   email: string;
   designation?: string;
   organization?: string;
+  contact?: string;
   password: string;
   roles: string[];
 }
@@ -18,6 +19,7 @@ export interface UpdateUserInput {
   email?: string;
   designation?: string;
   organization?: string;
+  contact?: string;
   password?: string;
   roles?: string[];
   isActive?: boolean;
@@ -90,6 +92,7 @@ export async function getUsers(params: UserListParams): Promise<PaginatedUsers> 
       email: u.email,
       designation: u.designation,
       organization: u.organization,
+      contact: u.contact,
       isActive: u.isActive,
       roles: u.roles.map((r) => r.role.name),
       createdAt: u.createdAt,
@@ -121,6 +124,7 @@ export async function getUserById(id: string) {
     email: user.email,
     designation: user.designation,
     organization: user.organization,
+    contact: user.contact,
     isActive: user.isActive,
     roles: user.roles.map((r) => r.role.name),
     createdAt: user.createdAt,
@@ -128,7 +132,7 @@ export async function getUserById(id: string) {
 }
 
 export async function createUser(input: CreateUserInput) {
-  const { name, email, designation, organization, password, roles } = input;
+  const { name, email, designation, organization, contact, password, roles } = input;
 
   const existingUser = await prisma.user.findFirst({
     where: {
@@ -148,6 +152,7 @@ export async function createUser(input: CreateUserInput) {
       email,
       designation,
       organization,
+      contact,
       password: hashedPassword,
       roles: {
         create: roles.map((roleName) => ({
@@ -175,13 +180,14 @@ export async function createUser(input: CreateUserInput) {
 }
 
 export async function updateUser(id: string, input: UpdateUserInput) {
-  const { name, email, designation, organization, password, roles, isActive } = input;
+  const { name, email, designation, organization, contact, password, roles, isActive } = input;
 
   const updateData: Prisma.UserUpdateInput = {
     name,
     email,
     designation,
     organization,
+    contact,
     isActive,
   };
 

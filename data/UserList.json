@@ -1,0 +1,357 @@
+[
+  {
+    "id": 98,
+    "name": "Dr. Md. Zahidul Islam",
+    "email": "sofordar@mis.dghs.gov.bd",
+    "contact": "01322858216",
+    "designation": "OSD",
+    "organization": "MIS-DGHS",
+    "request_count": 8
+  },
+  {
+    "id": 99,
+    "name": "Muhammed Ziaul Alam Chowdhury",
+    "email": "system.analyst@mis.dghs.gov.bd",
+    "contact": "01711731891",
+    "designation": "System Analyst",
+    "organization": "MIS-DGHS",
+    "request_count": 12
+  },
+  {
+    "email": "ame@mis.dghs.gov.bd",
+    "name": "Younus Jamil Rana",
+    "designation": "Assistant Maintenance Engineer",
+    "organization": "MIS-DGHS",
+    "roles": ["APPROVER_L1", "ADMIN", "REQUESTER"],
+    "csvIds": ["92", "107"]
+  },
+  {
+    "email": "me@mis.dghs.gov.bd",
+    "name": "Kazi Fabliha Tasnim",
+    "designation": "Maintenance Engineer",
+    "organization": "MIS-DGHS",
+    "roles": ["APPROVER_L2", "ADMIN"],
+    "csvIds": ["93"]
+  },
+  {
+    "email": "sukhen@mis.dghs.gov.bd",
+    "name": "Sukhendu Shekhor Roy",
+    "designation": "Senior System Analyst",
+    "organization": "MIS-DGHS",
+    "roles": ["APPROVER_L3", "ADMIN"],
+    "csvIds": ["94"]
+  },
+  {
+    "email": "zulfiker.ali@nns-solution.net",
+    "name": "Zulfiker Ali",
+    "designation": "Senior Engineer",
+    "organization": "NNS Solution",
+    "roles": ["DC_OPS", "VIEW"],
+    "csvIds": ["95"]
+  },
+  {
+    "id": 100,
+    "name": "Prof. Dr. Ashrafun Nessa",
+    "email": "ashra58@yahoo.co.uk",
+    "contact": "01714088152",
+    "designation": "Project Director",
+    "organization": "NCCBCST, Bangladesh Medical University",
+    "request_count": 1
+  },
+  {
+    "id": 102,
+    "name": "Toufiq Hasan Shawon",
+    "email": "shawontheboss@gmail.com",
+    "contact": "01710571571",
+    "designation": "Medical Officer",
+    "organization": "mPower",
+    "request_count": 9
+  },
+  {
+    "id": 103,
+    "name": "Akber Hossain",
+    "email": "programmer2@mis.dghs.gov.bd",
+    "contact": "01873212178",
+    "designation": "Programmer",
+    "organization": "MIS-DGHS",
+    "request_count": 7
+  },
+  {
+    "id": 97,
+    "name": "Abu Jobayer Bin Ali",
+    "email": "jobayer.sd.ntp@gmail.com",
+    "contact": "01718542900",
+    "designation": "Software Developer",
+    "organization": "NTP",
+    "request_count": 1
+  },
+  {
+    "id": null,
+    "name": "Fahim Hossain",
+    "email": "fahim@mail.com",
+    "contact": null,
+    "designation": "Senior Software Specialist",
+    "organization": "MIS-DGHS",
+    "request_count": 4,
+    "note": "Not found in user.csv - may need registration"
+  },
+  {
+    "id": 105,
+    "name": "Sadman Ador",
+    "email": "sadman.ador@gmail.com",
+    "contact": "01987782687",
+    "designation": "Support ENG.",
+    "organization": "UNICEF",
+    "request_count": 1
+  },
+  {
+    "id": null,
+    "name": "Zikra Amin Paa",
+    "email": "sa.ict@dgme.gov.bd",
+    "contact": "01912587102",
+    "designation": "System Analyst",
+    "organization": "DGME",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Md. Samsul Haque",
+    "email": "samsul@nhf.org.bd",
+    "contact": "01730372957",
+    "designation": "Devops Engineer",
+    "organization": "National Heart Foundation",
+    "request_count": 4,
+    "note": "Partial match - verify email"
+  },
+  {
+    "id": null,
+    "name": "Rajib Paul",
+    "email": "rajibpaul@mis.dghs.gov.bd",
+    "contact": "01719235897",
+    "designation": "Consultant",
+    "organization": "MIS-DGHS",
+    "request_count": 6,
+    "note": "Not in user.csv but email pattern matches MIS"
+  },
+  {
+    "id": null,
+    "name": "Nafiz Fuad",
+    "email": "nafiz@mail.com",
+    "contact": null,
+    "designation": "Asst. Software Engineer",
+    "organization": "DIVO Solution",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Dr. Mahbub Arefin",
+    "email": "mar.ranju37@gmail.com",
+    "contact": "01611447842",
+    "designation": "Divisional Chief",
+    "organization": "IPHN",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Happyna Tripura",
+    "email": "happynatripura@gmail.com",
+    "contact": "01711004508",
+    "designation": "Asst. Chief (Admin)",
+    "organization": "BHE-DGHS",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Dr. B. M. Riazul Islam",
+    "email": "riaz.somc@mis.dghs.gov.bd",
+    "contact": "01737230847",
+    "designation": "Deputy Chief (Medical)",
+    "organization": "MIS-DGHS",
+    "request_count": 10,
+    "note": "Email pattern matches MIS but not in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Dr. Ahmadul Hasan Khan",
+    "email": "ahmadulhasan@mail.com",
+    "contact": null,
+    "designation": "Line Director TB-Leprosy & ASP",
+    "organization": "National Tuberculosis Control Program",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Md. Saizul Amin",
+    "email": "saizulamin@gmail.com",
+    "contact": "01833375133",
+    "designation": "Jr. IT Consultant",
+    "organization": "MIS-DGHS",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Abdul Hannan Khan",
+    "email": "hannan.khan@hispbd.org",
+    "contact": "+880 1819-239241",
+    "designation": "HISP Team Lead",
+    "organization": "HISP Bangladesh",
+    "request_count": 28,
+    "note": "High-volume requester - not in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Asif Atick",
+    "email": "asif@head-blocks.com",
+    "contact": "01714-005887",
+    "designation": "IT Consultant",
+    "organization": "MIS-DGHS",
+    "request_count": 22,
+    "note": "High-volume requester - not in user.csv"
+  },
+  {
+    "id": null,
+    "name": "A.M.Saif",
+    "email": "amsaif@mpower-social.com",
+    "contact": "+88 01793544563",
+    "designation": "Project Manager",
+    "organization": "mPower Social Enterprises Ltd.",
+    "request_count": 20,
+    "note": "High-volume requester - not in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Raihan Sikder",
+    "email": "raihan@activationltd.com",
+    "contact": "1746638483",
+    "designation": "CEO (Activation Ltd)",
+    "organization": "MIS-DGHS",
+    "request_count": 7,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Irfan Hossain",
+    "email": "irfan.hossain@mail.com",
+    "contact": "01712345678",
+    "designation": "Developer",
+    "organization": "MIS-DGHS",
+    "request_count": 3,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Golam Mostafa",
+    "email": "mostafakhulna84@gmail.com",
+    "contact": "01849457282",
+    "designation": "System Administrator",
+    "organization": "Crystal Tech Ltd",
+    "request_count": 3,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Md Ferdous Alam",
+    "email": "mferdousalam@mtapsprogram.org",
+    "contact": "01715814668",
+    "designation": "Senior Technical Advisor - HIS",
+    "organization": "Management Sciences for Health",
+    "request_count": 4,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Md. Hasanuzzaman Khan",
+    "email": "mdkhan@who.int",
+    "contact": "01730787386",
+    "designation": "Data Manager-WHO",
+    "organization": "WHO",
+    "request_count": 6,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Mohammad Raihanul Hoque",
+    "email": "raihanul.hoque@a2i.gov.bd",
+    "contact": "01716022209",
+    "designation": "Health Data Expert",
+    "organization": "a2i",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Sanjid Habib",
+    "email": "sanjid.habib@mail.com",
+    "contact": "01712345678",
+    "designation": "Implementation Lead",
+    "organization": "MIS-DGHS",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Md. Mesbahul Haque",
+    "email": "mesba.mist@yahoo.com",
+    "contact": "1971804650",
+    "designation": "Cold Chain Engineer",
+    "organization": "EPI-DGHS",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Mohammad Shahnewaz Morshed",
+    "email": "mmorshed@unicef.org",
+    "contact": "1787665453",
+    "designation": "Nutrition Officer",
+    "organization": "UNICEF",
+    "request_count": 4,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Masud Parvez",
+    "email": "mparvez@unicef.org",
+    "contact": "1755621894",
+    "designation": "Health Officer (eHMIS)",
+    "organization": "UNICEF",
+    "request_count": 5,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Md. Mahafuzur Rahaman Samim",
+    "email": "mahafuz@totalofftec.com",
+    "contact": "01678090208",
+    "designation": "Sr. Executive",
+    "organization": "HED",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Md. Zahinur Alam",
+    "email": "zahin@mpower-social.com",
+    "contact": "01719346525",
+    "designation": "Network Administrator",
+    "organization": "mPower Social Enterprise Limited",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  },
+  {
+    "id": null,
+    "name": "Abu Yousuf Rana",
+    "email": "abuyousufranacse@gmail.com",
+    "contact": "01724284768",
+    "designation": "Programmer",
+    "organization": "ICDDRB",
+    "request_count": 1,
+    "note": "Not found in user.csv"
+  }
+]

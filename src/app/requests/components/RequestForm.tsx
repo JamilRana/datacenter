@@ -44,7 +44,7 @@ const requiredFields = [
   "environment",
   "osName",
   "osVersion",
-  "subDomain",
+  "subdomain",
 ];
 
 export function RequestForm({
@@ -676,7 +676,7 @@ export function RequestForm({
               name="vcpuValue"
               value={vcpuValue}
               onValueChange={setVcpuValue}
-              className="grid grid-cols-2 gap-2"
+              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2"
             >
               {([1, 2, 4, 8] as const).map((n) => (
                 <div
@@ -713,7 +713,7 @@ export function RequestForm({
               name="ramValue"
               value={ramValue}
               onValueChange={setRamValue}
-              className="grid grid-cols-2 gap-2"
+              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2"
             >
               {([4, 8, 16, 32] as const).map((n) => (
                 <div
@@ -747,7 +747,7 @@ export function RequestForm({
               name="storageValue"
               value={storageValue}
               onValueChange={setStorageValue}
-              className="grid grid-cols-2 gap-2"
+              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2"
             >
               {([50, 100, 250, 500] as const).map((n) => (
                 <div
@@ -828,7 +828,9 @@ export function RequestForm({
               Additional Storage Disks
             </Label>
             {additionalDisks.map((disk, i) => (
-              <div key={i} className="flex gap-4 mb-3">
+              <div key={i} className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-4 p-3 bg-slate-50/50 rounded-lg border border-slate-200">
+                <div className="w-full sm:w-32">
+                  <Label className="text-[10px] uppercase text-slate-400 sm:hidden">Size (GB)</Label>
                 <Input
                   placeholder="Size (GB)"
                   type="number"
@@ -840,6 +842,7 @@ export function RequestForm({
                     setAdditionalDisks(d);
                   }}
                 />
+                </div>
                 <Input
                   placeholder="Purpose (e.g. Database Data)"
                   className="flex-1"
@@ -850,18 +853,21 @@ export function RequestForm({
                     setAdditionalDisks(d);
                   }}
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() =>
-                    setAdditionalDisks(
-                      additionalDisks.filter((_, idx) => idx !== i)
-                    )
-                  }
-                >
-                  <Trash2 className="w-4 h-4 text-red-500" />
-                </Button>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10 text-red-500 hover:bg-red-50"
+                    onClick={() =>
+                      setAdditionalDisks(
+                        additionalDisks.filter((_, idx) => idx !== i)
+                      )
+                    }
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             ))}
             <Button
@@ -947,8 +953,9 @@ export function RequestForm({
             <div className="pt-4">
               <Label>Firewall Port Requirements</Label>
               {firewallPorts.map((port, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-end mt-2">
-                  <div className="col-span-3">
+                <div key={i} className="flex flex-col sm:flex-row gap-3 sm:gap-2 items-start sm:items-end mt-4 p-3 bg-slate-50/50 rounded-lg border border-slate-200 sm:bg-transparent sm:border-none sm:p-0">
+                  <div className="w-full sm:w-24">
+                    <Label className="text-[10px] uppercase text-slate-400 sm:hidden">Port</Label>
                     <Input
                       placeholder="Port"
                       value={port.port}
@@ -963,7 +970,8 @@ export function RequestForm({
                       max="65535"
                     />
                   </div>
-                  <div className="col-span-3">
+                  <div className="w-full sm:w-32">
+                    <Label className="text-[10px] uppercase text-slate-400 sm:hidden">Protocol</Label>
                     <Select
                       value={port.protocol}
                       onValueChange={(v) => {
@@ -982,7 +990,8 @@ export function RequestForm({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="col-span-4">
+                  <div className="w-full sm:flex-1">
+                    <Label className="text-[10px] uppercase text-slate-400 sm:hidden">Purpose</Label>
                     <Input
                       placeholder="Purpose"
                       value={port.purpose}
@@ -993,18 +1002,21 @@ export function RequestForm({
                       }}
                     />
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() =>
-                      setFirewallPorts(
-                        firewallPorts.filter((_, idx) => idx !== i)
-                      )
-                    }
-                  >
-                    <Trash2 className="w-4 h-4 text-red-500" />
-                  </Button>
+                  <div className="w-full sm:w-auto flex justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 text-red-500 hover:bg-red-50"
+                      onClick={() =>
+                        setFirewallPorts(
+                          firewallPorts.filter((_, idx) => idx !== i)
+                        )
+                      }
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
               <Button
@@ -1179,10 +1191,11 @@ export function RequestForm({
 
 
       {/* ✅ ACTION BUTTONS - Role-based visibility */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-300 p-4 shadow-lg z-50 flex justify-center gap-4">
+      <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-slate-200 p-4 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-50 flex flex-col sm:flex-row justify-center items-center gap-3 md:gap-4">
         <Button
           variant="outline"
           size="lg"
+          className="w-full sm:w-auto min-w-[150px]"
           disabled={isSubmitting || !formValid}
           type="button"
           onClick={() => handleSubmit("draft")}
@@ -1194,7 +1207,7 @@ export function RequestForm({
         {!isDeveloper && (
           <Button
             size="lg"
-            className="bg-blue-600 hover:bg-blue-700 px-10"
+            className="bg-blue-600 hover:bg-blue-700 px-10 w-full sm:w-auto min-w-[200px]"
             disabled={isSubmitting || (!isEditing && !draftSaved)}
             type="button"
             onClick={() => handleSubmit("submit")}
