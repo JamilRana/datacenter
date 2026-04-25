@@ -9,6 +9,7 @@ import {
   RequestType,
   RequestStatus,
   ApprovalEntityType,
+  CustomizationStatus
 } from "@prisma/client";
 
 import { VmStatus as FrontendVmStatus,   Raid as FrontendRaid,
@@ -17,7 +18,6 @@ import { generateApprovals } from "./approval-actions";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { SerializedVmInstance, SerializedVmInstanceDetail } from "@/types/vm";
-import { CustomizationStatus } from "@/types/enums";
 import { isAdmin } from "@/lib/utils";
 
 const vmBaseSchema = z.object({
@@ -27,15 +27,15 @@ const vmBaseSchema = z.object({
   ),
 
   sequenceNumber: z.preprocess(
-  (val) => {
-    if (val === undefined || val === null || val === "") {
-      return 1; // default for manual VM
-    }
-    const num = Number(val);
-    return isNaN(num) ? undefined : num;
-  },
-  z.number().int().min(1)
-),
+    (val) => {
+      if (val === undefined || val === null || val === "") {
+        return 1; // default for manual VM
+      }
+      const num = Number(val);
+      return isNaN(num) ? undefined : num;
+    },
+    z.number().int().min(1)
+  ),
 
   ownerId: z.preprocess(
     (val) => (val === "" || val == null ? null : val),
@@ -97,7 +97,6 @@ const SERIALIZED_VM_FULL_INCLUDE = {
   specHistory: { orderBy: { createdAt: "desc" } },
   request: true,
   customizationHistory: { orderBy: { createdAt: "desc" } },
-  // ✅ CRITICAL FIX: Include actor with minimal fields
   auditLogs: { 
     include: { 
       actor: { 
@@ -166,20 +165,19 @@ export async function getVmListWithRequests({
     orderBy: { provisionedAt: "desc" },
   });
 
-  // ✅ CRITICAL: Only query requests for THESE VMs
   const vmIds = vms.map(vm => vm.id);
   
   const [customizations, decommissions] = await Promise.all([
     prisma.customizationRequest.findMany({
       where: { 
-        targetVmId: { in: vmIds }, // ← FILTER BY VM IDS
+        targetVmId: { in: vmIds },
         status: { in: [RequestStatus.DRAFT, RequestStatus.PENDING_L1, RequestStatus.APPROVED] } 
       },
       select: { targetVmId: true },
     }),
     prisma.request.findMany({
       where: {
-        targetVmId: { in: vmIds },// ← FILTER BY VM IDS
+        targetVmId: { in: vmIds },
         requestType: RequestType.DECOMMISSION,
         status: { in: [RequestStatus.DRAFT, RequestStatus.PENDING_L1, RequestStatus.APPROVED] },
       },
@@ -248,36 +246,78 @@ export async function updateVm(formData: FormData) {
     .extend({ id: z.string().uuid() })
     .parse(Object.fromEntries(formData));
 
+  const specData = vmSpecSchema.parse(Object.fromEntries(formData));
   const { id, ...payload } = data;
 
-  const oldVm = await prisma.vmInstance.findUnique({ where: { id } });
-    if (!oldVm) throw new Error("VM not found");
+  const oldVm = await prisma.vmInstance.findUnique({ 
+    where: { id },
+    include: { currentSpec: true }
+  });
+  if (!oldVm) throw new Error("VM not found");
+
   const session = await getServerSession(authOptions);
   if (!session?.user || (!isAdmin(session.user.roles) && oldVm.ownerId !== session.user.id)) {
     throw new Error("Unauthorized");
   }
+
   const actorId = session.user.id;
-  await prisma.vmInstance.update({
-    where: { id },
-    data: {
-      ...payload,
-      renewalDate: payload.renewalDate ? new Date(payload.renewalDate) : null,
-      decommissionedAt: payload.decommissionedAt
-        ? new Date(payload.decommissionedAt)
-        : null,
-    },
+
+  await prisma.$transaction(async (tx) => {
+    // 1. Update VM Instance base fields
+    await tx.vmInstance.update({
+      where: { id },
+      data: {
+        ...payload,
+        renewalDate: payload.renewalDate ? new Date(payload.renewalDate) : null,
+        decommissionedAt: payload.decommissionedAt
+          ? new Date(payload.decommissionedAt)
+          : null,
+      },
+    });
+
+    // 2. Check if spec changed
+    const specChanged = 
+      !oldVm.currentSpec ||
+      oldVm.currentSpec.vcpu !== specData.vcpu ||
+      oldVm.currentSpec.ramGb !== specData.ramGb ||
+      oldVm.currentSpec.storageGb !== specData.storageGb ||
+      oldVm.currentSpec.osName !== specData.osName ||
+      oldVm.currentSpec.osVersion !== specData.osVersion ||
+      oldVm.currentSpec.raid !== specData.raid;
+
+    if (specChanged) {
+      const newSpec = await tx.vmSpec.create({
+        data: {
+          ...specData,
+          vmInstanceId: id,
+          effectiveFrom: new Date(),
+        },
+      });
+
+      await tx.vmInstance.update({
+        where: { id },
+        data: { currentSpecId: newSpec.id },
+      });
+    }
+
+    // 3. Audit Log
+    await tx.auditLog.create({
+      data: {
+        actorId,
+        action: "VM_UPDATED",
+        entityType: "VmInstance",
+        entityId: id,
+        details: JSON.stringify({ 
+          old: { ...oldVm, currentSpec: oldVm.currentSpec }, 
+          new: { ...payload, spec: specData } 
+        }),
+        vmId: id,
+      },
+    });
   });
 
-  await createAuditLog(
-    actorId,
-    "VM_UPDATED",
-    "VmInstance",
-    id,
-    { old: oldVm, new: payload },
-    id
-  );
-
   revalidatePath("/inventory/vms");
+  revalidatePath(`/inventory/vms/${id}`);
 }
 
 export async function updateVmResources(
@@ -286,25 +326,24 @@ export async function updateVmResources(
 ) {
   const vmId = formData.get("vmId") as string;
   if (!vmId) throw new Error("VM ID is required");
-  const customizationRequestId = formData.get("customizationRequestId") as string | null; // ← ADD THIS
+  const customizationRequestId = formData.get("customizationRequestId") as string | null;
 
   const specData = vmSpecSchema.parse(Object.fromEntries(formData));
   const sourceRequestId = formData.get("sourceRequestId") as string | null;
 
-    const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions);
   if (!session?.user || (!isAdmin(session.user.roles))) {
     throw new Error("Unauthorized");
   }
   const actorId = session.user.id;
-  
 
-    await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     const spec = await tx.vmSpec.create({
        data:{
         ...specData,
         vmInstanceId: vmId,
         sourceRequestId: viaCustomization ? null : (sourceRequestId || undefined),
-        customizationRequestId: viaCustomization ? customizationRequestId || undefined : null, // ← CRITICAL LINK
+        customizationRequestId: viaCustomization ? customizationRequestId || undefined : null,
         effectiveFrom: new Date(),
       },
     });
@@ -314,15 +353,14 @@ export async function updateVmResources(
        data:{ currentSpecId: spec.id },
     });
     
-    // ✅ Update customization request status if applicable
     if (viaCustomization && customizationRequestId) {
-  await tx.customizationRequest.update({
-    where: { id: customizationRequestId },
-    data: { 
-      status: CustomizationStatus.APPLIED
-    },
-  });
-}
+      await tx.customizationRequest.update({
+        where: { id: customizationRequestId },
+        data: { 
+          status: CustomizationStatus.APPLIED
+        },
+      });
+    }
   }, { timeout: 15000 });
 
   await createAuditLog(
@@ -399,31 +437,26 @@ export async function fetchAllVms(page: number = 1, pageSize: number = 20): Prom
   ]);
   return {
     vms: vms.map(vm => {
-      // Transform nested objects with explicit enum casting
       const currentSpec = vm.currentSpec ? {
         vcpu: vm.currentSpec.vcpu,
         ramGb: vm.currentSpec.ramGb,
         storageGb: vm.currentSpec.storageGb,
         osName: vm.currentSpec.osName,
         osVersion: vm.currentSpec.osVersion,
-        // CRITICAL: Cast nested enum via unknown
         raid: (vm.currentSpec.raid as unknown) as FrontendRaid | null,
       } : null;
 
       const request = vm.request ? {
         requestId: vm.request.requestId,
         systemName: vm.request.systemName,
-        // CRITICAL: Cast nested enum via unknown
         environment: (vm.request.environment as unknown) as FrontendEnvironment | null,
       } : null;
 
-      // Build final object with explicit field mapping
       return {
         id: vm.id,
         hostname: vm.hostname,
         ipAddress: vm.ipAddress,
         publicIpAddress: vm.publicIpAddress,
-        // CRITICAL: Cast top-level enum via unknown
         status: (vm.status as unknown) as FrontendVmStatus,
         renewalDate: vm.renewalDate?.toISOString() ?? null,
         hasRemoteAccess: vm.hasRemoteAccess,
@@ -507,7 +540,6 @@ export async function fetchVmAuditLogs(vmId: string) {
 }
 
 
-// ADD THIS NEW FUNCTION AT END OF FILE
 export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVmInstanceDetail | null> {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
@@ -523,7 +555,6 @@ export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVm
 
   if (!vm) return null;
 
-  // Serialize currentSpec
   const currentSpec = vm.currentSpec ? {
     vcpu: vm.currentSpec.vcpu,
     ramGb: vm.currentSpec.ramGb,
@@ -533,14 +564,12 @@ export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVm
     raid: (vm.currentSpec.raid as unknown) as FrontendRaid | null,
   } : null;
 
-  // Serialize request
   const request = vm.request ? {
     requestId: vm.request.requestId,
     systemName: vm.request.systemName,
     environment: (vm.request.environment as unknown) as FrontendEnvironment | null,
   } : null;
 
-  // Serialize specHistory
   const specHistory = vm.specHistory.map(spec => ({
     id: spec.id,
     vcpu: spec.vcpu,
@@ -554,7 +583,6 @@ export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVm
     customizationRequestId: spec.customizationRequestId,
   }));
 
-  // Serialize auditLogs
   const auditLogs = vm.auditLogs.map(log => ({
     id: log.id,
     timestamp: log.timestamp.toISOString(),

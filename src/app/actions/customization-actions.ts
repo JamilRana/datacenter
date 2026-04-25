@@ -123,6 +123,14 @@ export async function createCustomizationRequest(formData: FormData) {
   if (!targetVm) throw new Error("Target VM not found");
   if (targetVm.status !== "ACTIVE") throw new Error("Can only customize ACTIVE VMs");
 
+  // Check ownership
+  const userRoles = session.user.roles || [];
+  const isManagement = userRoles.some(r => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
+  
+  if (!isManagement && targetVm.ownerId !== session.user.id) {
+    throw new Error("You can only customize virtual machines that you own.");
+  }
+
   // Create customization request
   const customization = await prisma.customizationRequest.create({
     data: {
@@ -147,6 +155,7 @@ export async function createCustomizationRequest(formData: FormData) {
 
   revalidatePath("/requests");
   revalidatePath(`/requests/customize`);
+  revalidatePath("/inventory/vms", "layout");
   
   return customization;
 }
@@ -166,9 +175,11 @@ export async function getCustomizationRequests({
   if (!session?.user) throw new Error("Unauthorized");
 
   const skip = (page - 1) * perPage;
-  const where: Prisma.CustomizationRequestWhereInput = {
-    requesterId: session.user.id,
-  };
+  const isManagement = isAdmin(session.user.roles);
+
+  const where: Prisma.CustomizationRequestWhereInput = isManagement 
+    ? {} 
+    : { requesterId: session.user.id };
 
   if (status && status !== "all") {
     where.status = status as CustomizationStatus;
@@ -294,14 +305,18 @@ export async function getCustomizationRequest(id: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
 
+  const isManagement = isAdmin(session.user.roles);
+
   const customization = await prisma.customizationRequest.findUnique({
-    where: { 
-      id,
-      OR: [
-        { requesterId: session.user.id },
-        { targetVm: { ownerId: session.user.id } }
-      ]
-    },
+    where: isManagement 
+      ? { id }
+      : { 
+          id,
+          OR: [
+            { requesterId: session.user.id },
+            { targetVm: { ownerId: session.user.id } }
+          ]
+        },
     include: {
       targetVm: {
         include: {
@@ -456,6 +471,7 @@ export async function submitCustomizationRequest(id: string) {
 
   revalidatePath("/requests");
   revalidatePath(`/requests/customize`);
+  revalidatePath("/inventory/vms", "layout");
   
   return submitted;
 }

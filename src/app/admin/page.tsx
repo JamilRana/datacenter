@@ -42,22 +42,22 @@ export default async function AdminDashboardPage() {
   const metrics = await getAdminMetrics();
 
   return (
-    <div className="space-y-10 p-6 md:p-10 bg-slate-50/10 min-h-screen">
+    <div className="space-y-6 lg:space-y-10 p-4 md:p-8 lg:p-10 bg-slate-50/10 min-h-screen">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="space-y-1">
-          <h1 className="text-3xl font-black tracking-tight text-slate-900 uppercase italic">Command Center</h1>
-          <p className="text-slate-500 font-medium">Enterprise oversight and system health telemetry.</p>
+          <h1 className="text-2xl md:text-3xl font-black tracking-tight text-slate-900 uppercase italic">Command Center</h1>
+          <p className="text-sm text-slate-500 font-medium">Enterprise oversight and system health telemetry.</p>
         </div>
-        <div className="flex items-center gap-3">
-           <div className="flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-full border border-emerald-100">
+        <div className="flex items-center gap-3 w-full md:w-auto">
+           <div className="flex items-center gap-2 bg-emerald-50 px-4 py-2 rounded-full border border-emerald-100 w-full md:w-auto justify-center md:justify-start">
               <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-black text-emerald-700 uppercase tracking-widest leading-none">System Status: {metrics.systemStatus}</span>
+              <span className="text-[10px] md:text-xs font-black text-emerald-700 uppercase tracking-widest leading-none">System Status: {metrics.systemStatus}</span>
            </div>
         </div>
       </div>
 
       {/* Global Telemetry */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
          <StatsCard title="Authorized Entities" value={metrics.summary.users} label="Managed Accounts" icon={Users} color="blue" />
          <StatsCard title="Infrastructure Load" value={metrics.summary.instances} label="Provisioned VMs" icon={Server} color="indigo" />
          <StatsCard title="Decision Pipeline" value={metrics.summary.requests} label="Lifetime Requests" icon={FileText} color="emerald" />

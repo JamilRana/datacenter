@@ -67,7 +67,7 @@ export default function CreateAssetModal() {
           {/* Common Fields */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <InputField label="Name *" name="name" required />
-            <InputField label="Vendor" name="vendor" />
+            <InputField label="Provider" name="vendor" />
             <InputField label="Model" name="model" />
             <InputField label="Serial Number" name="serial" />
             <InputField label="Location" name="location" />

@@ -1,5 +1,8 @@
 // src/app/requests/components/RequestForm.tsx
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,14 +32,21 @@ import {
   Cpu,
   Users,
   Code,
+  ChevronRight,
+  ChevronLeft,
+  Info,
+  Layers,
 } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { AdditionalDisk, detailsRequest, FirewallPort } from "@/types/requests";
 import { Protocol } from "@/types/enums";
 import { ROLES } from "@/lib/roles";
 import { getDetailedRequest } from "@/app/actions/request-actions";
 import { getRequesters } from "@/app/actions/user-actions";
 import { User } from "@/types/users";
+import { RequestStepper } from "./RequestStepper";
+import { cn } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
 
 const requiredFields = [
   "systemName",
@@ -55,6 +65,7 @@ export function RequestForm({
   editId?: string;
 }) {
   const { data: session } = useSession();
+  const router = useRouter();
   const hasRole = (roles: string[] | undefined, role: string): boolean => {
     return roles?.includes(role) || false;
   };
@@ -64,7 +75,6 @@ export function RequestForm({
   const [requesters, setRequesters] = useState<User[]>([]);
   const [assignedRequesterId, setAssignedRequesterId] = useState<string>("");
 
-  // Fetch ONLY requesters (users with REQUESTER role) for developers to assign to
   useEffect(() => {
     if (isDeveloper) {
       const fetchRequesters = async () => {
@@ -104,8 +114,22 @@ export function RequestForm({
   const [removedAttachments, setRemovedAttachments] = useState<string[]>([]);
   const [draftSaved, setDraftSaved] = useState(false);
   const [formValid, setFormValid] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
+  const totalSteps = 4;
 
-  // Required fields to validate (moved out of component)
+  const TERMS_CONTENT = `
+    <h4 class="font-semibold mb-2">Terms and Conditions for Server Request</h4>
+    <ul class="list-disc pl-4 text-sm space-y-1">
+      <li>Without DGHS management's prior written approval, Data Center management personnel will not provide management access to the server from the internet.</li>
+      <li>All required information must be filled out completely by the requester.</li>
+      <li>Server access credentials must be securely managed by the requester.</li>
+      <li>The requester must ensure their software or web application does not contain malicious code, vulnerabilities, or defects that could compromise security, stability, or performance.</li>
+      <li>Each deployed system must undergo a half-yearly review and renewal process. Failure to renew within the stipulated period may result in suspension or decommissioning.</li>
+      <li>The requester is responsible for the VM until it is officially decommissioned.</li>
+      <li>Any changes to the system require submission of a new request.</li>
+    </ul>
+  `;
 
   const checkFormValidity = useCallback(() => {
     const form = formRef.current;
@@ -117,7 +141,7 @@ export function RequestForm({
       return value && String(value).trim() !== "";
     });
     setFormValid(isValid);
-  }, []); // requiredFields is now outside the component, so it's a stable dependency
+  }, []);
 
   // Hardware values
   const [vcpuValue, setVcpuValue] = useState<string>("2");
@@ -130,11 +154,23 @@ export function RequestForm({
   const [requiredPublicIP, setRequiredPublicIP] = useState<boolean>(false);
   const [vpnRequired, setVpnRequired] = useState<boolean>(false);
   const [renewalRequired, setRenewalRequired] = useState<boolean>(false);
+  const [osName, setOsName] = useState<string>("Ubuntu");
+  const [osVersion, setOsVersion] = useState<string>("");
+  const [systemName, setSystemName] = useState<string>("");
+  const [projectName, setProjectName] = useState<string>("");
+  const [purpose, setPurpose] = useState<string>("");
+  const [subdomain, setSubdomain] = useState<string>("");
+  const [quantity, setQuantity] = useState<number>(1);
+  const [frontendTech, setFrontendTech] = useState<string>("");
+  const [backendTech, setBackendTech] = useState<string>("");
+  const [dataBase, setDataBase] = useState<string>("");
+  const [serverArchitecture, setServerArchitecture] = useState<string>("");
+  const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
+  const [draftRequestId, setDraftRequestId] = useState<string | null>(null);
 
   // Initialize from prefill data
   useEffect(() => {
     if (prefillData) {
-      // CPU/RAM/Storage initialization
       if (prefillData.vcpu && ["1", "2", "4", "8"].includes(prefillData.vcpu.toString())) {
         setVcpuValue(prefillData.vcpu.toString());
       } else if (prefillData.vcpu) {
@@ -158,20 +194,28 @@ export function RequestForm({
       if (prefillData.requiredPublicIP !== undefined) setRequiredPublicIP(!!prefillData.requiredPublicIP);
       if (prefillData.vpnRequired !== undefined) setVpnRequired(!!prefillData.vpnRequired);
       if (prefillData.renewalRequired !== undefined) setRenewalRequired(!!prefillData.renewalRequired);
+      if (prefillData.osName) setOsName(prefillData.osName);
+      if (prefillData.osVersion) setOsVersion(prefillData.osVersion);
+      if (prefillData.systemName) setSystemName(prefillData.systemName);
+      if (prefillData.projectName) setProjectName(prefillData.projectName);
+      if (prefillData.purpose) setPurpose(prefillData.purpose);
+      if (prefillData.subdomain) setSubdomain(prefillData.subdomain);
+      if (prefillData.quantity) setQuantity(prefillData.quantity);
+      if (prefillData.frontendTech) setFrontendTech(prefillData.frontendTech);
+      if (prefillData.backendTech) setBackendTech(prefillData.backendTech);
+      if (prefillData.dataBase) setDataBase(prefillData.dataBase);
+      if (prefillData.serverArchitecture) setServerArchitecture(prefillData.serverArchitecture);
       
-      // Set assigned requester ID if editing developer-created draft
       if (isDeveloper && prefillData.requesterId && prefillData.requesterId !== userId) {
         setAssignedRequesterId(prefillData.requesterId);
       }
     }
   }, [prefillData, isDeveloper, userId]);
 
-  // Check form validity on mount and on input changes
   useEffect(() => {
     checkFormValidity();
   }, [prefillData, isEditing, checkFormValidity]);
 
-  // Load prefill data
   useEffect(() => {
     const loadCopyData = async () => {
       if (!copyFrom && !isEditing) {
@@ -184,39 +228,36 @@ export function RequestForm({
         if (copyFrom) {
           const response = await getDetailedRequest(copyFrom);
           if (response) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             requestData = (response as any).success ? (response as any).data ?? null : response;
           }
         } else if (isEditing && editId) {
           const response = await getDetailedRequest(editId);
           if (response) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             requestData = (response as any).success ? (response as any).data ?? null : response;
           }
         }
         setPrefillData(requestData);
 
         if (requestData) {
-           setAdditionalDisks(
-             requestData?.additionalDisks?.map(d => ({
-               sequence: d.sequence,
-               sizeGb: d.sizeGb,
-               purpose: d.purpose || "",
-             })) || [{ sequence: 1, sizeGb: 0, purpose: "" }]
-           );
+            setAdditionalDisks(
+              requestData?.additionalDisks?.map(d => ({
+                sequence: d.sequence,
+                sizeGb: d.sizeGb,
+                purpose: d.purpose || "",
+              })) || [{ sequence: 1, sizeGb: 0, purpose: "" }]
+            );
 
-           setFirewallPorts(
-             requestData?.firewallPorts?.map(p => ({
-               port: p.port,
-               protocol: p.protocol || Protocol.TCP,
-               purpose: p.purpose || "",
-               source: p.source || "",
-             })) || [{ port: 80, protocol: Protocol.TCP, purpose: "HTTP", source: "" }]
-           );
+            setFirewallPorts(
+              requestData?.firewallPorts?.map(p => ({
+                port: p.port,
+                protocol: p.protocol || Protocol.TCP,
+                purpose: p.purpose || "",
+                source: p.source || "",
+              })) || [{ port: 80, protocol: Protocol.TCP, purpose: "HTTP", source: "" }]
+            );
 
             setNetworkAccess(requestData?.networkAccess?.map((n: { accessType: string }) => n.accessType) || ["LOCAL"]);
 
-            // Load existing attachments
             const attachments = requestData?.attachments || [];
             const securityRep = attachments.find((a: { attachmentType: string }) => a.attachmentType === "SECURITY_REPORT");
             const justification = attachments.find((a: { attachmentType: string }) => a.attachmentType === "JUSTIFICATION");
@@ -225,7 +266,6 @@ export function RequestForm({
               justification: justification ? { id: justification.id, fileName: justification.fileName, filePath: justification.filePath } : undefined,
             });
 
-            // Fetch attachment URLs from MinIO
             if (securityRep?.filePath) {
               const url = await getAttachmentUrl(securityRep.filePath);
               setAttachmentUrls(prev => ({ ...prev, securityReport: url }));
@@ -247,38 +287,57 @@ export function RequestForm({
     loadCopyData();
   }, [copyFrom, isEditing, editId]);
 
-  const handleSubmit = async (submitType: "draft" | "submit") => {
-    // ✅ DEVELOPER VALIDATION: Can ONLY save drafts
+  const handleSubmit = async (submitType: "draft" | "submit", isAutoSave: boolean = false): Promise<boolean> => {
     if (isDeveloper && submitType === "submit") {
       toast.error("Developers can only save drafts. Requesters must submit for approval.");
-      return;
+      return false;
     }
 
-    // ✅ DEVELOPER VALIDATION: Must assign requester before saving
     if (isDeveloper && !assignedRequesterId) {
-      toast.error("Please assign a requester before saving the draft");
-      return;
+      toast.error("Please assign a requester before continuing");
+      return false;
     }
 
-    setIsSubmitting(true);
+    if (!isAutoSave) setIsSubmitting(true);
+    else setIsAutoSaving(true);
+
     const form = formRef.current;
     if (!form) {
       setIsSubmitting(false);
-      return;
+      setIsAutoSaving(false);
+      return false;
     }
 
     const formData = new FormData(form);
     
-    // ✅ SET requesterId BASED ON ROLE (THIS IS THE RESPONSIBLE PERSON)
     if (isDeveloper && assignedRequesterId) {
-      formData.set("requesterId", assignedRequesterId); // Developer assigns requester
-      formData.set("developerId", userId); // Track who created the draft
+      formData.set("requesterId", assignedRequesterId);
+      formData.set("developerId", userId);
     } else {
-      formData.set("requesterId", userId); // Requester creates for self
+      formData.set("requesterId", userId);
     }
 
     formData.append("requestType", "NEW_VM");
     formData.append("status", submitType === "submit" ? "PENDING_L1" : "DRAFT");
+    
+    // Explicitly set all state-controlled fields to ensure they are captured regardless of current step
+    formData.set("systemName", systemName);
+    formData.set("projectName", projectName);
+    formData.set("purpose", purpose);
+    formData.set("environment", environment);
+    formData.set("quantity", quantity.toString());
+    formData.set("osName", osName);
+    formData.set("osVersion", osVersion);
+    formData.set("subdomain", subdomain);
+    formData.set("raid", raid);
+    formData.set("requiredPublicIP", requiredPublicIP ? "on" : "off");
+    formData.set("vpnRequired", vpnRequired ? "on" : "off");
+    formData.set("renewalRequired", renewalRequired ? "on" : "off");
+    formData.set("frontendTech", frontendTech);
+    formData.set("backendTech", backendTech);
+    formData.set("dataBase", dataBase);
+    formData.set("serverArchitecture", serverArchitecture);
+
     formData.append("networkAccess", JSON.stringify(networkAccess));
     formData.append(
       "additionalDisks",
@@ -286,10 +345,12 @@ export function RequestForm({
     );
     formData.append(
       "firewallPorts",
-      JSON.stringify(firewallPorts.filter(p => p.port > 0))
+      JSON.stringify(firewallPorts
+        .filter(p => p.port > 0)
+        .map(p => ({ ...p, purpose: p.purpose || "N/A" })) // Ensure purpose is never null
+      )
     );
 
-    // Hardware values
     const finalVcpu = vcpuValue === "other"
       ? formData.get("customVcpu")?.toString() || "2"
       : vcpuValue;
@@ -304,19 +365,15 @@ export function RequestForm({
     formData.set("ramGb", finalRam);
     formData.set("storageGb", finalStorage);
 
-    // Files
     if (securityReport) formData.append("securityReport", securityReport);
     if (justificationDoc) formData.append("justificationDoc", justificationDoc);
     formData.append("vaReportSubmitted", securityReport ? "true" : "false");
     formData.append("justificationSubmitted", justificationDoc ? "true" : "false");
 
-    // Removed attachments
-    console.log("Submitting - removedAttachments:", removedAttachments);
     if (removedAttachments.length > 0) {
       formData.append("removedAttachments", JSON.stringify(removedAttachments));
     }
 
-    // ✅ AUTO-FILL DEVELOPER INFO FOR DEVELOPERS (schema has flat fields + relation)
     if (isDeveloper && session?.user) {
       formData.set("developerName", session.user.name || "");
       formData.set("developerDesignation", session.user.designation || "");
@@ -325,42 +382,46 @@ export function RequestForm({
       formData.set("developerEmail", session.user.email || "");
     }
 
-    if (isEditing && editId) {
-      formData.append("requestId", editId);
+    const currentRequestId = isEditing ? editId : draftRequestId;
+    if (currentRequestId) {
+      formData.append("requestId", currentRequestId);
     }
 
     try {
-      const url = isEditing ? `/api/requests/${requestId}` : "/api/requests";
+      const url = (isEditing || draftRequestId) ? `/api/requests/${currentRequestId}` : "/api/requests";
       const response = await fetch(url, {
-        method: isEditing ? "PATCH" : "POST",
+        method: (isEditing || draftRequestId) ? "PATCH" : "POST",
         body: formData,
       });
 
       const result = await response.json();
       if (response.ok) {
-        toast.success(`Request ${submitType === "submit" ? "submitted for approval" : "saved as draft"}!`);
-        
-        if (submitType === "draft") {
-          // Mark draft as saved, enable submit button
-          setDraftSaved(true);
-          // If editing existing, reload to show saved state
-          if (isEditing) {
-            window.location.reload();
-          } else {
-            // Clear form for new request after saving draft
-            formRef.current?.reset();
-          }
-        } else {
-          // Submit - stay on page
-          window.location.reload();
+        if (!isAutoSave) {
+          toast.success(`Request ${submitType === "submit" ? "submitted for approval" : "saved as draft"}!`);
         }
+        
+        // If it was the first save of a new request, store the ID to continue editing
+        if (!isEditing && !draftRequestId && result.id) {
+          setDraftRequestId(result.id);
+        }
+
+        if (submitType === "submit") {
+          toast.success("Request submitted successfully!");
+          router.push("/requests");
+        } else if (!isAutoSave && isDeveloper) {
+          router.push("/requests");
+        }
+        return true;
       } else {
         toast.error(result.error || "Submission failed");
+        return false;
       }
     } catch (error) {
       toast.error(`Network error: ${error}`);
+      return false;
     } finally {
       setIsSubmitting(false);
+      setIsAutoSaving(false);
     }
   };
 
@@ -373,856 +434,726 @@ export function RequestForm({
     }
   };
 
+  const nextStep = async () => {
+    // Auto-save progress as we move to the next step
+    if (currentStep < totalSteps) {
+      const success = await handleSubmit("draft", true);
+      if (success) {
+        setCurrentStep(currentStep + 1);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  };
+
+  const prevStep = () => {
+    if (currentStep > 1) setCurrentStep(currentStep - 1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const getDefaultValue = (value: string | number | boolean | null | undefined, defaultValue: string) => 
     value !== null && value !== undefined ? String(value) : defaultValue;
 
   return (
-    <form
-      ref={formRef}
-      key={copyFrom || "new-request"}
-      className="max-w-6xl mx-auto space-y-10 pb-28"
-      onChange={checkFormValidity}
-    >
-      {/* Prefill Banner */}
-      {copyFrom && (
-        <div className="bg-blue-50 p-3 rounded-md border border-blue-200 text-blue-800 text-sm mb-4">
-          📋 Prefilled from a previous request. Please review all fields.
-        </div>
-      )}
+    <div className="max-w-6xl mx-auto space-y-6 pb-28">
+      {/* Stepper Header */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8 overflow-hidden relative">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-indigo-600" />
+        <RequestStepper 
+          currentStep={currentStep} 
+          onStepClick={(stepId) => setCurrentStep(stepId)} 
+        />
+      </div>
 
-      {/* ✅ DEVELOPER-SPECIFIC: Requester Assignment (THIS IS THE RESPONSIBLE PERSON) */}
-      {isDeveloper && (
-        <Card className="shadow-md border border-amber-300">
-          <CardHeader className="bg-amber-50 border-b border-amber-200">
-            <CardTitle className="text-lg text-amber-800 flex items-center gap-2">
-              <Users className="w-5 h-5" /> Assign Requester (Will be Responsible Person)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <div className="space-y-2">
-              <Label className="text-amber-800 font-medium">Requester *</Label>
-              <Select
-                value={assignedRequesterId}
-                onValueChange={setAssignedRequesterId}
-                required
-              >
-                <SelectTrigger className="border-amber-300">
-                  <SelectValue placeholder="Select requester who will be responsible for this VM" />
-                </SelectTrigger>
-                <SelectContent>
-                  {requesters.map((requester) => (
-                    <SelectItem key={requester.id} value={requester.id}>
-                      {requester.name} • {requester.designation || requester.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded mt-1">
-                ⚠️ The assigned requester will be the responsible person and must submit this draft for approval.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <form
+        ref={formRef}
+        key={copyFrom || "new-request"}
+        className="space-y-8"
+        onChange={checkFormValidity}
+      >
+        {copyFrom && (
+          <div className="bg-blue-50 p-3 rounded-md border border-blue-200 text-blue-800 text-sm mb-4">
+            📋 Prefilled from a previous request. Please review all fields.
+          </div>
+        )}
 
-      {/* System Card */}
-      <Card className="shadow-md border border-slate-300">
-        <CardHeader className="bg-slate-50/70 border-b border-slate-300">
-          <div className="flex items-center gap-2">
-            <Server className="w-5 h-5 text-blue-600" />
-            <CardTitle className="text-lg">System & Project</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-6">
-          <div className="space-y-2">
-            <Label>System/Service Name *</Label>
-            <Input
-              name="systemName"
-              placeholder="System/Service Name *"
-              defaultValue={getDefaultValue(prefillData?.systemName, "")}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Project/Program Name</Label>
-            <Input
-              name="projectName"
-              placeholder="Project/Program Name"
-              defaultValue={getDefaultValue(prefillData?.projectName, "")}
-            />
-          </div>
-          <div className="md:col-span-2 space-y-2">
-            <Label>System Purpose *</Label>
-            <Textarea
-              name="purpose"
-              placeholder="Briefly describe why this VM is needed..."
-              className="min-h-[100px]"
-              defaultValue={getDefaultValue(prefillData?.purpose, "")}
-              required
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Target Environment</Label>
-              <Select
-                name="environment"
-                value={environment}
-                onValueChange={setEnvironment}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(["DEVELOPMENT", "STAGING", "PRODUCTION", "TESTING"] as const).map((e) => (
-                    <SelectItem key={e} value={e}>{e}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Expected End Date</Label>
-              <Input
-                name="expectedEndDate"
-                type="date"
-                defaultValue={prefillData?.expectedEndDate ? 
-                  new Date(prefillData.expectedEndDate).toISOString().split('T')[0] : 
-                  ""
-                }
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Tech Stack Card */}
-      <Card className="shadow-md border border-slate-300">
-        <CardHeader className="bg-slate-50/70 border-b border-slate-300">
-          <div className="flex items-center gap-2">
-            <Code className="w-5 h-5 text-purple-600" />
-            <CardTitle className="text-base text-slate-700">Technology Stack *</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-4">
-          <div className="space-y-2">
-            <Label>Frontend</Label>
-            <Input
-              name="frontendTech"
-              placeholder="React, Angular, etc."
-              defaultValue={getDefaultValue(prefillData?.frontendTech, "")}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Backend</Label>
-            <Input
-              name="backendTech"
-              placeholder="Node.js, Django, etc."
-              defaultValue={getDefaultValue(prefillData?.backendTech, "")}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Database</Label>
-            <Input
-              name="dataBase"
-              placeholder="PostgreSQL, MongoDB, etc."
-              defaultValue={getDefaultValue(prefillData?.dataBase, "")}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Architecture</Label>
-            <Input
-              name="serverArchitecture"
-              placeholder="Docker / Kubernetes / Monolith"
-              defaultValue={getDefaultValue(prefillData?.serverArchitecture, "")}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Additional technical notes</Label>
-            <Textarea
-              name="additionalTechNotes"
-              placeholder="Additional technical notes..."
-              defaultValue={getDefaultValue(prefillData?.additionalTechNotes, "")}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ✅ PEOPLE SECTION - Schema-Aligned (NO responsiblePerson fields) */}
-      <Card className="shadow-md border border-slate-300">
-        <CardHeader className="bg-slate-50/70 border-b border-slate-300">
-          <div className="flex items-center gap-2">
-            <Users className="w-5 h-5 text-green-600" />
-            <CardTitle className="text-lg">Contacts</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* ✅ REQUESTER = RESPONSIBLE PERSON (auto-set, no manual input) */}
-          <div>
-            <Label className="font-medium mb-3 block">Developer *</Label>
-            <div className="space-y-3">
-              <Input
-                name="developerName"
-                placeholder="Name"
-                defaultValue={getDefaultValue(
-                  prefillData?.developer?.name || (isDeveloper ? session?.user?.name : ""), 
-                  ""
-                )}
-                disabled={isDeveloper}
-              />
-              <Input
-                name="developerDesignation"
-                placeholder="Designation"
-                defaultValue={getDefaultValue(
-                  prefillData?.developer?.designation || (isDeveloper ? session?.user?.designation : ""), 
-                  ""
-                )}
-                disabled={isDeveloper}
-              />
-              <Input
-                name="developerOrganization"
-                placeholder="Organization"
-                defaultValue={getDefaultValue(
-                  prefillData?.developer?.organization || (isDeveloper ? session?.user?.organization : ""), 
-                  ""
-                )}
-                disabled={isDeveloper}
-              />
-              <Input
-                name="developerContact"
-                placeholder="Contact Number"
-                defaultValue={getDefaultValue(
-                  prefillData?.developer?.contact || (isDeveloper ? session?.user?.contact : ""), 
-                  ""
-                )}
-                disabled={isDeveloper}
-              />
-              <Input
-                name="developerEmail"
-                type="email"
-                placeholder="Email"
-                defaultValue={getDefaultValue(
-                  prefillData?.developer?.email || (isDeveloper ? session?.user?.email : ""), 
-                  ""
-                )}
-                disabled={isDeveloper}
-              />
-            </div>
-            {isDeveloper && (
-              <p className="text-xs text-slate-500 mt-2 italic">
-                Developer info auto-filled from your profile
-              </p>
-            )}
-          </div>
-
-          {/* Alternate Person - Optional backup contact */}
-          <div>
-            <Label className="font-medium mb-3 block">Alternate Focal Person (Optional)</Label>
-            <div className="space-y-3">
-              <Input
-                name="alternativePersonName"
-                placeholder="Name"
-                defaultValue={getDefaultValue(prefillData?.alternativePerson?.name, "")}
-              />
-              <Input
-                name="alternativePersonDesignation"
-                placeholder="Designation"
-                defaultValue={getDefaultValue(prefillData?.alternativePerson?.designation, "")}
-              />
-              <Input
-                name="alternativePersonOrganization"
-                placeholder="Organization"
-                defaultValue={getDefaultValue(prefillData?.alternativePerson?.organization, "")}
-              />
-              <Input
-                name="alternativePersonContact"
-                placeholder="Contact Number"
-                defaultValue={getDefaultValue(prefillData?.alternativePerson?.contact, "")}
-              />
-              <Input
-                name="alternativePersonEmail"
-                type="email"
-                placeholder="Email"
-                defaultValue={getDefaultValue(prefillData?.alternativePerson?.email, "")}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
- {/* VM Resources */}
-      <Card className="shadow-md border border-slate-300">
-        <CardHeader className="bg-slate-50/70 border-b border-slate-300 flex flex-row items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Cpu className="w-5 h-5 text-indigo-600" />
-            <CardTitle className="text-lg">Resource Specification</CardTitle>
-          </div>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="quantity" className="text-sm font-medium">
-              VM Quantity:
-            </Label>
-            <Input
-              name="quantity"
-              type="number"
-              defaultValue={getDefaultValue(prefillData?.quantity?.toString(), "1")}
-              className="w-16 h-8 no-spinner"
-              min="1"
-              max="10"
-            />
-          </div>
-        </CardHeader>
-        <CardContent className="pt-6">
-          {/* CPU */}
-          <div className="space-y-3">
-            <Label>vCPU Cores</Label>
-            <RadioGroup
-              name="vcpuValue"
-              value={vcpuValue}
-              onValueChange={setVcpuValue}
-              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2"
+        <AnimatePresence mode="wait">
+          {currentStep === 1 && (
+            <motion.div
+              key="step1"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-6"
             >
-              {([1, 2, 4, 8] as const).map((n) => (
-                <div
-                  key={n}
-                  className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50"
-                >
-                  <RadioGroupItem value={n.toString()} id={`cpu-${n}`} />
-                  <Label htmlFor={`cpu-${n}`}>
-                    {n} core{n > 1 ? "s" : ""}
-                  </Label>
-                </div>
-              ))}
-              <div className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50">
-                <RadioGroupItem value="other" id="cpu-other" />
-                <Label htmlFor="cpu-other">Other (Cores)</Label>
-              </div>
-            </RadioGroup>
+              {/* Developer Assignment */}
+              {isDeveloper && (
+                <Card className="shadow-md border-amber-200 bg-amber-50/30">
+                  <CardHeader>
+                    <CardTitle className="text-lg text-amber-800 flex items-center gap-2">
+                      <Users className="w-5 h-5" /> Assign Responsible Requester
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <Label className="text-amber-800">Requester *</Label>
+                      <Select value={assignedRequesterId} onValueChange={setAssignedRequesterId} required>
+                        <SelectTrigger className="border-amber-300">
+                          <SelectValue placeholder="Select the user responsible for this VM" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {requesters.map((requester) => (
+                            <SelectItem key={requester.id} value={requester.id}>
+                              {requester.name} • {requester.designation || requester.email}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
-            {vcpuValue === "other" && (
-              <Input
-                name="customVcpu"
-                placeholder="Specify cores"
-                type="number"
-                defaultValue={getDefaultValue(prefillData?.vcpu?.toString(), "")}
-                className="mt-2 no-spinner"
-              />
-            )}
-          </div>
-
-          {/* RAM */}
-          <div className="space-y-3">
-            <Label>Memory (RAM GB)</Label>
-            <RadioGroup
-              name="ramValue"
-              value={ramValue}
-              onValueChange={setRamValue}
-              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2"
-            >
-              {([4, 8, 16, 32] as const).map((n) => (
-                <div
-                  key={n}
-                  className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50"
-                >
-                  <RadioGroupItem value={n.toString()} id={`ram-${n}`} />
-                  <Label htmlFor={`ram-${n}`}>{n} GB</Label>
-                </div>
-              ))}
-              <div className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50">
-                <RadioGroupItem value="other" id="ram-other" />
-                <Label htmlFor="ram-other">Other (GB)</Label>
-              </div>
-            </RadioGroup>
-            {ramValue === "other" && (
-              <Input
-                name="customRam"
-                placeholder="Specify GB"
-                type="number"
-                className="mt-2 no-spinner"
-                defaultValue={getDefaultValue(prefillData?.ramGb?.toString(), "")}
-              />
-            )}
-          </div>
-
-          {/* Storage */}
-          <div className="space-y-3">
-            <Label>Primary OS Disk</Label>
-            <RadioGroup
-              name="storageValue"
-              value={storageValue}
-              onValueChange={setStorageValue}
-              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2"
-            >
-              {([50, 100, 250, 500] as const).map((n) => (
-                <div
-                  key={n}
-                  className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50"
-                >
-                  <RadioGroupItem value={n.toString()} id={`st-${n}`} />
-                  <Label htmlFor={`st-${n}`}>{n} GB</Label>
-                </div>
-              ))}
-              <div className="flex items-center space-x-2 border border-slate-300 rounded-md p-2 hover:bg-slate-50">
-                <RadioGroupItem value="other" id="st-other" />
-                <Label htmlFor="st-other">Other (GB)</Label>
-              </div>
-            </RadioGroup>
-            {storageValue === "other" && (
-              <Input
-                name="customStorage"
-                placeholder="Specify OS GB"
-                type="number"
-                className="mt-2 no-spinner"
-                defaultValue={getDefaultValue(prefillData?.storageGb?.toString(), "")}
-              />
-            )}
-          </div>
-
-          {/* OS & License */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 pt-6">
-            <div className="space-y-2">
-              <Label>Operating System Name *</Label>
-              <Input
-                name="osName"
-                placeholder="e.g., Ubuntu, CentOS"
-                defaultValue={getDefaultValue(prefillData?.osName, "Ubuntu")}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Operating System Version *</Label>
-              <Input
-                name="osVersion"
-                placeholder="e.g., 22.04 LTS"
-                defaultValue={getDefaultValue(prefillData?.osVersion, "")}
-              />
-            </div>
-          </div>
-
-          {/* RAID & Subdomain */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 pt-6">
-            <div className="space-y-2">
-              <Label>RAID Configuration</Label>
-              <Select name="raid" value={raid} onValueChange={setRaid}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(["RAID0", "RAID1", "RAID5", "RAID10", "NONE"] as const).map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {r}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Sub Domain *</Label>
-              <Input
-                name="subdomain"
-                placeholder="e.g., app.example.com"
-		required
-                defaultValue={getDefaultValue(prefillData?.subdomain, "")}
-              />
-            </div>
-          </div>
-
-          {/* Additional Disks */}
-          <div className="mt-8 border-t border-slate-300 pt-6">
-            <Label className="text-slate-700 font-semibold block mb-2">
-              Additional Storage Disks
-            </Label>
-            {additionalDisks.map((disk, i) => (
-              <div key={i} className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-4 p-3 bg-slate-50/50 rounded-lg border border-slate-200">
-                <div className="w-full sm:w-32">
-                  <Label className="text-[10px] uppercase text-slate-400 sm:hidden">Size (GB)</Label>
-                <Input
-                  placeholder="Size (GB)"
-                  type="number"
-                  className="w-32 no-spinner"
-                  value={disk.sizeGb}
-                  onChange={(e) => {
-                    const d = [...additionalDisks];
-                    d[i].sizeGb = parseInt(e.target.value);
-                    setAdditionalDisks(d);
-                  }}
-                />
-                </div>
-                <Input
-                  placeholder="Purpose (e.g. Database Data)"
-                  className="flex-1"
-                  value={disk.purpose}
-                  onChange={(e) => {
-                    const d = [...additionalDisks];
-                    d[i].purpose = e.target.value;
-                    setAdditionalDisks(d);
-                  }}
-                />
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-10 w-10 text-red-500 hover:bg-red-50"
-                    onClick={() =>
-                      setAdditionalDisks(
-                        additionalDisks.filter((_, idx) => idx !== i)
-                      )
-                    }
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                setAdditionalDisks([
-                  ...additionalDisks,
-                  { sequence: additionalDisks.length + 1, sizeGb: 0, purpose: "" },
-                ])
-              }
-            >
-              <Plus className="w-4 h-4 mr-2" /> Add Disk
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Network & Compliance */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Network */}
-        <Card className="shadow-md border border-slate-300">
-          <CardHeader className="bg-slate-50/70 border-b border-slate-300">
-            <div className="flex items-center gap-2">
-              <Network className="w-5 h-5 text-green-600" />
-              <CardTitle className="text-lg">Network & Security</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-6">
-            <div className="space-y-2">
-              <Label>Network Access Types</Label>
-              <div className="flex flex-wrap gap-3">
-                {(["LOCAL", "INTERNET", "REMOTE"] as const).map((t) => (
-                  <div
-                    key={t}
-                    className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-300"
-                  >
-                    <Checkbox
-                      checked={networkAccess.includes(t)}
-                      onCheckedChange={(checked) => {
-                        if (typeof checked === "boolean") {
-                          handleCheckboxChange(checked, (c) => {
-                            if (c) {
-                              setNetworkAccess([...networkAccess, t]);
-                            } else {
-                              setNetworkAccess(
-                                networkAccess.filter((x) => x !== t)
-                              );
-                            }
-                          });
-                        }
-                      }}
-                    />
-                    <span className="text-xs font-bold">{t}</span>
+              {/* Identity & Project */}
+              <Card className="shadow-md border-slate-200">
+                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <Server className="w-5 h-5" />
+                    <CardTitle className="text-lg">System Identification</CardTitle>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between border-t border-slate-300 pt-4">
-              <div className="space-y-0.5">
-                <Label>Public IP Address</Label>
-                <p className="text-xs text-slate-500">Talk before submitting</p>
-              </div>
-              <Switch
-                name="requiredPublicIP"
-                checked={requiredPublicIP}
-                onCheckedChange={setRequiredPublicIP}
-              />
-              <div className="space-y-0.5">
-                <Label>Required VPN</Label>
-                <p className="text-xs text-slate-500">Talk before submitting</p>
-              </div>
-              <Switch
-                name="vpnRequired"
-                checked={vpnRequired}
-                onCheckedChange={setVpnRequired}
-              />
-            </div>
-
-            {/* Firewall Ports */}
-            <div className="pt-4">
-              <Label>Firewall Port Requirements</Label>
-              {firewallPorts.map((port, i) => (
-                <div key={i} className="flex flex-col sm:flex-row gap-3 sm:gap-2 items-start sm:items-end mt-4 p-3 bg-slate-50/50 rounded-lg border border-slate-200 sm:bg-transparent sm:border-none sm:p-0">
-                  <div className="w-full sm:w-24">
-                    <Label className="text-[10px] uppercase text-slate-400 sm:hidden">Port</Label>
-                    <Input
-                      placeholder="Port"
-                      value={port.port}
-                      onChange={(e) => {
-                        const newPorts = [...firewallPorts];
-                        newPorts[i].port = parseInt(e.target.value);
-                        setFirewallPorts(newPorts);
-                      }}
-                      type="number"
-                      className="no-spinner"
-                      min="1"
-                      max="65535"
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
+                  <div className="space-y-2">
+                    <Label>System/Service Name *</Label>
+                    <Input 
+                      name="systemName" 
+                      placeholder="e.g. Health Management Information System" 
+                      value={systemName}
+                      onChange={(e) => setSystemName(e.target.value)}
+                      required 
                     />
                   </div>
-                  <div className="w-full sm:w-32">
-                    <Label className="text-[10px] uppercase text-slate-400 sm:hidden">Protocol</Label>
-                    <Select
-                      value={port.protocol}
-                      onValueChange={(v) => {
-                        const newPorts = [...firewallPorts];
-                        newPorts[i].protocol = v as Protocol;
-                        setFirewallPorts(newPorts);
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
+                  <div className="space-y-2">
+                    <Label>Project/Program Name</Label>
+                    <Input 
+                      name="projectName" 
+                      placeholder="e.g. DGHS Digitalization" 
+                      value={projectName}
+                      onChange={(e) => setProjectName(e.target.value)}
+                    />
+                  </div>
+                  <div className="md:col-span-2 space-y-2">
+                    <Label>System Purpose *</Label>
+                    <Textarea 
+                      name="purpose" 
+                      placeholder="Briefly describe the business need for this server..." 
+                      className="min-h-[100px]" 
+                      value={purpose}
+                      onChange={(e) => setPurpose(e.target.value)}
+                      required 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Target Environment</Label>
+                    <Select name="environment" value={environment} onValueChange={setEnvironment}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="TCP">TCP</SelectItem>
-                        <SelectItem value="UDP">UDP</SelectItem>
-                        <SelectItem value="OTHER">Other</SelectItem>
+                        {["DEVELOPMENT", "STAGING", "PRODUCTION", "TESTING"].map((e) => (
+                          <SelectItem key={e} value={e}>{e}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="w-full sm:flex-1">
-                    <Label className="text-[10px] uppercase text-slate-400 sm:hidden">Purpose</Label>
-                    <Input
-                      placeholder="Purpose"
-                      value={port.purpose}
-                      onChange={(e) => {
-                        const newPorts = [...firewallPorts];
-                        newPorts[i].purpose = e.target.value;
-                        setFirewallPorts(newPorts);
-                      }}
+                  <div className="space-y-2">
+                    <Label>Expected End Date</Label>
+                    <Input name="expectedEndDate" type="date" defaultValue={prefillData?.expectedEndDate ? new Date(prefillData.expectedEndDate).toISOString().split('T')[0] : ""} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Tech Stack */}
+              <Card className="shadow-md border-slate-200">
+                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                  <div className="flex items-center gap-2 text-purple-600">
+                    <Code className="w-5 h-5" />
+                    <CardTitle className="text-lg">Technology Stack</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
+                  <div className="space-y-2">
+                    <Label>Frontend Technology</Label>
+                    <Input 
+                      name="frontendTech" 
+                      placeholder="e.g. Next.js, Flutter" 
+                      value={frontendTech}
+                      onChange={(e) => setFrontendTech(e.target.value)}
                     />
                   </div>
-                  <div className="w-full sm:w-auto flex justify-end">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 text-red-500 hover:bg-red-50"
-                      onClick={() =>
-                        setFirewallPorts(
-                          firewallPorts.filter((_, idx) => idx !== i)
-                        )
-                      }
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                  <div className="space-y-2">
+                    <Label>Backend Technology</Label>
+                    <Input 
+                      name="backendTech" 
+                      placeholder="e.g. Node.js, Go" 
+                      value={backendTech}
+                      onChange={(e) => setBackendTech(e.target.value)}
+                    />
                   </div>
-                </div>
-              ))}
+                  <div className="space-y-2">
+                    <Label>Database</Label>
+                    <Input 
+                      name="dataBase" 
+                      placeholder="e.g. PostgreSQL, Redis" 
+                      value={dataBase}
+                      onChange={(e) => setDataBase(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Architecture</Label>
+                    <Input 
+                      name="serverArchitecture" 
+                      placeholder="e.g. Microservices, Docker" 
+                      value={serverArchitecture}
+                      onChange={(e) => setServerArchitecture(e.target.value)}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {currentStep === 2 && (
+            <motion.div
+              key="step2"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-6"
+            >
+              <Card className="shadow-md border-slate-200">
+                <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-row items-center justify-between">
+                  <div className="flex items-center gap-2 text-indigo-600">
+                    <Cpu className="w-5 h-5" />
+                    <CardTitle className="text-lg">Resource Allocation</CardTitle>
+                  </div>
+                  <div className="flex items-center gap-3 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
+                    <Label htmlFor="quantity" className="text-xs font-bold text-indigo-700 uppercase tracking-wider">Quantity:</Label>
+                    <Input 
+                      name="quantity" 
+                      type="number" 
+                      value={quantity}
+                      onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                      className="w-12 h-7 bg-white border-indigo-200 text-center p-0 no-spinner font-bold" 
+                      min="1" 
+                      max="20" 
+                    />
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-8 pt-8">
+                  {/* vCPU */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">vCPU Cores</Label>
+                      {vcpuValue === "other" && <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-medium">Custom</span>}
+                    </div>
+                    <RadioGroup value={vcpuValue} onValueChange={setVcpuValue} className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                      {[1, 2, 4, 8].map((n) => (
+                        <div key={n} className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", vcpuValue === n.toString() ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                          <RadioGroupItem value={n.toString()} id={`cpu-${n}`} className="sr-only" />
+                          <Label htmlFor={`cpu-${n}`} className="cursor-pointer text-center">
+                            <div className="text-xl font-bold">{n}</div>
+                            <div className="text-[10px] text-slate-500 uppercase">Cores</div>
+                          </Label>
+                        </div>
+                      ))}
+                      <div className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", vcpuValue === "other" ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                        <RadioGroupItem value="other" id="cpu-other" className="sr-only" />
+                        <Label htmlFor="cpu-other" className="cursor-pointer text-center">
+                          <div className="text-xl font-bold leading-none">?</div>
+                          <div className="text-[10px] text-slate-500 uppercase mt-1">Other</div>
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                    {vcpuValue === "other" && <Input name="customVcpu" placeholder="Enter number of cores" type="number" defaultValue={getDefaultValue(prefillData?.vcpu?.toString(), "")} className="mt-2" />}
+                  </div>
+
+                  {/* RAM */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Memory (RAM GB)</Label>
+                    </div>
+                    <RadioGroup value={ramValue} onValueChange={setRamValue} className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                      {[4, 8, 16, 32].map((n) => (
+                        <div key={n} className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", ramValue === n.toString() ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                          <RadioGroupItem value={n.toString()} id={`ram-${n}`} className="sr-only" />
+                          <Label htmlFor={`ram-${n}`} className="cursor-pointer text-center">
+                            <div className="text-xl font-bold">{n}</div>
+                            <div className="text-[10px] text-slate-500 uppercase">GB</div>
+                          </Label>
+                        </div>
+                      ))}
+                      <div className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", ramValue === "other" ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                        <RadioGroupItem value="other" id="ram-other" className="sr-only" />
+                        <Label htmlFor="ram-other" className="cursor-pointer text-center">
+                          <div className="text-xl font-bold leading-none">?</div>
+                          <div className="text-[10px] text-slate-500 uppercase mt-1">Other</div>
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                    {ramValue === "other" && <Input name="customRam" placeholder="Enter RAM in GB" type="number" defaultValue={getDefaultValue(prefillData?.ramGb?.toString(), "")} className="mt-2" />}
+                  </div>
+
+                  {/* Storage */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Primary OS Disk</Label>
+                    </div>
+                    <RadioGroup value={storageValue} onValueChange={setStorageValue} className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                      {[50, 100, 250, 500].map((n) => (
+                        <div key={n} className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", storageValue === n.toString() ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                          <RadioGroupItem value={n.toString()} id={`st-${n}`} className="sr-only" />
+                          <Label htmlFor={`st-${n}`} className="cursor-pointer text-center">
+                            <div className="text-xl font-bold">{n}</div>
+                            <div className="text-[10px] text-slate-500 uppercase">GB</div>
+                          </Label>
+                        </div>
+                      ))}
+                      <div className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", storageValue === "other" ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                        <RadioGroupItem value="other" id="st-other" className="sr-only" />
+                        <Label htmlFor="st-other" className="cursor-pointer text-center">
+                          <div className="text-xl font-bold leading-none">?</div>
+                          <div className="text-[10px] text-slate-500 uppercase mt-1">Other</div>
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                    {storageValue === "other" && <Input name="customStorage" placeholder="Enter OS Disk GB" type="number" defaultValue={getDefaultValue(prefillData?.storageGb?.toString(), "")} className="mt-2" />}
+                  </div>
+
+                  {/* OS Details */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                    <div className="space-y-2">
+                      <Label>Operating System Name *</Label>
+                      <Input 
+                        name="osName" 
+                        placeholder="e.g. Ubuntu, Windows Server" 
+                        value={osName}
+                        onChange={(e) => setOsName(e.target.value)}
+                        required 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>OS Version *</Label>
+                      <Input 
+                        name="osVersion" 
+                        placeholder="e.g. 22.04 LTS, 2022" 
+                        value={osVersion}
+                        onChange={(e) => setOsVersion(e.target.value)}
+                        required 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>RAID Configuration</Label>
+                      <Select name="raid" value={raid} onValueChange={setRaid}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {["RAID0", "RAID1", "RAID5", "RAID10", "NONE"].map((r) => (
+                            <SelectItem key={r} value={r}>{r}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {currentStep === 3 && (
+            <motion.div
+              key="step3"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-6"
+            >
+              <Card className="shadow-md border-slate-200">
+                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                  <div className="flex items-center gap-2 text-emerald-600">
+                    <Network className="w-5 h-5" />
+                    <CardTitle className="text-lg">Network & Security</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-8 pt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Access Control</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {["LOCAL", "INTERNET", "REMOTE"].map((t) => (
+                          <div key={t} className={cn("flex items-center gap-2 px-4 py-2 rounded-xl border-2 transition-all", networkAccess.includes(t) ? "border-emerald-600 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500")}>
+                            <Checkbox checked={networkAccess.includes(t)} onCheckedChange={(checked) => {
+                                if (typeof checked === "boolean") {
+                                  if (checked) setNetworkAccess([...networkAccess, t]);
+                                  else setNetworkAccess(networkAccess.filter(x => x !== t));
+                                }
+                              }} />
+                            <span className="text-xs font-bold">{t}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Connectivity Options</Label>
+                      <div className="space-y-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Info className="w-4 h-4 text-slate-400" />
+                            <Label className="text-sm">Public IP Address</Label>
+                          </div>
+                          <Switch name="requiredPublicIP" checked={requiredPublicIP} onCheckedChange={setRequiredPublicIP} />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-slate-400" />
+                            <Label className="text-sm">Required VPN Access</Label>
+                          </div>
+                          <Switch name="vpnRequired" checked={vpnRequired} onCheckedChange={setVpnRequired} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Firewall Rules</Label>
+                    <div className="space-y-3">
+                      {firewallPorts.map((port, i) => (
+                        <div key={i} className="grid grid-cols-12 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 relative group">
+                          <div className="col-span-12 md:col-span-3 space-y-1.5">
+                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Port</Label>
+                            <Input placeholder="Port" value={port.port} onChange={(e) => {
+                              const newPorts = [...firewallPorts];
+                              newPorts[i].port = parseInt(e.target.value);
+                              setFirewallPorts(newPorts);
+                            }} type="number" className="h-9 no-spinner" />
+                          </div>
+                          <div className="col-span-12 md:col-span-3 space-y-1.5">
+                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Protocol</Label>
+                            <Select value={port.protocol} onValueChange={(v) => {
+                              const newPorts = [...firewallPorts];
+                              newPorts[i].protocol = v as Protocol;
+                              setFirewallPorts(newPorts);
+                            }}>
+                              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="TCP">TCP</SelectItem>
+                                <SelectItem value="UDP">UDP</SelectItem>
+                                <SelectItem value="OTHER">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="col-span-12 md:col-span-5 space-y-1.5">
+                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Purpose</Label>
+                            <Input placeholder="Description" value={port.purpose} onChange={(e) => {
+                              const newPorts = [...firewallPorts];
+                              newPorts[i].purpose = e.target.value;
+                              setFirewallPorts(newPorts);
+                            }} className="h-9" />
+                          </div>
+                          <div className="col-span-12 md:col-span-1 flex items-end justify-end">
+                            <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-red-500 hover:bg-red-50" onClick={() => setFirewallPorts(firewallPorts.filter((_, idx) => idx !== i))}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      <Button type="button" variant="outline" size="sm" className="w-full border-dashed border-2 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700 h-10" onClick={() => setFirewallPorts([...firewallPorts, { port: 80, protocol: Protocol.TCP, purpose: "" }])}>
+                        <Plus className="w-4 h-4 mr-2" /> Add Firewall Rule
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 pt-6 border-t border-slate-100">
+                    <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Host Details</Label>
+                    <div className="space-y-2">
+                      <Label>Proposed Subdomain *</Label>
+                      <div className="flex items-center gap-2">
+                        <div className="bg-slate-100 px-3 py-2 rounded-lg text-slate-500 text-sm font-medium border border-slate-200">https://</div>
+                        <Input 
+                          name="subdomain" 
+                          placeholder="app-name.dghs.gov.bd" 
+                          value={subdomain}
+                          onChange={(e) => setSubdomain(e.target.value)}
+                          required 
+                          className="flex-1" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Additional Disks */}
+              <Card className="shadow-md border-slate-200">
+                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <Layers className="w-5 h-5" />
+                    <CardTitle className="text-lg">Additional Storage</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4 pt-6">
+                  {additionalDisks.map((disk, i) => (
+                    <div key={i} className="flex gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 items-end">
+                      <div className="w-32 space-y-1.5">
+                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Size (GB)</Label>
+                        <Input placeholder="Size" type="number" value={disk.sizeGb} onChange={(e) => {
+                          const d = [...additionalDisks];
+                          d[i].sizeGb = parseInt(e.target.value);
+                          setAdditionalDisks(d);
+                        }} className="no-spinner" />
+                      </div>
+                      <div className="flex-1 space-y-1.5">
+                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Mount Point/Purpose</Label>
+                        <Input placeholder="e.g. /var/lib/mysql" value={disk.purpose} onChange={(e) => {
+                          const d = [...additionalDisks];
+                          d[i].purpose = e.target.value;
+                          setAdditionalDisks(d);
+                        }} />
+                      </div>
+                      <Button type="button" variant="ghost" size="icon" className="text-red-500 hover:bg-red-50" onClick={() => setAdditionalDisks(additionalDisks.filter((_, idx) => idx !== i))}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button type="button" variant="outline" size="sm" className="w-full border-dashed border-2 h-10" onClick={() => setAdditionalDisks([...additionalDisks, { sequence: additionalDisks.length + 1, sizeGb: 0, purpose: "" }])}>
+                    <Plus className="w-4 h-4 mr-2" /> Add Data Disk
+                  </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {currentStep === 4 && (
+            <motion.div
+              key="step4"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-6"
+            >
+              {/* Request Summary Preview */}
+              <Card className="shadow-lg border-blue-200 bg-blue-50/20 overflow-hidden">
+                <CardHeader className="bg-blue-600 py-3">
+                  <CardTitle className="text-sm text-white flex items-center gap-2">
+                    <Info className="w-4 h-4" /> Review Your Request
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                    <p className="text-[10px] text-slate-400 uppercase font-bold">System</p>
+                    <p className="text-sm font-bold text-blue-900 truncate" title={systemName}>{systemName || "N/A"}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                    <p className="text-[10px] text-slate-400 uppercase font-bold">Resources</p>
+                    <p className="text-sm font-bold text-blue-900">{vcpuValue === 'other' ? 'Custom' : vcpuValue}v / {ramValue === 'other' ? 'Custom' : ramValue}GB</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                    <p className="text-[10px] text-slate-400 uppercase font-bold">OS/Disk</p>
+                    <p className="text-sm font-bold text-blue-900 truncate" title={`${storageValue}GB ${osName}`}>
+                      {storageValue === 'other' ? 'Custom' : storageValue}GB {osName}
+                    </p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                    <p className="text-[10px] text-slate-400 uppercase font-bold">Subdomain</p>
+                    <p className="text-sm font-bold text-blue-900 truncate" title={subdomain}>{subdomain || "N/A"}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                    <p className="text-[10px] text-slate-400 uppercase font-bold">Env</p>
+                    <p className="text-sm font-bold text-blue-900">{environment}</p>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                    <p className="text-[10px] text-slate-400 uppercase font-bold">Network</p>
+                    <p className="text-sm font-bold text-blue-900">{firewallPorts.length} Rules</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Contacts */}
+                <Card className="shadow-md border-slate-200">
+                  <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                    <div className="flex items-center gap-2 text-blue-600">
+                      <Users className="w-5 h-5" />
+                      <CardTitle className="text-lg">Contact Persons</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6 pt-6">
+                    <div className="space-y-4">
+                      <Label className="font-bold text-slate-700">Developer (Primary Contact)</Label>
+                      <div className="grid grid-cols-1 gap-3">
+                        <Input name="developerName" placeholder="Name" defaultValue={getDefaultValue(prefillData?.developer?.name || (isDeveloper ? session?.user?.name : ""), "")} disabled={isDeveloper} />
+                        <Input name="developerEmail" type="email" placeholder="Email" defaultValue={getDefaultValue(prefillData?.developer?.email || (isDeveloper ? session?.user?.email : ""), "")} disabled={isDeveloper} />
+                        <Input name="developerContact" placeholder="Contact Number" defaultValue={getDefaultValue(prefillData?.developer?.contact || (isDeveloper ? session?.user?.contact : ""), "")} disabled={isDeveloper} />
+                      </div>
+                    </div>
+                    <div className="space-y-4 border-t border-slate-100 pt-6">
+                      <Label className="font-bold text-slate-700">Alternate Contact (Optional)</Label>
+                      <div className="grid grid-cols-1 gap-3">
+                        <Input name="alternativePersonName" placeholder="Name" defaultValue={getDefaultValue(prefillData?.alternativePerson?.name, "")} />
+                        <Input name="alternativePersonEmail" type="email" placeholder="Email" defaultValue={getDefaultValue(prefillData?.alternativePerson?.email, "")} />
+                        <Input name="alternativePersonContact" placeholder="Contact Number" defaultValue={getDefaultValue(prefillData?.alternativePerson?.contact, "")} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Compliance */}
+                <Card className="shadow-md border-slate-200">
+                  <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                    <div className="flex items-center gap-2 text-red-600">
+                      <ShieldCheck className="w-5 h-5" />
+                      <CardTitle className="text-lg">Compliance Documents</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-6 pt-6">
+                    <div className="space-y-3">
+                      <Label>Security Assessment Report (PDF/Images)</Label>
+                      {existingAttachments.securityReport && (
+                        <div className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs">
+                          <span className="truncate flex-1">{existingAttachments.securityReport.fileName}</span>
+                          <button type="button" onClick={() => {
+                            const id = existingAttachments.securityReport?.id;
+                            if (id) setRemovedAttachments(prev => [...prev, id]);
+                            setExistingAttachments(prev => ({ ...prev, securityReport: undefined }));
+                          }} className="text-red-500 font-bold ml-2">Remove</button>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                        <Upload className="w-5 h-5 text-slate-400" />
+                        <input type="file" className="text-xs flex-1" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setSecurityReport(e.target.files?.[0] || null)} />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 border-t border-slate-100 pt-6">
+                      <Label>Resource Justification Letter</Label>
+                      {existingAttachments.justification && (
+                        <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200 text-xs">
+                          <span className="truncate flex-1">{existingAttachments.justification.fileName}</span>
+                          <button type="button" onClick={() => {
+                            const id = existingAttachments.justification?.id;
+                            if (id) setRemovedAttachments(prev => [...prev, id]);
+                            setExistingAttachments(prev => ({ ...prev, justification: undefined }));
+                          }} className="text-red-500 font-bold ml-2">Remove</button>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                        <Upload className="w-5 h-5 text-slate-400" />
+                        <input type="file" className="text-xs flex-1" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setJustificationDoc(e.target.files?.[0] || null)} />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="space-y-0.5">
+                        <Label>Automated Renewal</Label>
+                        <p className="text-[10px] text-slate-500 italic">Periodic review of system necessity</p>
+                      </div>
+                      <Switch name="renewalRequired" checked={renewalRequired} onCheckedChange={setRenewalRequired} />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Terms */}
+              <Card className="shadow-md border-slate-200 overflow-hidden">
+                  <div className="bg-slate-900 px-6 py-3">
+                    <CardTitle className="text-sm text-white flex items-center gap-2">
+                      📜 Terms of Agreement
+                    </CardTitle>
+                  </div>
+                  <CardContent className="p-6 space-y-4">
+                    <div className="max-h-40 overflow-y-auto bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs text-slate-600 leading-relaxed">
+                      <div dangerouslySetInnerHTML={{ __html: TERMS_CONTENT }} />
+                    </div>
+                    <div className="flex items-center gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                      <Checkbox id="termsAccepted" checked={termsAccepted} onCheckedChange={(c) => setTermsAccepted(!!c)} />
+                      <Label htmlFor="termsAccepted" className="text-sm font-semibold text-blue-900 cursor-pointer select-none">
+                        I acknowledge and agree to the DGHS Data Center policies *
+                      </Label>
+                    </div>
+                  </CardContent>
+                </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Action Bar */}
+        <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-50">
+          <div className="max-w-6xl mx-auto flex justify-between items-center gap-4">
+            <Button
+              variant="ghost"
+              size="lg"
+              className="text-slate-500 hover:text-slate-900 font-bold"
+              disabled={currentStep === 1 || isSubmitting}
+              type="button"
+              onClick={prevStep}
+            >
+              <ChevronLeft className="w-5 h-5 mr-1" /> Back
+            </Button>
+
+            <div className="flex items-center gap-4">
               <Button
-                type="button"
                 variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={() =>
-                  setFirewallPorts([
-                    ...firewallPorts,
-                    { port: 80, protocol: Protocol.TCP, purpose: "HTTP" },
-                  ])
-                }
+                size="lg"
+                className="hidden sm:flex border-slate-200 hover:bg-slate-50 text-slate-600 font-bold"
+                disabled={isSubmitting}
+                type="button"
+                onClick={() => handleSubmit("draft")}
               >
-                <Plus className="w-4 h-4 mr-2" /> Add Port
+                Save Draft
               </Button>
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Compliance */}
-        <Card className="shadow-md border border-slate-300">
-          <CardHeader className="bg-slate-50/70 border-b border-slate-300">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-red-600" />
-              <CardTitle className="text-lg">
-                Compliance & Attachments
-              </CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-6">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Security Assessment (Software Testing Report)</Label>
-                {existingAttachments.securityReport && (
-                  <div className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-200 mb-2">
-                    <div className="flex items-center gap-2">
-                      <Upload className="w-4 h-4 text-emerald-600" />
-                      <span className="text-sm text-emerald-700">{existingAttachments.securityReport.fileName}</span>
-                      <span className="text-xs text-emerald-500">(uploaded)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <a 
-                        href={attachmentUrls.securityReport || existingAttachments.securityReport.filePath} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-xs text-emerald-600 hover:text-emerald-800 underline"
-                      >
-                        View
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const id = existingAttachments.securityReport?.id;
-                          console.log("Remove clicked, id:", id);
-                          if (id) {
-                            setRemovedAttachments(prev => {
-                              console.log("New removedAttachments:", [...prev, id]);
-                              return [...prev, id];
-                            });
-                          }
-                          setExistingAttachments(prev => ({ ...prev, securityReport: undefined }));
-                          setAttachmentUrls(prev => ({ ...prev, securityReport: undefined }));
-                        }}
-                        className="text-xs text-red-500 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center gap-3 border-2 border-dashed border-slate-300 rounded-lg p-4 bg-slate-50">
-                  <Upload className="w-5 h-5 text-slate-400" />
-                  <input
-                    type="file"
-                    className="text-sm"
-                    onChange={(e) =>
-                      setSecurityReport(e.target.files?.[0] || null)
-                    }
-                  />
-                  {existingAttachments.securityReport && <span className="text-xs text-slate-400">(Replace existing)</span>}
+              {currentStep < totalSteps ? (
+                <Button
+                  size="sm"
+                  className="bg-blue-600 hover:bg-blue-700 px-6 min-w-[100px] shadow-lg shadow-blue-200 font-bold"
+                  disabled={isSubmitting || isAutoSaving}
+                  type="button"
+                  onClick={nextStep}
+                >
+                  {isAutoSaving ? "Saving..." : "Continue"} <ChevronRight className="w-5 h-5 ml-1" />
+                </Button>
+              ) : (
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  {!isDeveloper ? (
+                    <Button
+                      size="sm"
+                      className={cn(
+                        "px-10 min-w-[220px] transition-all duration-300 shadow-xl font-bold",
+                        termsAccepted ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" : "bg-slate-400 cursor-not-allowed opacity-50"
+                      )}
+                      disabled={isSubmitting || !termsAccepted}
+                      type="button"
+                      onClick={() => handleSubmit("submit")}
+                    >
+                      {isSubmitting ? "Processing..." : "Submit Request"}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="lg"
+                      className="flex-1 sm:flex-none bg-amber-600 hover:bg-amber-700 px-10 min-w-[220px] shadow-xl font-bold text-white"
+                      disabled={isSubmitting}
+                      type="button"
+                      onClick={() => handleSubmit("draft")}
+                    >
+                      {isSubmitting ? "Processing..." : "Finish & Save Draft"}
+                    </Button>
+                  )}
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Resource Justification Document</Label>
-                {existingAttachments.justification && (
-                  <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200 mb-2">
-                    <div className="flex items-center gap-2">
-                      <Upload className="w-4 h-4 text-blue-600" />
-                      <span className="text-sm text-blue-700">{existingAttachments.justification.fileName}</span>
-                      <span className="text-xs text-blue-500">(uploaded)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <a 
-                        href={attachmentUrls.justification || existingAttachments.justification.filePath} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:text-blue-800 underline"
-                      >
-                        View
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const id = existingAttachments.justification?.id;
-                          console.log("Remove clicked, id:", id);
-                          if (id) {
-                            setRemovedAttachments(prev => {
-                              console.log("New removedAttachments:", [...prev, id]);
-                              return [...prev, id];
-                            });
-                          }
-                          setExistingAttachments(prev => ({ ...prev, justification: undefined }));
-                          setAttachmentUrls(prev => ({ ...prev, justification: undefined }));
-                        }}
-                        className="text-xs text-red-500 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center gap-3 border border-slate-300 rounded-lg p-2">
-                  <Upload className="w-5 h-5 text-slate-400" />
-                  <input
-                    type="file"
-                    className="text-sm flex-1"
-                    onChange={(e) =>
-                      setJustificationDoc(e.target.files?.[0] || null)
-                    }
-                  />
-                  {existingAttachments.justification && <span className="text-xs text-slate-400">(Replace)</span>}
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-4">
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="renewal"
-                  name="renewalRequired"
-                  checked={renewalRequired}
-                  onCheckedChange={setRenewalRequired}
-                />
-                <Label htmlFor="renewal">Renewal Required</Label>
-              </div>
-              {renewalRequired && (
-                <Input
-                  name="renewalPeriodMonths"
-                  placeholder="Renewal Period (Months)"
-                  type="number"
-                  className="mt-2 no-spinner"
-                  defaultValue={getDefaultValue(prefillData?.renewalPeriodMonths?.toString(), "")}
-                />
               )}
             </div>
-
-            {/* Hidden flags */}
-            <input
-              type="hidden"
-              name="vaReportSubmitted"
-              value={securityReport ? "true" : "false"}
-            />
-            <input
-              type="hidden"
-              name="justificationSubmitted"
-              value={justificationDoc ? "true" : "false"}
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-
-      {/* ✅ ACTION BUTTONS - Role-based visibility */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t border-slate-200 p-4 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-50 flex flex-col sm:flex-row justify-center items-center gap-3 md:gap-4">
-        <Button
-          variant="outline"
-          size="lg"
-          className="w-full sm:w-auto min-w-[150px]"
-          disabled={isSubmitting || !formValid}
-          type="button"
-          onClick={() => handleSubmit("draft")}
-        >
-          Save as Draft
-        </Button>
-        
-        {/* ✅ ONLY SHOW SUBMIT BUTTON TO REQUESTERS - Enable after draft saved or when editing */}
-        {!isDeveloper && (
-          <Button
-            size="lg"
-            className="bg-blue-600 hover:bg-blue-700 px-10 w-full sm:w-auto min-w-[200px]"
-            disabled={isSubmitting || (!isEditing && !draftSaved)}
-            type="button"
-            onClick={() => handleSubmit("submit")}
-          >
-            {isSubmitting ? "Processing..." : "Submit for Approval"}
-          </Button>
-        )}
-        
-        {/* ✅ DEVELOPER-SPECIFIC MESSAGE */}
-        {isDeveloper && (
-          <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 bg-amber-50 text-amber-800 px-4 py-2 rounded-md text-sm border border-amber-200">
-            Draft saved! The assigned requester will review and submit for L1-L2-L3 approval.
           </div>
-        )}
-      </div>
-    </form>
+        </div>
+      </form>
+    </div>
   );
 }

@@ -85,8 +85,8 @@ export function LicenseModal({ license, mode = "create" }: LicenseModalProps) {
               <Input id="name" name="name" defaultValue={license?.name || ""} placeholder="VMware vSphere Ent+" required />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="vendor">Vendor</Label>
-              <Input id="vendor" name="vendor" defaultValue={license?.vendor || ""} placeholder="VMware / Microsoft / Red Hat" required />
+              <Label htmlFor="vendor">Provider</Label>
+              <Input id="vendor" name="vendor" defaultValue={license?.vendor || ""} placeholder="MIS/UNICEF/WHO etc." required />
             </div>
           </div>
 

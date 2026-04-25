@@ -135,7 +135,7 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
                       </Button>
                     </Link>
 
-                    {(req.status.toString() === "DRAFT" || req.status.toString() === "RETURNED") && (
+                    {["DRAFT", "RETURNED", "REJECTED"].includes(req.status.toString()) && (
                       <>
                         <Link href={`/requests/${req.id}/edit`}>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-amber-600" title="Edit Request">

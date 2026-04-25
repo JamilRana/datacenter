@@ -100,7 +100,7 @@ export default function AssetDetailPage({ params }: { params: { id: string } }) 
             </CardHeader>
             <CardContent className="pt-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-12">
-                <DetailRow label="Vendor" value={asset.vendor} />
+                <DetailRow label="Provider" value={asset.vendor} />
                 <DetailRow label="Model" value={asset.model} />
                 <DetailRow label="Serial Number" value={asset.serial} className="font-mono text-blue-600" />
                 <DetailRow label="Asset ID" value={asset.id} className="text-[10px] break-all" />

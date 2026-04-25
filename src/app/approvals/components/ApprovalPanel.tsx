@@ -1,8 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { 
   Dialog, 
   DialogContent, 
@@ -42,7 +42,7 @@ export function ApprovalPanel({
     a => a.level === currentLevel && a.approverId === currentUserId && a.decision === "PENDING"
   );
 
-  const canAct = !!activeApproval;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isDirectorLevel = currentLevel === 4;
 
   const processAction = async (
@@ -108,41 +108,23 @@ export function ApprovalPanel({
     }
   };
 
+  if (!activeApproval) return null;
+
   return (
     <div className="space-y-6 mt-8">
-      <div className="border rounded-lg bg-slate-50 p-6 shadow-sm">
-        <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-          Approval Workflow
+      <div className="border rounded-lg bg-slate-50 p-6 shadow-sm border-blue-100">
+        <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-800">
+          Approval Actions
         </h2>
         
-        <div className="space-y-4">
-          {approvals.map((app) => (
-            <div key={app.id} className="flex justify-between items-center border-b border-slate-200 pb-3 last:border-0">
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                    app.level === 4 ? "bg-purple-600 text-white" : "bg-blue-500 text-white"
-                  }`}>
-                    L{app.level}
-                  </div>
-                  <span className="font-semibold text-sm">{app.approver?.name || "Unknown"}</span>
-                </div>
-              </div>
-              <Badge variant={app.decision === "APPROVED" ? "default" : "secondary"}>
-                {app.decision.toLowerCase()}
-              </Badge>
-            </div>
-          ))}
-        </div>
-
         {/* FORWARD BUTTON (L3 ONLY) - Disabled for Decommissions */}
-        {currentLevel === 3 && activeApproval && requestType !== "DECOMMISSION" && (
-          <div className="mt-6 pt-6 border-t-2 border-dashed border-amber-200">
+        {currentLevel === 3 && requestType !== "DECOMMISSION" && (
+          <div className="mb-6 pb-6 border-b-2 border-dashed border-amber-200">
             <Button
               variant="secondary"
               onClick={() => setShowForwardDialog(true)}
               disabled={loading}
-              className="w-full bg-amber-50 text-amber-800 hover:bg-amber-100"
+              className="w-full bg-amber-50 text-amber-800 hover:bg-amber-100 border-amber-200"
             >
               <ArrowUp className="w-4 h-4 mr-2" /> Forward to Director (Level 4)
             </Button>
@@ -150,31 +132,31 @@ export function ApprovalPanel({
         )}
 
         {/* NORMAL ACTIONS */}
-        {canAct && !isDirectorLevel && (
-          <div className="mt-6 pt-6 border-t-2 border-dashed border-blue-200">
+        {!isDirectorLevel && (
+          <div className="space-y-4">
             <Textarea
               placeholder="Add comments..."
               value={comments}
               onChange={(e) => setComments(e.target.value)}
-              className="mb-4 bg-white"
+              className="bg-white"
             />
             <div className="flex gap-3">
               <Button variant="destructive" className="flex-1" onClick={() => processAction("REJECTED")} disabled={loading || !comments.trim()}>Reject</Button>
-              <Button className="flex-1 bg-green-700" onClick={() => processAction("APPROVED")} disabled={loading}>Approve</Button>
+              <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={() => processAction("APPROVED")} disabled={loading}>Approve</Button>
             </div>
           </div>
         )}
 
         {/* DIRECTOR ACTIONS */}
-        {isDirectorLevel && canAct && (
-          <div className="mt-6 pt-6 border-t-2 border-dashed border-purple-200 bg-purple-50 p-4 rounded-lg">
+        {isDirectorLevel && (
+          <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
              <Textarea
               placeholder="Director comments (required)..."
               value={comments}
               onChange={(e) => setComments(e.target.value)}
-              className="mb-4 bg-white border-purple-300"
+              className="mb-4 bg-white border-purple-200"
             />
-            <Button className="w-full bg-purple-700" onClick={() => processAction("APPROVED")} disabled={loading || !comments.trim()}>Final Approval</Button>
+            <Button className="w-full bg-purple-700 hover:bg-purple-800 text-white" onClick={() => processAction("APPROVED")} disabled={loading || !comments.trim()}>Final Approval</Button>
           </div>
         )}
       </div>

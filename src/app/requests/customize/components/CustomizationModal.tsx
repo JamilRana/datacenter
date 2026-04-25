@@ -109,7 +109,7 @@ export function CustomizationModal({
   const handleInputChange = (field: keyof CustomizationFormValues, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
-const handleSubmit = async (action: "save" | "submit") => {
+  const handleSubmit = async (action: "save" | "submit") => {
     if (!selectedVmId) {
       toast.error("Please select a virtual machine");
       return;
@@ -121,27 +121,30 @@ const handleSubmit = async (action: "save" | "submit") => {
     }
 
     setIsSubmitting(true);
-
     try {
-      // 2. Use the built-in constructor explicitly
-      const nativeData = new window.FormData();
+      const data = new FormData();
       
-      nativeData.append('purpose', formData.purpose.trim());
-      if (formData.vcpu) nativeData.append('vcpu', formData.vcpu);
-      if (formData.ramGb) nativeData.append('ramGb', formData.ramGb);
-      if (formData.storageGb) nativeData.append('storageGb', formData.storageGb);
+      data.append('purpose', formData.purpose.trim());
+      if (formData.vcpu) data.append('vcpu', formData.vcpu);
+      if (formData.ramGb) data.append('ramGb', formData.ramGb);
+      if (formData.storageGb) data.append('storageGb', formData.storageGb);
 
       if (isCreateMode) {
-        nativeData.append('targetVmId', selectedVmId);
-        // Assuming createCustomizationRequest handles both save/submit logic via a second param or internal logic
-        await createCustomizationRequest(nativeData);
+        data.append('targetVmId', selectedVmId);
         
-        // If your action is "submit" but create only saves a draft, 
-        // you might need an extra step here depending on your server action logic.
+        // 1. Create the draft
+        const newReq = await createCustomizationRequest(data);
         
-        toast.success(action === "submit" ? "Submitted for approval" : "Draft saved");
+        // 2. If action is submit, call the submission action with the new ID
+        if (action === "submit" && newReq?.id) {
+          await submitCustomizationRequest(newReq.id);
+          toast.success("Request created and submitted for approval");
+        } else {
+          toast.success("Draft customization request saved");
+        }
       } else if (selectedRequest) {
-        await updateCustomizationRequest(selectedRequest.id, nativeData);
+        // Update existing draft
+        await updateCustomizationRequest(selectedRequest.id, data);
         
         if (action === "submit") {
           await submitCustomizationRequest(selectedRequest.id);
@@ -154,7 +157,9 @@ const handleSubmit = async (action: "save" | "submit") => {
       handleClose();
       router.refresh();
     } catch (error) {
-      toast.error(`${error} An error occurred`);
+      const message = error instanceof Error ? error.message : "An unknown error occurred";
+      toast.error(message);
+      console.error("Customization error:", error);
     } finally {
       setIsSubmitting(false);
     }

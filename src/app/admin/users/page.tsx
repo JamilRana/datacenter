@@ -126,9 +126,9 @@ export default function UserManagementPage() {
       const usersData = await getUsers({ page, pageSize: 10, search: debouncedSearch, status: userStatus as "active" | "inactive" | "all" });
       setUsers(usersData.users);
       setTotal(usersData.total);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to save user:", error);
-      toast.error(error.message || "Failed to save user");
+      toast.error(error instanceof Error ? error.message : "Failed to save user");
     } finally {
       setSaving(false);
     }
@@ -140,9 +140,9 @@ export default function UserManagementPage() {
       toast.success("User status toggled");
       const usersData = await getUsers({ page, pageSize: 10, search: debouncedSearch, status: userStatus as "active" | "inactive" | "all" });
       setUsers(usersData.users);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to toggle user status:", error);
-      toast.error(error.message || "Failed to toggle status");
+      toast.error(error instanceof Error ? error.message : "Failed to toggle status");
     }
   };
 
@@ -168,9 +168,9 @@ export default function UserManagementPage() {
       const usersData = await getUsers({ page, pageSize: 10, search: debouncedSearch, status: userStatus as "active" | "inactive" | "all" });
       setUsers(usersData.users);
       setTotal(usersData.total);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to delete user:", error);
-      toast.error(error.message || "Failed to delete user");
+      toast.error(error instanceof Error ? error.message : "Failed to delete user");
     }
   };
 
@@ -234,20 +234,21 @@ export default function UserManagementPage() {
       </Card>
 
       {/* Users Table */}
-      <Card>
+      <Card className="overflow-hidden border-slate-200 shadow-sm">
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Mobile/Email</TableHead>
-                <TableHead>Organization</TableHead>
-                <TableHead>Roles</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-slate-50/50">
+                <TableRow>
+                  <TableHead className="font-bold text-slate-700">Name</TableHead>
+                  <TableHead className="font-bold text-slate-700">Mobile/Email</TableHead>
+                  <TableHead className="font-bold text-slate-700">Organization</TableHead>
+                  <TableHead className="font-bold text-slate-700">Roles</TableHead>
+                  <TableHead className="font-bold text-slate-700">Status</TableHead>
+                  <TableHead className="font-bold text-slate-700">Created</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
             <TableBody>
               {loading && users.length === 0 ? (
                 Array.from({ length: 5 }).map((_, i) => (
@@ -306,7 +307,8 @@ export default function UserManagementPage() {
                 ))
               )}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

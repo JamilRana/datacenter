@@ -1,17 +1,16 @@
 // src/app/inventory/assets/page.tsx
 "use client";
 
+import React, { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ROLES } from "@/lib/roles";
 import { AssetListClient } from "../components/AssetListClient";
-import { useEffect, useState } from "react";
 import { PhysicalAsset } from "@/types/inventory";
 import { fetchAllAssets } from "@/app/actions/asset-actions";
 import { AssetModal } from "../components/AssetModal";
-import { ChevronLeft, Server, MapPin, HardDrive } from "lucide-react";
+import { ChevronLeft, Server, MapPin, HardDrive, Download } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Download } from "lucide-react";
 import { exportToCsv } from "@/lib/export-utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,18 +20,17 @@ import { RecentActivity } from "@/components/analytics/RecentActivity";
 import { fetchHardwareAnalytics } from "@/app/actions/analytics-actions";
 import { HardwareAnalytics } from "@/lib/analytics/hardwareAnalytics";
 
-export default function AssetsPage({
-  searchParams,
-}: {
-  searchParams: { page?: string };
-}) {
+export default function AssetsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [assets, setAssets] = useState<PhysicalAsset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hardwareAnalytics, setHardwareAnalytics] = useState<HardwareAnalytics | null>(null);
+  const searchParams = useSearchParams();
+  const page = searchParams.get("page") ? parseInt(searchParams.get("page")!, 10) : 1;
 
-  const page = searchParams.page ? parseInt(searchParams.page, 10) : 1;
+  const [assets, setAssets] = useState<PhysicalAsset[]>([]);
+  const [totalAssets, setTotalAssets] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [hardwareAnalytics, setHardwareAnalytics] = useState<HardwareAnalytics | null>(null);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -53,23 +51,26 @@ export default function AssetsPage({
     }
 
     const fetchAssets = async () => {
+      setLoading(true);
       try {
         const [res, analytics] = await Promise.all([
           fetchAllAssets(page),
           fetchHardwareAnalytics()
         ]);
         setAssets(res.assets as PhysicalAsset[]);
+        setTotalAssets(res.total);
         setHardwareAnalytics(analytics);
       } catch (error) {
-        console.log(error);
+        console.error("Failed to fetch assets:", error);
       } finally {
         setLoading(false);
+        setIsInitialLoad(false);
       }
     };
     fetchAssets();
   }, [session, status, page, router]);
 
-  if (status === "loading" || loading) {
+  if (status === "loading" || (loading && isInitialLoad)) {
     return (
       <div className="p-6 md:p-10 max-w-6xl mx-auto">
         <div className="animate-pulse space-y-6">
@@ -88,7 +89,7 @@ export default function AssetsPage({
     const exportData = assets.map(asset => ({
       Name: asset.name,
       Type: asset.type,
-      Vendor: asset.vendor || "",
+      Provider: asset.vendor || "",
       Model: asset.model || "",
       Serial: asset.serial || "",
       Location: asset.location || "",
@@ -195,7 +196,13 @@ export default function AssetsPage({
       )}
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <AssetListClient initialAssets={assets} canEdit={canEdit} />
+        <AssetListClient 
+          initialAssets={assets} 
+          canEdit={canEdit} 
+          total={totalAssets}
+          currentPage={page}
+          isLoading={loading}
+        />
       </div>
     </div>
   );

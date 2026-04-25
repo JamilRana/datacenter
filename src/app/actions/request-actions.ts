@@ -29,6 +29,7 @@ import { ROLES, hasRole } from "@/lib/roles";
 import { User } from "@/types/users";
 
 import { Approval } from "@/types/approvals";
+import { generateApprovals } from "./approval-actions";
 
 type RequestWithRelations = Prisma.RequestGetPayload<{
   include: {
@@ -225,7 +226,7 @@ export async function createRequest(formData: FormData) {
               .map((p: FirewallPort) => ({
                 port: p.port,
                 protocol: p.protocol as Protocol,
-                purpose: p.purpose || null,
+                purpose: p.purpose || "N/A",
                 source: p.source || null,
               })),
           },
@@ -260,7 +261,7 @@ export async function createRequest(formData: FormData) {
       await generateApprovals(
         prisma,
         newCreatedRequest.id,
-        ApprovalEntityType.REQUEST,
+        "REQUEST",
         newCreatedRequest.requestType
       );
       await notifyApprovers(newCreatedRequest.id, newCreatedRequest.systemName);
@@ -505,7 +506,7 @@ export async function editRequest(formData: FormData) {
             .map((p: FirewallPort) => ({
               port: p.port,
               protocol: p.protocol as Protocol,
-              purpose: p.purpose || null,
+              purpose: p.purpose || "N/A",
               source: p.source || null,
             })),
         },
@@ -577,7 +578,7 @@ export async function editRequest(formData: FormData) {
       await generateApprovals(
         prisma,
         requestId,
-        ApprovalEntityType.REQUEST,
+        "REQUEST",
         updatedRequest.requestType
       );
       
@@ -645,7 +646,7 @@ export async function submitRequest(requestId: string) {
     await generateApprovals(
       tx, 
       requestId, 
-      ApprovalEntityType.REQUEST, 
+      "REQUEST", 
       request.requestType as RequestType
     );
 
@@ -694,53 +695,6 @@ export async function getApprovers(): Promise<User[]> {
     ...user,
     roles: user.roles.map(ur => ur.role.name) // Extract role names
   }));
-}
-
-export async function generateApprovals(
-  tx: Prisma.TransactionClient | typeof prisma,
-  entityId: string,
-  entityType: ApprovalEntityType,
-  requestType: RequestType
-) {
-  const baseLevels =
-    requestType === RequestType.DECOMMISSION
-      ? [1]
-      : [1, 2, 3];
-
-  const approvalData: Prisma.ApprovalCreateManyInput[] = [];
-
-  for (const level of baseLevels) {
-    const roleName =
-      level === 1 ? "APPROVER_L1" :
-      level === 2 ? "APPROVER_L2" :
-      "APPROVER_L3";
-
-    const approver = await tx.user.findFirst({
-      where: {
-        isActive: true,
-        roles: { some: { role: { name: roleName } } }
-      },
-      orderBy: { createdAt: "asc" }
-    });
-
-    if (approver) {
-      approvalData.push({
-        entityType,
-        level,
-        approverId: approver.id,
-        decision: ApprovalDecision.PENDING,
-        ...(entityType === ApprovalEntityType.REQUEST
-          ? { requestId: entityId }
-          : { customizationRequestId: entityId }),
-      });
-    }
-  }
-
-  if (approvalData.length > 0) {
-    await tx.approval.createMany({
-      data: approvalData
-    });
-  }
 }
 
 

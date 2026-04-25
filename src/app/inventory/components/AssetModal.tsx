@@ -116,8 +116,8 @@ export function AssetModal({ asset, mode = "create" }: AssetModalProps) {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="vendor">Vendor</Label>
-              <Input id="vendor" name="vendor" defaultValue={asset?.vendor || ""} placeholder="Dell / HP / Cisco" />
+              <Label htmlFor="vendor">Provider</Label>
+              <Input id="vendor" name="vendor" defaultValue={asset?.vendor || ""} placeholder="MIS/UNICEF/WHO etc." />
             </div>
             <div className="space-y-2">
               <Label htmlFor="model">Model</Label>

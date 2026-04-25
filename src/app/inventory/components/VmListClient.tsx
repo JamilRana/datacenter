@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { 
   Search,   
@@ -10,7 +12,9 @@ import {
   Cpu,
   Database,
   Eye,
-  LucideIcon
+  LucideIcon,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,9 +22,37 @@ import Link from "next/link";
 import { SerializedVmInstance } from "@/types/vm";
 import { EditVmModal } from "./EditVmModal";
 
-export function VmListClient({ initialVms, canEdit }: { initialVms: SerializedVmInstance[], canEdit?: boolean }) {
+export function VmListClient({ 
+  initialVms, 
+  canEdit, 
+  total = 0, 
+  currentPage = 1,
+  pageSize = 20,
+  isLoading
+}: { 
+  initialVms: SerializedVmInstance[], 
+  canEdit?: boolean,
+  total?: number,
+  currentPage?: number,
+  pageSize?: number,
+  isLoading?: boolean
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [isPending, startTransition] = React.useTransition();
+
+  const totalPages = Math.ceil(total / pageSize);
+
+  const handlePageChange = (newPage: number) => {
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("page", newPage.toString());
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+  };
 
   const filteredVms = initialVms.filter(vm => {
     const matchesSearch = 
@@ -33,6 +65,14 @@ export function VmListClient({ initialVms, canEdit }: { initialVms: SerializedVm
     return matchesSearch && matchesStatus;
   });
 
+  const handleSearch = (term: string) => {
+    setSearchTerm(term);
+  };
+
+  const handleStatusChange = (status: string) => {
+    setStatusFilter(status);
+  };
+
   return (
     <div className="space-y-0">
       {/* Filters Bar */}
@@ -43,7 +83,7 @@ export function VmListClient({ initialVms, canEdit }: { initialVms: SerializedVm
              placeholder="Search by hostname, IP address, or owner..." 
              className="pl-9 h-11 bg-white border-slate-200"
              value={searchTerm}
-             onChange={(e) => setSearchTerm(e.target.value)}
+             onChange={(e) => handleSearch(e.target.value)}
            />
         </div>
 
@@ -51,7 +91,7 @@ export function VmListClient({ initialVms, canEdit }: { initialVms: SerializedVm
            <select 
              className="w-full h-11 px-3 py-2 rounded-md border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-700 shadow-sm"
              value={statusFilter}
-             onChange={(e) => setStatusFilter(e.target.value)}
+             onChange={(e) => handleStatusChange(e.target.value)}
            >
              <option value="ALL">Status: All Lifecycle</option>
              <option value="ACTIVE">Status: Running / Active</option>
@@ -59,82 +99,167 @@ export function VmListClient({ initialVms, canEdit }: { initialVms: SerializedVm
              <option value="RETIRED">Status: Retired / Decommissioned</option>
            </select>
         </div>
+
+        <div className="text-sm text-slate-500 font-medium bg-white px-3 py-1 rounded-full border border-slate-100 shadow-sm flex items-center gap-2">
+          <div className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse" />
+          Showing {filteredVms.length} of {total} total instances
+        </div>
       </div>
 
-      {/* Table Content */}
-      <div className="overflow-x-auto">
-         <table className="w-full text-left">
-            <thead className="bg-[#f8fafc] border-b border-slate-200">
-               <tr>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Instance Identity</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Owner / Context</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] text-center">Status</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Allocation Specs</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] text-right">View Detail</th>
-               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-               {filteredVms.map((vm) => (
-                  <tr key={vm.id} className="hover:bg-blue-50/20 transition-all group">
-                     <td className="px-6 py-5">
-                        <div className="flex items-center gap-4">
-                           <div className={`h-11 w-11 rounded-xl flex items-center justify-center border transition-all shadow-sm ${getStatusStyles(vm.status)}`}>
-                              <HardDrive className="h-5 w-5" />
+      <div className="relative">
+        {(isPending || isLoading) && (
+          <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-20 flex items-center justify-center transition-all duration-300">
+             <div className="flex flex-col items-center gap-3">
+               <div className="h-10 w-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin shadow-lg shadow-indigo-100" />
+               <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest animate-pulse">Syncing Cluster...</p>
+             </div>
+          </div>
+        )}
+
+        {/* Table Content */}
+        <div className="overflow-x-auto">
+           <table className="w-full text-left">
+              <thead className="bg-[#f8fafc] border-b border-slate-200">
+                 <tr>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Instance Identity</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Owner / Context</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] text-center">Status</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Allocation Specs</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] text-right">View Detail</th>
+                 </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                 {filteredVms.map((vm) => (
+                    <tr key={vm.id} className="hover:bg-blue-50/20 transition-all group">
+                       <td className="px-6 py-5">
+                          <div className="flex items-center gap-4">
+                             <div className={`h-11 w-11 rounded-xl flex items-center justify-center border transition-all shadow-sm ${getStatusStyles(vm.status)}`}>
+                                <HardDrive className="h-5 w-5" />
+                             </div>
+                             <div className="space-y-0.5">
+                                <p className="font-bold text-slate-900 leading-tight group-hover:text-blue-700 transition-colors uppercase tracking-tight">{vm.hostname || "UNNAMED_INSTANCE"}</p>
+                                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest font-mono">{vm.ipAddress || "PENDING_ASSIGNMENT"}</p>
+                             </div>
+                          </div>
+                       </td>
+                       <td className="px-6 py-5">
+                          <div className="space-y-1">
+                             <div className="flex items-center gap-2">
+                                <User className="h-3 w-3 text-slate-400" />
+                                <p className="text-sm font-bold text-slate-700 leading-none">{vm.owner?.name}</p>
+                             </div>
+                             <p className="text-[10px] text-slate-400 font-bold uppercase ml-5">{vm.request?.environment || "PRODUCTION"}</p>
+                          </div>
+                       </td>
+                       <td className="px-6 py-5 text-center">
+                          <Badge variant="outline" className={`font-black text-[9px] uppercase tracking-tighter px-3 py-0.5 border-2 ${getStatusBadgeStyles(vm.status)}`}>
+                             {vm.status}
+                          </Badge>
+                       </td>
+                       <td className="px-6 py-5">
+                           <div className="flex items-center gap-4">
+                              <SpecBadge icon={Cpu} value={vm.currentSpec?.vcpu || undefined}  label="vCPU" />
+                              <SpecBadge icon={Database} value={`${vm.currentSpec?.ramGb}G`} label="RAM" />
                            </div>
-                           <div className="space-y-0.5">
-                              <p className="font-bold text-slate-900 leading-tight group-hover:text-blue-700 transition-colors uppercase tracking-tight">{vm.hostname || "UNNAMED_INSTANCE"}</p>
-                              <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest font-mono">{vm.ipAddress || "PENDING_ASSIGNMENT"}</p>
+                       </td>
+                        <td className="px-6 py-5 text-right">
+                           <div className="flex items-center justify-end gap-2">
+                              {canEdit && <EditVmModal vm={vm} />}
+                              <Link href={`/inventory/vms/${vm.id}`}>
+                                 <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:text-blue-600 transition-all hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100">
+                                    <Eye className="h-4 w-4" />
+                                 </Button>
+                              </Link>
                            </div>
-                        </div>
-                     </td>
-                     <td className="px-6 py-5">
-                        <div className="space-y-1">
-                           <div className="flex items-center gap-2">
-                              <User className="h-3 w-3 text-slate-400" />
-                              <p className="text-sm font-bold text-slate-700 leading-none">{vm.owner?.name}</p>
-                           </div>
-                           <p className="text-[10px] text-slate-400 font-bold uppercase ml-5">{vm.request?.environment || "PRODUCTION"}</p>
-                        </div>
-                     </td>
-                     <td className="px-6 py-5 text-center">
-                        <Badge variant="outline" className={`font-black text-[9px] uppercase tracking-tighter px-3 py-0.5 border-2 ${getStatusBadgeStyles(vm.status)}`}>
-                           {vm.status}
-                        </Badge>
-                     </td>
-                     <td className="px-6 py-5">
-                         <div className="flex items-center gap-4">
-                            <SpecBadge icon={Cpu} value={vm.currentSpec?.vcpu || undefined}  label="vCPU" />
-                            <SpecBadge icon={Database} value={`${vm.currentSpec?.ramGb}G`} label="RAM" />
-                         </div>
-                     </td>
-                      <td className="px-6 py-5 text-right">
-                         <div className="flex items-center justify-end gap-2">
-                            {canEdit && <EditVmModal vm={vm} />}
-                            <Link href={`/inventory/vms/${vm.id}`}>
-                               <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:text-blue-600 transition-all hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-100">
-                                  <Eye className="h-4 w-4" />
-                               </Button>
-                            </Link>
-                         </div>
-                      </td>
-                   </tr>
-               ))}
-               {filteredVms.length === 0 && (
-                  <tr>
-                     <td colSpan={5} className="px-6 py-24 text-center">
-                        <div className="flex flex-col items-center gap-3 opacity-20 grayscale">
-                           <Activity className="h-12 w-12" />
-                           <div>
-                              <p className="font-black uppercase tracking-[0.2em] text-lg">No Inventory Found</p>
-                              <p className="text-xs font-semibold mt-1">Adjust search parameters or check request status</p>
-                           </div>
-                        </div>
-                     </td>
-                  </tr>
-               )}
-            </tbody>
-         </table>
+                        </td>
+                     </tr>
+                 ))}
+                 {filteredVms.length === 0 && (
+                    <tr>
+                       <td colSpan={5} className="px-6 py-24 text-center">
+                          <div className="flex flex-col items-center gap-3 opacity-20 grayscale">
+                             <Activity className="h-12 w-12" />
+                             <div>
+                                <p className="font-black uppercase tracking-[0.2em] text-lg">No Inventory Found</p>
+                                <p className="text-xs font-semibold mt-1">Adjust search parameters or check request status</p>
+                             </div>
+                          </div>
+                       </td>
+                    </tr>
+                 )}
+              </tbody>
+           </table>
+        </div>
       </div>
+
+      {/* Pagination Footer */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-100">
+          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Page <span className="text-indigo-600 font-black">{currentPage}</span> of <span className="text-slate-600">{totalPages}</span>
+          </div>
+          
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage <= 1 || isPending}
+              className="h-9 w-9 p-0 border-slate-200 hover:bg-white hover:text-indigo-600 hover:border-indigo-200 transition-all active:scale-95 disabled:opacity-30 shadow-sm"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum = 1;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else {
+                  if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                }
+                
+                if (pageNum <= 0 || pageNum > totalPages) return null;
+
+                const isActive = pageNum === currentPage;
+                
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={isActive ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handlePageChange(pageNum)}
+                    disabled={isPending}
+                    className={`h-9 w-9 p-0 font-bold text-xs transition-all active:scale-95 shadow-sm ${
+                      isActive 
+                        ? "bg-indigo-600 hover:bg-indigo-700 text-white border-transparent" 
+                        : "border-slate-200 hover:border-indigo-200 hover:text-indigo-600 bg-white"
+                    }`}
+                  >
+                    {pageNum}
+                  </Button>
+                );
+              })}
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage >= totalPages || isPending}
+              className="h-9 w-9 p-0 border-slate-200 hover:bg-white hover:text-indigo-600 hover:border-indigo-200 transition-all active:scale-95 disabled:opacity-30 shadow-sm"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

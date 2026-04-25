@@ -161,6 +161,28 @@ export async function handleApprovalDecision(
       return { success: false, error: "You can only act on approvals assigned to you" };
     }
 
+    // Check if all previous levels have been approved (only for APPROVE decision)
+    if (decision === ApprovalDecision.APPROVED && approval.level > 1) {
+      const previousLevelApprovals = await tx.approval.findMany({
+        where: {
+          requestId: approval.requestId,
+          customizationRequestId: approval.customizationRequestId,
+          level: { lt: approval.level },
+        },
+      });
+      
+      const allPreviousApproved = previousLevelApprovals.every(
+        (a) => a.decision === ApprovalDecision.APPROVED
+      );
+      
+      if (!allPreviousApproved) {
+        return { 
+          success: false, 
+          error: `Cannot approve: Previous level(s) have not been approved yet. Level ${approval.level} can only act after all lower levels have approved.` 
+        };
+      }
+    }
+
     const entityType = approval.entityType;
     
     let entityId: string;
@@ -306,7 +328,21 @@ export async function handleApprovalDecision(
     let nextStatus: string;
     
     if (decision === ApprovalDecision.REJECTED) {
-      nextStatus = RequestStatus.REJECTED;
+      // Per USER request: After rejection, status should be DRAFT so requester can resubmit after editing
+      nextStatus = RequestStatus.DRAFT;
+      
+      // Reject all pending approvals for this request
+      await tx.approval.updateMany({
+        where: {
+          requestId: entityId,
+          decision: ApprovalDecision.PENDING,
+        },
+        data: {
+          decision: ApprovalDecision.REJECTED,
+          comments: comments || "Rejected/Returned for editing by level " + approval.level,
+          decidedAt: new Date(),
+        },
+      });
     } else if (decision === ApprovalDecision.APPROVED) {
       const workflow = await getWorkflowConfig(requestType);
       
@@ -472,6 +508,9 @@ export async function executeRequest(requestId: string, notes?: string): Promise
         include: {
           targetVm: { include: { currentSpec: true } },
           requester: true,
+          additionalDisks: true,
+          firewallPorts: true,
+          networkAccess: true,
         },
       })
     : null;
@@ -566,6 +605,26 @@ export async function executeRequest(requestId: string, notes?: string): Promise
           effectiveFrom: new Date(),
           appliedById: userId,
           customizationRequestId: customization.id,
+          additionalDisks: {
+            create: customization.additionalDisks.map(d => ({
+              sizeGb: d.sizeGb,
+              purpose: d.purpose,
+              sequence: d.sequence
+            }))
+          },
+          firewallPorts: {
+            create: customization.firewallPorts.map(p => ({
+              port: p.port,
+              protocol: p.protocol,
+              purpose: p.purpose,
+              source: p.source
+            }))
+          },
+          networkAccess: {
+            create: customization.networkAccess.map(a => ({
+              accessType: a.accessType
+            }))
+          }
         },
       });
 
@@ -639,6 +698,9 @@ export async function executeRequestWithVmInputs(
     include: {
       vmInstances: true,
       requester: true,
+      additionalDisks: true,
+      firewallPorts: true,
+      networkAccess: true,
     },
   });
 
@@ -697,6 +759,26 @@ export async function executeRequestWithVmInputs(
           raid: request.raid,
           effectiveFrom: new Date(),
           sourceRequestId: request.id,
+          additionalDisks: {
+            create: request.additionalDisks.map(d => ({
+              sizeGb: d.sizeGb,
+              purpose: d.purpose,
+              sequence: d.sequence
+            }))
+          },
+          firewallPorts: {
+            create: request.firewallPorts.map(p => ({
+              port: p.port,
+              protocol: p.protocol,
+              purpose: p.purpose,
+              source: p.source
+            }))
+          },
+          networkAccess: {
+            create: request.networkAccess.map(a => ({
+              accessType: a.accessType
+            }))
+          }
         },
       });
 
@@ -802,6 +884,9 @@ export async function provisionVMs(
         include: {
           vmInstances: true,
           requester: true,
+          additionalDisks: true,
+          firewallPorts: true,
+          networkAccess: true,
         },
       });
 
@@ -911,6 +996,47 @@ export async function provisionVMs(
             provisionedAt: new Date(),
             environment: request.environment,
           },
+        });
+
+        // Create initial spec from request
+        const spec = await tx.vmSpec.create({
+          data: {
+            vmInstanceId: vmInstance.id,
+            vcpu: request.vcpu || 1,
+            ramGb: request.ramGb || 2,
+            storageGb: request.storageGb || 50,
+            osName: request.osName,
+            osVersion: request.osVersion,
+            raid: request.raid,
+            effectiveFrom: new Date(),
+            sourceRequestId: request.id,
+            additionalDisks: {
+              create: request.additionalDisks.map(d => ({
+                sizeGb: d.sizeGb,
+                purpose: d.purpose,
+                sequence: d.sequence
+              }))
+            },
+            firewallPorts: {
+              create: request.firewallPorts.map(p => ({
+                port: p.port,
+                protocol: p.protocol,
+                purpose: p.purpose,
+                source: p.source
+              }))
+            },
+            networkAccess: {
+              create: request.networkAccess.map(a => ({
+                accessType: a.accessType
+              }))
+            }
+          }
+        });
+
+        // Link current spec to VM
+        await tx.vmInstance.update({
+          where: { id: vmInstance.id },
+          data: { currentSpecId: spec.id }
         });
 
         provisionedVms.push(vmInstance);

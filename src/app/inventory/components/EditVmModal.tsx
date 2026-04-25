@@ -11,7 +11,7 @@ import {
   DialogFooter
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, HardDrive, Network, User, Search } from "lucide-react";
+import { Loader2, HardDrive, Network, User, ActivityIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
@@ -27,6 +27,7 @@ import { getAllActiveUsers } from "@/app/actions/user-actions";
 import { VmStatus } from "@/types/enums";
 import { SerializedVmInstance } from "@/types/vm";
 import { DeleteConfirmationModal } from "./DeleteConfirmationModal";
+import { Combobox } from "@/components/ui/combobox";
 
 interface UserOption {
   id: string;
@@ -44,7 +45,6 @@ export function EditVmModal({ vm }: EditVmModalProps) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [users, setUsers] = useState<UserOption[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
   const [selectedOwnerId, setSelectedOwnerId] = useState<string>(vm.owner?.id || "unassigned");
 
   const handleSearch = async () => {
@@ -54,10 +54,7 @@ export function EditVmModal({ vm }: EditVmModalProps) {
     }
   };
 
-  const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -153,6 +150,63 @@ export function EditVmModal({ vm }: EditVmModalProps) {
 
           <hr className="border-slate-100" />
 
+          {/* Specification Section */}
+          <div className="space-y-4">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <HardDrive className="h-3 w-3" /> Allocation Specs
+            </h4>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="vcpu">vCPU (Cores)</Label>
+                <Input id="vcpu" name="vcpu" type="number" defaultValue={vm.currentSpec?.vcpu || 1} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ramGb">RAM (GB)</Label>
+                <Input id="ramGb" name="ramGb" type="number" defaultValue={vm.currentSpec?.ramGb || 2} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="storageGb">Storage (GB)</Label>
+                <Input id="storageGb" name="storageGb" type="number" defaultValue={vm.currentSpec?.storageGb || 50} required />
+              </div>
+            </div>
+          </div>
+
+          <hr className="border-slate-100" />
+
+          {/* OS Section */}
+          <div className="space-y-4">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <ActivityIcon className="h-3 w-3" /> System & OS
+            </h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="osName">OS Name</Label>
+                <Input id="osName" name="osName" defaultValue={vm.currentSpec?.osName || ""} placeholder="Ubuntu" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="osVersion">OS Version</Label>
+                <Input id="osVersion" name="osVersion" defaultValue={vm.currentSpec?.osVersion || ""} placeholder="22.04 LTS" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="raid">RAID Configuration</Label>
+              <Select name="raid" defaultValue={vm.currentSpec?.raid || "NONE"}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select RAID" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">None / Single Disk</SelectItem>
+                  <SelectItem value="RAID0">RAID 0 (Striping)</SelectItem>
+                  <SelectItem value="RAID1">RAID 1 (Mirroring)</SelectItem>
+                  <SelectItem value="RAID5">RAID 5 (Distributed)</SelectItem>
+                  <SelectItem value="RAID10">RAID 10 (Combined)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <hr className="border-slate-100" />
+
           {/* Ownership Section */}
           <div className="space-y-4 pb-4">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
@@ -160,37 +214,21 @@ export function EditVmModal({ vm }: EditVmModalProps) {
             </h4>
             <div className="space-y-2">
               <Label htmlFor="ownerId">Owner (Optional)</Label>
-              <div className="space-y-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    placeholder="Search users..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-                <Select 
-                  name="ownerId" 
-                  value={selectedOwnerId} 
-                  onValueChange={setSelectedOwnerId}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select owner (optional)" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    <SelectItem value="unassigned">No Owner Assigned</SelectItem>
-                    {filteredUsers.map((user) => (
-                      <SelectItem key={user.id} value={user.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{user.name}</span>
-                          <span className="text-xs text-slate-500">{user.email}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Combobox
+                name="ownerId"
+                options={[
+                  { label: "No Owner Assigned", value: "unassigned" },
+                  ...users.map(user => ({
+                    label: user.name,
+                    value: user.id,
+                    description: user.email
+                  }))
+                ]}
+                value={selectedOwnerId}
+                onValueChange={setSelectedOwnerId}
+                placeholder="Select owner (optional)"
+                searchPlaceholder="Search by name or email..."
+              />
             </div>
             <div className="flex items-center gap-6 pt-2">
               <div className="flex items-center space-x-2">
@@ -200,6 +238,7 @@ export function EditVmModal({ vm }: EditVmModalProps) {
                   name="hasRemoteAccess" 
                   className="rounded border-slate-300" 
                   defaultChecked={vm.hasRemoteAccess} 
+                  value="true"
                 />
                 <Label htmlFor="hasRemoteAccess" className="text-sm font-medium">Remote Access</Label>
               </div>
@@ -210,6 +249,7 @@ export function EditVmModal({ vm }: EditVmModalProps) {
                   name="vpnRequired" 
                   className="rounded border-slate-300" 
                   defaultChecked={vm.vpnRequired} 
+                  value="true"
                 />
                 <Label htmlFor="vpnRequired" className="text-sm font-medium">VPN Required</Label>
               </div>

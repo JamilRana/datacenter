@@ -21,8 +21,8 @@ export function AssetFormFields({ form, assetType }: AssetFormFieldsProps) {
         <Input {...register("name")} placeholder="e.g., SIEM Server" />
       </div>
       <div className="space-y-2">
-        <Label>Vendor</Label>
-        <Input {...register("vendor")} placeholder="Dell, Cisco, etc." />
+        <Label>Provider</Label>
+        <Input {...register("vendor")} placeholder="MIS/UNICEF/WHO etc." />
       </div>
       <div className="space-y-2">
         <Label>Model</Label>

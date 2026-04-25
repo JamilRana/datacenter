@@ -11,7 +11,7 @@ import {
   DialogFooter
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Plus, Loader2, HardDrive, Network, User, Activity, Search } from "lucide-react";
+import { Plus, Loader2, HardDrive, Network, User, Activity } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { createManualVm } from "@/app/actions/vm-actions";
 import { getAllActiveUsers } from "@/app/actions/user-actions";
 import { VmStatus, Raid } from "@/types/enums";
+import { Combobox } from "@/components/ui/combobox";
 
 interface UserOption {
   id: string;
@@ -38,7 +39,6 @@ export function ManualVmModal({ actorId }: { actorId: string }) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [users, setUsers] = useState<UserOption[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
   const [selectedOwnerId, setSelectedOwnerId] = useState<string>("unassigned");
 
   useEffect(() => {
@@ -47,10 +47,7 @@ export function ManualVmModal({ actorId }: { actorId: string }) {
     }
   }, [open]);
 
-  const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -184,40 +181,21 @@ export function ManualVmModal({ actorId }: { actorId: string }) {
             </h4>
             <div className="space-y-2">
               <Label htmlFor="ownerId">Owner (Optional)</Label>
-              <div className="space-y-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <Input
-                    placeholder="Search users..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-                <Select 
-                  name="ownerId" 
-                  value={selectedOwnerId} 
-                  onValueChange={setSelectedOwnerId}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select owner (optional)" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    <SelectItem value="unassigned">No Owner Assigned</SelectItem>
-                    {filteredUsers.map((user) => (
-                      <SelectItem key={user.id} value={user.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{user.name}</span>
-                          <span className="text-xs text-slate-500">{user.email}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {filteredUsers.length === 0 && searchTerm && (
-                  <p className="text-xs text-slate-500">No users found matching &quot;{searchTerm}&quot;</p>
-                )}
-              </div>
+              <Combobox
+                name="ownerId"
+                options={[
+                  { label: "No Owner Assigned", value: "unassigned" },
+                  ...users.map(user => ({
+                    label: user.name,
+                    value: user.id,
+                    description: user.email
+                  }))
+                ]}
+                value={selectedOwnerId}
+                onValueChange={setSelectedOwnerId}
+                placeholder="Select owner (optional)"
+                searchPlaceholder="Search by name or email..."
+              />
             </div>
             <div className="flex items-center gap-6 pt-2">
               <div className="flex items-center space-x-2">

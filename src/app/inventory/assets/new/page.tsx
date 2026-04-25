@@ -106,8 +106,8 @@ export default function NewAssetPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="vendor">Vendor</Label>
-              <Input id="vendor" name="vendor" placeholder="e.g., Dell, HP, Cisco" />
+              <Label htmlFor="vendor">Provider</Label>
+              <Input id="vendor" name="vendor" placeholder="MIS/UNICEF/WHO etc." />
             </div>
             <div className="space-y-2">
               <Label htmlFor="model">Model</Label>

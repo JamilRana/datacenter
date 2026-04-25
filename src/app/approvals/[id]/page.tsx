@@ -4,7 +4,6 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { RequestDetails } from "@/app/requests/components/RequestDetail";
-import { ApprovalPanel } from "../components/ApprovalPanel";
 import { ProvisionVMModal } from "../components/ProvisionVMModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Timeline } from "../components/Timeline";
@@ -185,14 +184,7 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
         </div>
       </div>
 
-      {/* Unified Action Panel */}
-      {session?.user && (
-        <ApprovalPanel
-          approvals={displayRequest?.approvals || displayCustomization?.approvals || []}
-          requestType={isCustomization ? "CUSTOMIZED" : displayRequest?.requestType}
-        />
-      )}
-
+      {/* Unified Action Panel - showing in sidebar only */}
       {/* Provision VM Modal */}
       {showProvisionModal && request && (
         <ProvisionVMModal

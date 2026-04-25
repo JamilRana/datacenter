@@ -21,29 +21,27 @@ import { InventoryChart } from "@/components/analytics/InventoryChart";
 import { StatusDistribution } from "@/components/analytics/StatusDistribution";
 import { RecentActivity } from "@/components/analytics/RecentActivity";
 import { fetchVmAnalytics } from "@/app/actions/analytics-actions";
+import { useSearchParams } from "next/navigation";
 
-export default function VmInventoryPage({
-  searchParams,
-}: {
-  searchParams: { page?: string };
-}) {
+export default function VmInventoryPage() {
   const { data: session, status } = useSession();
   const [metrics, setMetrics] = useState<InventoryMetrics | null>(null);
   const [vms, setVms] = useState<SerializedVmInstance[]>([]);
+  const [totalVms, setTotalVms] = useState(0);
   const [loading, setLoading] = useState(true);
   const [vmAnalytics, setVmAnalytics] = useState<Awaited<ReturnType<typeof fetchVmAnalytics>> | null>(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-  const page = searchParams.page ? parseInt(searchParams.page, 10) : 1;
+  const queryParams = useSearchParams();
+  const page = queryParams.get("page") ? parseInt(queryParams.get("page")!, 10) : 1;
 
-  const fetchingRef = React.useRef(false);
+
 
   useEffect(() => {
     if (status === "loading" || !session?.user?.id) return;
     
     const fetchVmLists = async () => {
-      if (fetchingRef.current) return;
-      fetchingRef.current = true;
-      
+      setLoading(true);
       try {
         const [metricsRes, vmsData, analytics] = await Promise.all([
           getInventoryMetrics(),
@@ -52,19 +50,20 @@ export default function VmInventoryPage({
         ]);
         setMetrics(metricsRes);
         setVms(vmsData.vms);
+        setTotalVms(vmsData.total);
         setVmAnalytics(analytics);
       } catch (error) {
         console.error("Failed to fetch VM lists:", error);
       } finally {
         setLoading(false);
-        fetchingRef.current = false;
+        setIsInitialLoad(false);
       }
     };
     
     fetchVmLists();
   }, [session?.user?.id, status, page]);
 
-  if (status === "loading" || loading) {
+  if (status === "loading" || (loading && isInitialLoad)) {
     return (
       <div className="p-6 md:p-10 max-w-6xl mx-auto">
         <div className="animate-pulse space-y-6">
@@ -301,7 +300,13 @@ export default function VmInventoryPage({
 
       <Card className="border-slate-200 shadow-sm overflow-hidden">
         <CardContent className="p-0">
-          <VmListClient initialVms={vms} canEdit={isManagement} />
+          <VmListClient 
+            initialVms={vms} 
+            canEdit={isManagement} 
+            total={totalVms}
+            currentPage={page}
+            isLoading={loading}
+          />
         </CardContent>
       </Card>
     </div>

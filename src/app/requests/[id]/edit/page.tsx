@@ -1,7 +1,7 @@
 // src/app/requests/[id]/edit/page.tsx
 "use client";
 import { RequestForm } from "@/app/requests/components/RequestForm";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -21,32 +21,48 @@ export default function EditRequestPage({
 }: {
   params: { id: string };
 }) {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const [request, setRequest] = useState<Request | null>(null);
   const [loading, setLoading] = useState(true);
 
-  if (!session?.user) {
-    redirect("/auth");
-  }
+  useEffect(() => {
+    if (status === "loading") return;
+    if (!session?.user) {
+      router.push("/auth");
+      return;
+    }
+  }, [session, status, router]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [reqRes] = await Promise.all([
-          fetch(`/api/requests/${params.id}`),
-        ]);
-        const reqData = await reqRes.json();
+        const res = await fetch(`/api/requests/${params.id}`);
+        if (!res.ok) throw new Error("Failed to fetch request");
+        const reqData = await res.json();
+        
+        // If not in a state that allows editing, redirect
+        // We now allow DRAFT and REJECTED (which becomes DRAFT)
+        if (reqData.status !== "DRAFT" && reqData.status !== "REJECTED" && reqData.status !== "RETURNED") {
+          router.push("/requests");
+          return;
+        }
+
         setRequest(reqData);
       } catch (error) {
         console.error("Error fetching data:", error);
+        router.push("/requests");
       } finally {
         setLoading(false);
       }
     };
-    fetchData();
-  }, [params.id, session.user.id]);
+    
+    if (session?.user) {
+      fetchData();
+    }
+  }, [params.id, session, router]);
 
-  if (loading) {
+  if (loading || status === "loading") {
     return (
       <div className="p-6 md:p-10 max-w-4xl mx-auto space-y-6">
         <div className="h-8 w-48 bg-slate-200 animate-pulse rounded" />
@@ -55,17 +71,16 @@ export default function EditRequestPage({
     );
   }
 
-  if (!request || request.status !== "DRAFT") {
-    redirect("/requests");
-  }
+  if (!request) return null;
 
   // Allow both requester and developer (who created draft) to edit
-  const isRequester = request.requesterId === session.user.id;
-  const isDeveloper = request.developerId === session.user.id;
-  const isAdmin = session.user.roles?.includes("ADMIN");
+  const isRequester = request.requesterId === session?.user.id;
+  const isDeveloper = request.developerId === session?.user.id;
+  const isAdmin = session?.user.roles?.includes("ADMIN");
 
   if (!isRequester && !isDeveloper && !isAdmin) {
-    redirect("/requests");
+    router.push("/requests");
+    return null;
   }
 
   return (
@@ -89,7 +104,7 @@ export default function EditRequestPage({
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-        <RequestForm userId={session.user.id} editId={params.id} />
+        <RequestForm userId={session?.user.id || ""} editId={params.id} />
       </div>
     </div>
   );

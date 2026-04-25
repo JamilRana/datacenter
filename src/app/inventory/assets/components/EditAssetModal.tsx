@@ -127,7 +127,7 @@ export default function EditAssetModal({
               required
             />
             <InputField
-              label="Vendor"
+              label="Provider"
               name="vendor"
               value={formData.vendor || ""}
               onChange={handleChange}
