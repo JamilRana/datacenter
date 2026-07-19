@@ -1,6 +1,6 @@
 // src/app/approvals/components/ApproverDashboardClient.tsx
 "use client";
-import { ApprovalDecision } from "@prisma/client";
+import type { ApprovalDecision } from "@prisma/client";
 
 import { useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,8 @@ import { useRouter } from "next/navigation";
 import { handleApprovalDecision, executeRequest, forwardToLevel } from "@/app/actions/approval-actions";
 import { DashboardRequest } from "@/types/approvals";
 import { ProvisionVMModal } from "./ProvisionVMModal";
+import { ProvisionK8sModal } from "./ProvisionK8sModal";
+import { SubdomainApprovalsPanel } from "./SubdomainApprovalsPanel";
 
 interface ApproverRequest extends Omit<DashboardRequest, "createdAt"> {
   createdAt: string | Date;
@@ -85,6 +87,10 @@ export function ApproverDashboardClient({
   // Determine if user is admin (has ADMIN role)
   const isAdmin = userRoles.includes("ADMIN");
   const isDCOps = userRoles.includes("DC_OPS");
+  const isL1 = userRoles.includes("APPROVER_L1");
+  const showSubdomainTab = isL1 || isDCOps || isAdmin;
+
+  const [activeMainTab, setActiveMainTab] = useState<"requests" | "subdomains">("requests");
 
   // Sort requests - pending first, then by date
   const sortedRequests = [...initialRequests].sort((a, b) => {
@@ -153,6 +159,14 @@ export function ApproverDashboardClient({
     existingVmsCount: 0,
     defaultSubdomain: "",
     requesterId: ""
+  });
+
+  const [provisionK8sModal, setProvisionK8sModal] = useState<{
+    open: boolean;
+    requestId: string;
+  }>({
+    open: false,
+    requestId: ""
   });
 
   // ✅ DETERMINE CURRENT APPROVAL LEVEL FROM STATUS (returns number)
@@ -422,8 +436,35 @@ export function ApproverDashboardClient({
         )}
       </div>
 
-      {/* Filters Bar */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+      {showSubdomainTab && (
+        <div className="flex border-b border-slate-200 gap-6 mb-2">
+          <button
+            onClick={() => setActiveMainTab("requests")}
+            className={`pb-3 text-sm font-bold border-b-2 transition-all ${
+              activeMainTab === "requests"
+                ? "border-blue-600 text-blue-600 font-extrabold"
+                : "border-transparent text-slate-500 hover:text-slate-900"
+            }`}
+          >
+            System Requests
+          </button>
+          <button
+            onClick={() => setActiveMainTab("subdomains")}
+            className={`pb-3 text-sm font-bold border-b-2 transition-all ${
+              activeMainTab === "subdomains"
+                ? "border-blue-600 text-blue-600 font-extrabold"
+                : "border-transparent text-slate-500 hover:text-slate-900"
+            }`}
+          >
+            Subdomain Route Activations
+          </button>
+        </div>
+      )}
+
+      {activeMainTab === "requests" ? (
+        <>
+          {/* Filters Bar */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
            <div className="md:col-span-2 space-y-1.5">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Search Context</p>
@@ -685,6 +726,8 @@ export function ApproverDashboardClient({
                                 // For NEW_VM, show the modal to collect VM details
                                 if (req.requestType === "NEW_VM") {
                                   openProvisionModal(req);
+                                } else if (req.requestType === "K8S_NAMESPACE") {
+                                  setProvisionK8sModal({ open: true, requestId: req.id });
                                 } else {
                                   // For other types (DECOMMISSION, RENEWAL, CUSTOMIZED), execute directly
                                   onQuickExecute(req.id);
@@ -822,6 +865,10 @@ export function ApproverDashboardClient({
           </table>
         </div>
       </div>
+        </>
+      ) : (
+        <SubdomainApprovalsPanel />
+      )}
 
       {/* Provision VM Modal */}
       <ProvisionVMModal
@@ -832,6 +879,14 @@ export function ApproverDashboardClient({
         existingVmsCount={provisionModal.existingVmsCount}
         defaultSubdomain={provisionModal.defaultSubdomain}
         requesterId={provisionModal.requesterId}
+        onSuccess={() => router.refresh()}
+      />
+
+      {/* Provision K8s Modal */}
+      <ProvisionK8sModal
+        open={provisionK8sModal.open}
+        onOpenChange={(open) => setProvisionK8sModal(prev => ({ ...prev, open }))}
+        requestId={provisionK8sModal.requestId}
         onSuccess={() => router.refresh()}
       />
     </div>

@@ -13,6 +13,8 @@ import {
   NetworkAccess,
   Protocol,
   CustomizationStatus,
+  AccessType,
+  K8sNodeRole,
 } from "@prisma/client";
 
 import { VmInstance } from "./vm";
@@ -69,6 +71,7 @@ export interface detailsRequest {
   purpose: string;
   environment: Environment;
   expectedEndDate?: Date | null;
+  expectedDeliveryDate?: Date | null;
 
   requesterId: string;
   requester: Person;
@@ -92,6 +95,28 @@ export interface detailsRequest {
   retentionPeriod?: string | null;
   requiredPublicIP: boolean;
   vpnRequired: boolean;
+
+  // Clone fields
+  sourceVmId?: string | null;
+  cloneFullDisk?: boolean;
+
+  // Upgrade fields
+  upgradeVmId?: string | null;
+  upgradeCpu?: number | null;
+  upgradeRamGb?: number | null;
+  upgradeStorageGb?: number | null;
+  upgradeJustification?: string | null;
+
+  // Access fields
+  accessTargetVmId?: string | null;
+  accessType?: AccessType | null;
+  accessJustification?: string | null;
+
+  // K8s namespace fields
+  underExistingNamespace?: boolean;
+  existingNamespaceId?: string | null;
+  kubernetesOption?: boolean;
+  kubernetesNamespace?: string | null;
 
   // Compliance
   vaReportSubmitted: boolean;
@@ -121,6 +146,18 @@ export interface detailsRequest {
   networkAccess: NetworkAccessEntry[] | null;
   attachments: Attachment[] | null;
   targetVm?: VmInstance | null;
+  tags?: { tag: { id: string; name: string; description: string | null } }[];
+  k8sRequestNodeGroups?: K8sRequestNodeGroup[] | null;
+}
+
+export interface K8sRequestNodeGroup {
+  id: string;
+  requestId: string;
+  role: K8sNodeRole;
+  nodeCount: number;
+  vcpu: number;
+  ramGb: number;
+  storageGb: number;
 }
 
 export interface Request {
@@ -134,6 +171,7 @@ export interface Request {
   purpose: string;
   environment: Environment;
   expectedEndDate?: Date | null;
+  expectedDeliveryDate?: Date | null;
 
   requesterId: string;
   requester: Requester | null;
@@ -159,6 +197,28 @@ export interface Request {
   retentionPeriod?: string | null;
   requiredPublicIP: boolean;
   vpnRequired: boolean;
+
+  // Clone fields
+  sourceVmId?: string | null;
+  cloneFullDisk?: boolean;
+
+  // Upgrade fields
+  upgradeVmId?: string | null;
+  upgradeCpu?: number | null;
+  upgradeRamGb?: number | null;
+  upgradeStorageGb?: number | null;
+  upgradeJustification?: string | null;
+
+  // Access fields
+  accessTargetVmId?: string | null;
+  accessType?: AccessType | null;
+  accessJustification?: string | null;
+
+  // K8s namespace fields
+  underExistingNamespace?: boolean;
+  existingNamespaceId?: string | null;
+  kubernetesOption?: boolean;
+  kubernetesNamespace?: string | null;
 
   // Compliance
   vaReportSubmitted: boolean;

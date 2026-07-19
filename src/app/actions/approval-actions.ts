@@ -561,7 +561,55 @@ export async function executeRequest(requestId: string, notes?: string): Promise
             "DECOMMISSIONED"
           );
         }
-      } 
+      }
+      // VPN_ACCESS/HORIZON_ACCESS: Confirm externally and mark as provisioned
+      else if (request.requestType === RequestType.VPN_ACCESS || request.requestType === RequestType.HORIZON_ACCESS) {
+        await tx.request.update({
+          where: { id: requestId },
+          data: {
+            status: RequestStatus.PROVISIONED,
+            provisionedAt: new Date(),
+          },
+        });
+
+        if (request.requesterId) {
+          await NotificationService.notifyRequester(
+            request.requesterId,
+            request.systemName || "Access Request",
+            "PROVISIONED"
+          );
+        }
+      }
+      // K8S_NAMESPACE: Provision namespace
+      else if (request.requestType === RequestType.K8S_NAMESPACE) {
+        let namespaceId = request.existingNamespaceId;
+        if (!request.underExistingNamespace) {
+          const createdNs = await tx.k8sNamespace.create({
+            data: {
+              name: request.kubernetesNamespace || `ns-${request.id.slice(0, 8)}`,
+              supervisorIp: "10.0.1.100"
+            }
+          });
+          namespaceId = createdNs.id;
+        }
+
+        await tx.request.update({
+          where: { id: requestId },
+          data: {
+            status: RequestStatus.PROVISIONED,
+            provisionedAt: new Date(),
+            existingNamespaceId: namespaceId,
+          },
+        });
+
+        if (request.requesterId) {
+          await NotificationService.notifyRequester(
+            request.requesterId,
+            request.systemName || "K8s Namespace",
+            "PROVISIONED"
+          );
+        }
+      }
       // NEW_VM/RENEWAL: Mark as provisioned (VMs created via executeRequestWithVmInputs)
       else {
         await tx.request.update({
@@ -745,6 +793,8 @@ export async function executeRequestWithVmInputs(
           status: VmStatus.ACTIVE,
           provisionedAt: new Date(),
           environment: request.environment,
+          systemName: request.systemName,
+          cloneOfRequestId: request.requestType === RequestType.CLONE_VM ? request.id : null,
         },
       });
 
@@ -995,6 +1045,8 @@ export async function provisionVMs(
             status: VmStatus.ACTIVE,
             provisionedAt: new Date(),
             environment: request.environment,
+            systemName: request.systemName,
+            cloneOfRequestId: request.requestType === RequestType.CLONE_VM ? requestId : null,
           },
         });
 

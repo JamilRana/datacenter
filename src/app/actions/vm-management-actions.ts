@@ -5,6 +5,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { revalidatePath } from "next/cache";
+import { encrypt, decrypt, sendEmail } from "@/lib/admin/emailService";
+import { ROLES, hasRole } from "@/lib/roles";
 
 export interface UserVmStats {
   totalActive: number;
@@ -344,4 +347,201 @@ export async function getVmDetails(vmId: string): Promise<VmDetailsData | null> 
         : null,
     })),
   };
+}
+
+export async function updateVmSystemName(vmId: string, newName: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+    const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
+
+    const vm = await prisma.vmInstance.findUnique({
+      where: { id: vmId },
+    });
+
+    if (!vm) throw new Error("VM not found");
+
+    if (!isAdmin && vm.ownerId !== userId) {
+      throw new Error("You do not have permission to rename this VM");
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const res = await tx.vmInstance.update({
+        where: { id: vmId },
+        data: { systemName: newName },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: "RENAME_VM",
+          entityType: "VM",
+          entityId: vmId,
+          details: JSON.stringify({
+            oldName: vm.systemName,
+            newName,
+          }),
+        },
+      });
+
+      return res;
+    });
+
+    revalidatePath(`/inventory/vms`);
+    revalidatePath(`/inventory/vms/${vmId}`);
+    return { success: true, data: updated };
+  } catch (error) {
+    console.error("Error renaming VM:", error);
+    throw error;
+  }
+}
+
+export async function getVmCredentials(vmId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+    const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
+
+    const vm = await prisma.vmInstance.findUnique({
+      where: { id: vmId },
+      include: { credential: true },
+    });
+
+    if (!vm) throw new Error("VM not found");
+
+    if (!isAdmin && vm.ownerId !== userId) {
+      throw new Error("You do not have permission to view credentials for this VM");
+    }
+
+    if (!vm.credential) {
+      return null;
+    }
+
+    await prisma.credentialAccessLog.create({
+      data: {
+        actorId: userId,
+        vmInstanceId: vmId,
+        action: "VIEW",
+      },
+    });
+
+    return {
+      username: vm.credential.username,
+      password: decrypt(vm.credential.password),
+    };
+  } catch (error) {
+    console.error("Error fetching credentials:", error);
+    throw error;
+  }
+}
+
+export async function saveVmCredentials(vmId: string, username: string, plainTextPass: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+    const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
+    const isDcops = hasRole(session.user.roles, ROLES.DCOPS);
+
+    if (!isAdmin && !isDcops) {
+      throw new Error("Only DCOPS or Admins can save VM credentials");
+    }
+
+    const encryptedPassword = encrypt(plainTextPass);
+
+    const credential = await prisma.vmCredential.upsert({
+      where: { vmInstanceId: vmId },
+      update: {
+        username,
+        password: encryptedPassword,
+      },
+      create: {
+        vmInstanceId: vmId,
+        username,
+        password: encryptedPassword,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: userId,
+        action: "SAVE_VM_CREDENTIALS",
+        entityType: "VM",
+        entityId: vmId,
+      },
+    });
+
+    revalidatePath(`/inventory/vms/${vmId}`);
+    return { success: true, credential };
+  } catch (error) {
+    console.error("Error saving credentials:", error);
+    throw error;
+  }
+}
+
+export async function sendCredentialsEmail(vmId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+    const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
+
+    const vm = await prisma.vmInstance.findUnique({
+      where: { id: vmId },
+      include: { credential: true, owner: true },
+    });
+
+    if (!vm) throw new Error("VM not found");
+
+    if (!isAdmin && vm.ownerId !== userId) {
+      throw new Error("You do not have permission to send credentials for this VM");
+    }
+
+    if (!vm.credential) {
+      throw new Error("No credentials saved for this VM");
+    }
+
+    const ownerEmail = vm.owner?.email;
+    if (!ownerEmail) {
+      throw new Error("VM owner has no registered email");
+    }
+
+    const plainPassword = decrypt(vm.credential.password);
+    const subject = `VM Login Credentials: ${vm.hostname || vm.systemName || "Virtual Machine"}`;
+    const html = `
+      <h2>VM Management System - VM Login Credentials</h2>
+      <p>Hello ${vm.owner?.name || "User"},</p>
+      <p>Here are the login credentials requested for your VM:</p>
+      <ul>
+        <li>Hostname: <strong>${vm.hostname || "N/A"}</strong></li>
+        <li>IP Address: <strong>${vm.ipAddress || "N/A"}</strong></li>
+        <li>Username: <strong>${vm.credential.username}</strong></li>
+        <li>Password: <strong>${plainPassword}</strong></li>
+      </ul>
+      <p>Please login and change your password immediately.</p>
+    `;
+
+    const success = await sendEmail(ownerEmail, subject, html);
+
+    if (success) {
+      await prisma.credentialAccessLog.create({
+        data: {
+          actorId: userId,
+          vmInstanceId: vmId,
+          action: "EMAIL",
+        },
+      });
+    }
+
+    return { success };
+  } catch (error) {
+    console.error("Error sending credentials email:", error);
+    throw error;
+  }
 }

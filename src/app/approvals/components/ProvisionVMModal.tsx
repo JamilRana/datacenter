@@ -78,7 +78,7 @@ export function ProvisionVMModal({
     const newVms = [...vms];
     newVms[index] = { ...newVms[index], [field]: value };
     setVms(newVms);
-    
+
     // Clear error when user types
     if (errors[index]?.[field]) {
       const newErrors = { ...errors };
@@ -275,7 +275,7 @@ export function ProvisionVMModal({
                             )}
                           </div>
 
-                          <div className="space-y-2">
+                          {/* <div className="space-y-2">
                             <Label htmlFor={`public-ip-${index}`}>
                               Public IP Address <span className="text-slate-400">(optional)</span>
                             </Label>
@@ -287,7 +287,7 @@ export function ProvisionVMModal({
                               }
                               placeholder="e.g., 203.0.113.50"
                             />
-                          </div>
+                          </div> */}
 
                           <div className="space-y-2">
                             <Label htmlFor={`subdomain-${index}`}>

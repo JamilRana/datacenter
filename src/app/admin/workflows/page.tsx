@@ -18,7 +18,7 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Loader2, Plus, Trash2, Save, X } from "lucide-react";
+import { Loader2, Plus, Trash2, Save, X, Edit2 } from "lucide-react";
 import { ROLES } from "@/lib/roles";
 
 interface Workflow {
@@ -48,6 +48,8 @@ export default function WorkflowsPage() {
   const [selectedType, setSelectedType] = useState<string>("NEW_VM");
   const [isAdding, setIsAdding] = useState(false);
   const [newLevel, setNewLevel] = useState({ role: "", roleLabel: "", isFinal: false });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editLevel, setEditLevel] = useState({ role: "", roleLabel: "", isFinal: false });
 
   useEffect(() => {
     if (status === "loading") return;
@@ -119,6 +121,30 @@ export default function WorkflowsPage() {
     }
   };
 
+  const handleStartEdit = (workflow: Workflow) => {
+    setEditingId(workflow.id);
+    setEditLevel({
+      role: workflow.role,
+      roleLabel: workflow.roleLabel || "",
+      isFinal: workflow.isFinal,
+    });
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    try {
+      await updateWorkflowLevel(id, {
+        role: editLevel.role,
+        roleLabel: editLevel.roleLabel,
+        isFinal: editLevel.role === "DC_OPS" ? false : editLevel.isFinal,
+      });
+      setEditingId(null);
+      const workflowsData = await getWorkflows(selectedType);
+      setWorkflows(workflowsData);
+    } catch (error) {
+      console.error("Failed to update workflow level:", error);
+    }
+  };
+
   if (status === "loading" || loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -170,30 +196,92 @@ export default function WorkflowsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                workflows.map((workflow) => (
-                  <TableRow key={workflow.id}>
-                    <TableCell className="font-medium">Level {workflow.level}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{workflow.role}</Badge>
-                    </TableCell>
-                    <TableCell>{workflow.roleLabel || "-"}</TableCell>
-                    <TableCell>
-                      <Button
-                        variant={workflow.isFinal ? "default" : "outline"}
-                        size="sm"
-                        disabled={workflow.role === "DC_OPS"}
-                        onClick={() => handleToggleFinal(workflow)}
-                      >
-                        {workflow.isFinal ? "Final" : "Set as Final"}
-                      </Button>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => handleDeleteLevel(workflow.id)}>
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))
+                workflows.map((workflow) => {
+                  const isEditing = editingId === workflow.id;
+
+                  if (isEditing) {
+                    return (
+                      <TableRow key={workflow.id}>
+                        <TableCell className="font-medium">Level {workflow.level}</TableCell>
+                        <TableCell>
+                          <Select 
+                            value={editLevel.role} 
+                            onValueChange={(v) => setEditLevel({ ...editLevel, role: v, isFinal: v === "DC_OPS" ? false : editLevel.isFinal })}
+                          >
+                            <SelectTrigger className="w-[180px]">
+                              <SelectValue placeholder="Select role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableRoles.map((role) => (
+                                <SelectItem key={role.value} value={role.value}>
+                                  {role.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            placeholder="e.g., Section Officer"
+                            value={editLevel.roleLabel}
+                            onChange={(e) => setEditLevel({ ...editLevel, roleLabel: e.target.value })}
+                            className="w-[180px]"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant={editLevel.isFinal ? "default" : "outline"}
+                            size="sm"
+                            disabled={editLevel.role === "DC_OPS"}
+                            onClick={() => setEditLevel({ ...editLevel, isFinal: !editLevel.isFinal })}
+                          >
+                            {editLevel.isFinal ? "Final" : "Set as Final"}
+                          </Button>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" onClick={() => handleSaveEdit(workflow.id)} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                              <Save className="h-4 w-4 mr-1" /> Save
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => setEditingId(null)}>
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
+
+                  return (
+                    <TableRow key={workflow.id}>
+                      <TableCell className="font-medium">Level {workflow.level}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{workflow.role}</Badge>
+                      </TableCell>
+                      <TableCell>{workflow.roleLabel || "-"}</TableCell>
+                      <TableCell>
+                        <Button
+                          variant={workflow.isFinal ? "default" : "outline"}
+                          size="sm"
+                          disabled={workflow.role === "DC_OPS"}
+                          onClick={() => handleToggleFinal(workflow)}
+                        >
+                          {workflow.isFinal ? "Final" : "Set as Final"}
+                        </Button>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="icon" onClick={() => handleStartEdit(workflow)}>
+                            <Edit2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDeleteLevel(workflow.id)}>
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
               {isAdding && (
                 <TableRow>

@@ -157,6 +157,9 @@ export async function createRequest(formData: FormData) {
           expectedEndDate: formData.get("expectedEndDate")
             ? new Date(formData.get("expectedEndDate") as string)
             : null,
+          expectedDeliveryDate: formData.get("expectedDeliveryDate")
+            ? new Date(formData.get("expectedDeliveryDate") as string)
+            : null,
 
           // ✅ CORRECT requesterId BASED ON ROLE
           requesterId: isDeveloper && assignedRequesterId 
@@ -456,6 +459,9 @@ export async function editRequest(formData: FormData) {
         expectedEndDate: formData.get("expectedEndDate")
           ? new Date(formData.get("expectedEndDate") as string)
           : null,
+        expectedDeliveryDate: formData.get("expectedDeliveryDate")
+          ? new Date(formData.get("expectedDeliveryDate") as string)
+          : null,
 
         // VM Spec (only editable fields)
         vcpu: parseInt(formData.get("vcpu")?.toString() || "0"),
@@ -750,7 +756,11 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
         },
         orderBy: { createdAt: "asc" },
       },
-      targetVm: true,
+      targetVm: {
+        include: {
+          currentSpec: true,
+        },
+      },
       additionalDisks: true,
       firewallPorts: true,
       networkAccess: true,
@@ -762,7 +772,11 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
       },
       developer: {
         select: { id: true, name: true, email: true, designation: true, organization: true, contact: true }
-      }
+      },
+      tags: {
+        include: { tag: true }
+      },
+      k8sRequestNodeGroups: true
     },
   });
 
@@ -780,6 +794,7 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
     purpose: request.purpose,
     environment: request.environment,
     expectedEndDate: request.expectedEndDate || null,
+    expectedDeliveryDate: request.expectedDeliveryDate || null,
 
     requesterId: request.requesterId,
     // ✅ Transform User relation → Person interface
@@ -923,6 +938,26 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
       user: a.user ? { id: a.user.id, name: a.user.name, email: a.user.email } : null,
     })),
     targetVm: request.targetVm || null,
+    upgradeVmId: request.upgradeVmId || null,
+    upgradeCpu: request.upgradeCpu || null,
+    upgradeRamGb: request.upgradeRamGb || null,
+    upgradeStorageGb: request.upgradeStorageGb || null,
+    upgradeJustification: request.upgradeJustification || null,
+    sourceVmId: request.sourceVmId || null,
+    cloneFullDisk: request.cloneFullDisk || false,
+    accessTargetVmId: request.accessTargetVmId || null,
+    accessType: request.accessType || null,
+    accessJustification: request.accessJustification || null,
+    underExistingNamespace: request.underExistingNamespace,
+    existingNamespaceId: request.existingNamespaceId || null,
+    tags: (request.tags || []).map((t) => ({
+      tag: {
+        id: t.tag.id,
+        name: t.tag.name,
+        description: t.tag.description,
+      }
+    })),
+    k8sRequestNodeGroups: request.k8sRequestNodeGroups || [],
   };
 
   return transformed;
@@ -950,8 +985,9 @@ export async function getRequests(
   const skip = (page - 1) * pageSize;
   const andConditions: Prisma.RequestWhereInput[] = [];
 
-  // 1. BASE VISIBILITY: Non-admins/Non-approvers only see their own stuff
-  if (!isAdmin && !isApprover) {
+  // 1. BASE VISIBILITY: Non-admins/Non-dcops only see their own stuff
+  const isPowerUser = userRoles.includes(ROLES.ADMIN) || userRoles.includes(ROLES.DCOPS);
+  if (!isPowerUser) {
     andConditions.push({
       OR: [{ requesterId: userId }, { developerId: userId }]
     });
@@ -972,42 +1008,9 @@ export async function getRequests(
     andConditions.push({ requestType: filters.type as RequestType });
   }
 
-  if (isApprover && !isAdmin) {
-    
-    const myActionableLevels = userRoles
-      .map(role => levelMapping[role])
-      .filter((lvl): lvl is number => lvl !== undefined);
-
-    // Filter by pending approvals assigned to THIS specific user at THEIR level
-    andConditions.push({
-      approvals: {
-        some: {
-          approverId: userId,
-          decision: ApprovalDecision.PENDING,
-          entityType: ApprovalEntityType.REQUEST,
-          level: { in: myActionableLevels }
-        }
-      }
-    });
-  }
-
   // 5. STATUS FILTER (Global or Role-based)
   if (filters.status && filters.status !== "ALL") {
     andConditions.push({ status: filters.status as RequestStatus });
-  } else if (isApprover && !isAdmin) {
-    // If no specific status filter is picked, default to the statuses relevant to their levels
-    const statusMapping: Record<number, RequestStatus> = {
-      1: RequestStatus.PENDING_L1,
-      2: RequestStatus.PENDING_L2,
-      3: RequestStatus.PENDING_L3,
-      4: RequestStatus.PENDING_L4,
-    };
-    
-    const myStatuses = userRoles
-      .map(role => statusMapping[levelMapping[role]])
-      .filter(Boolean);
-
-    andConditions.push({ status: { in: myStatuses } });
   }
 
   const whereClause: Prisma.RequestWhereInput = { AND: andConditions };
@@ -1070,6 +1073,7 @@ function transformRequestListItem(r: RequestWithRelations) {
           status: r.targetVm.status 
         }
       : undefined,
+    expectedDeliveryDate: r.expectedDeliveryDate ?? undefined,
   };
 }
 

@@ -28,6 +28,7 @@ model User {
   developedRequests     Request[]              @relation("Developer")
   requests              Request[]              @relation("Requester")
   ownedVms              VmInstance[]           @relation("VmOwner")
+  credentialAccessLogs  CredentialAccessLog[]
 }
 
 model Role {
@@ -97,6 +98,20 @@ model Request {
   developerDesignation          String?
   developerId                   String?
   developerOrganization         String?
+
+  // Clone VM fields
+  sourceVmId                    String?
+  cloneFullDisk                 Boolean                @default(true)
+  // K8s Namespace fields
+  kubernetesOption              Boolean                @default(false)
+  kubernetesNamespace           String?
+  // Virtual IP fields
+  virtualIpType                 String?                // PUBLIC or PRIVATE
+  assignedIpAddress             String?
+  // Credentials tracking
+  credentialsDelivered          Boolean                @default(false)
+  credentialsDeliveredAt        DateTime?
+
   additionalDisks               AdditionalDisk[]
   approvals                     Approval[]             @relation("RequestApprovals")
   attachments                   Attachment[]
@@ -107,9 +122,37 @@ model Request {
   developer                     User?                  @relation("Developer", fields: [developerId], references: [id])
   requester                     User                   @relation("Requester", fields: [requesterId], references: [id])
   targetVm                      VmInstance?            @relation("DecommissionTarget", fields: [targetVmId], references: [id])
+  sourceVm                      VmInstance?            @relation("VmCloneSource", fields: [sourceVmId], references: [id])
+  clonedVms                     VmInstance[]           @relation("VmCloneResult")
   vmInstances                   VmInstance[]           @relation("RequestVms")
+  k8sRequestNodeGroups          K8sRequestNodeGroup[]
+  k8sClusters                   K8sCluster[]           @relation("ClusterRequest")
+
+  // K8s cluster request fields
+  underExistingNamespace        Boolean                @default(false)
+  existingNamespaceId           String?                // FK -> K8sNamespace
+  existingNamespace             K8sNamespace?          @relation("ExistingNamespace", fields: [existingNamespaceId], references: [id])
+
+  // System upgrade fields
+  upgradeVmId                   String?                // FK -> VmInstance being upgraded
+  upgradeCpu                    Int?                   // requested new vCPU count
+  upgradeRamGb                  Int?                   // requested new RAM (GB)
+  upgradeStorageGb              Int?                   // requested additional storage (GB)
+  upgradeJustification          String?                @db.Text
+  upgradeVm                     VmInstance?            @relation("UpgradeTarget", fields: [upgradeVmId], references: [id])
+
+  // Access request fields (VPN / Horizon)
+  accessTargetVmId              String?                // FK -> VmInstance access is for
+  accessType                    AccessType?            // VPN | HORIZON
+  accessJustification           String?                @db.Text
+  accessTargetVm                VmInstance?            @relation("AccessTarget", fields: [accessTargetVmId], references: [id])
+
+  // Common new fields
+  expectedDeliveryDate          DateTime?
+  tags                          RequestTag[]
 
   @@index([targetVmId])
+  @@index([sourceVmId])
   @@index([requesterId])
   @@index([status])
   @@index([environment])
@@ -117,6 +160,9 @@ model Request {
   @@index([environment, status])
   @@index([submittedAt])
   @@index([requestType, targetVmId])
+  @@index([existingNamespaceId])
+  @@index([upgradeVmId])
+  @@index([accessTargetVmId])
   @@map("requests")
 }
 
@@ -198,10 +244,20 @@ model VmInstance {
   customizationHistory  CustomizationHistory[]
   customizationRequests CustomizationRequest[] @relation("CustomizationTarget")
   specHistory           VmSpec[]               @relation("VmSpecHistory")
+  systemName            String?
   decommissionRequests  Request[]              @relation("DecommissionTarget")
   currentSpec           VmSpec?                @relation("CurrentVmSpec", fields: [currentSpecId], references: [id])
   owner                 User?                  @relation("VmOwner", fields: [ownerId], references: [id])
   request               Request?                @relation("RequestVms", fields: [requestId], references: [id])
+  // Clone relations
+  clonedFrom            Request[]              @relation("VmCloneSource")
+  cloneOfRequestId      String?
+  cloneOf               Request?               @relation("VmCloneResult", fields: [cloneOfRequestId], references: [id])
+  upgradeRequests       Request[]              @relation("UpgradeTarget")
+  accessRequests        Request[]              @relation("AccessTarget")
+  credential            VmCredential?
+  credentialAccessLogs  CredentialAccessLog[]
+  tags                  VmTag[]
 
   @@unique([requestId, sequenceNumber])
   @@index([ownerId])
@@ -209,6 +265,7 @@ model VmInstance {
   @@index([ownerId, status])
   @@index([environment, status])
   @@index([hostAssetId])
+  @@index([cloneOfRequestId])
   @@map("vm_instances")
 }
 
@@ -456,9 +513,13 @@ model Notification {
 
 enum RequestType {
   NEW_VM
+  CLONE_VM
+  K8S_NAMESPACE
   CUSTOMIZED
   RENEWAL
   DECOMMISSION
+  VPN_ACCESS
+  HORIZON_ACCESS
 }
 
 enum RequestStatus {
@@ -571,4 +632,130 @@ enum ApprovalLevel {
   L1
   L2
   L3
+}
+
+enum AccessType {
+  VPN
+  HORIZON
+}
+
+enum K8sNodeRole {
+  MASTER
+  WORKER
+}
+
+model K8sNamespace {
+  id           String       @id @default(uuid())
+  name         String       @unique
+  supervisorIp String
+  clusters     K8sCluster[]
+  createdAt    DateTime     @default(now())
+  requests     Request[]    @relation("ExistingNamespace")
+}
+
+model K8sCluster {
+  id           String         @id @default(uuid())
+  namespaceId  String
+  namespace    K8sNamespace   @relation(fields: [namespaceId], references: [id])
+  requestId    String?        // originating Request
+  request      Request?       @relation("ClusterRequest", fields: [requestId], references: [id])
+  clusterName  String
+  username     String?        // DCOPS-provisioned
+  totalSpaceGb Int?
+  status       VmStatus       @default(ACTIVE)
+  createdAt    DateTime       @default(now())
+  nodeGroups   K8sNodeGroup[]
+}
+
+model K8sNodeGroup {
+  id         String      @id @default(uuid())
+  clusterId  String
+  cluster    K8sCluster  @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  role       K8sNodeRole
+  nodeCount  Int
+  vcpu       Int
+  ramGb      Int
+  isClonable Boolean     @default(true)
+  nodes      K8sNode[]
+}
+
+model VmCredential {
+  id           String      @id @default(uuid())
+  vmInstanceId String      @unique
+  vmInstance   VmInstance  @relation(fields: [vmInstanceId], references: [id], onDelete: Cascade)
+  username     String
+  password     String      // Encrypted with AES-256
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model CredentialAccessLog {
+  id           String      @id @default(uuid())
+  actorId      String
+  actor        User        @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  vmInstanceId String
+  vmInstance   VmInstance  @relation(fields: [vmInstanceId], references: [id], onDelete: Cascade)
+  action       String      // "VIEW" | "EMAIL"
+  accessedAt   DateTime    @default(now())
+}
+
+model ComplianceTag {
+  id           String       @id @default(uuid())
+  name         String       @unique
+  description  String?
+  requests     RequestTag[]
+  vmInstances  VmTag[]
+  createdAt    DateTime     @default(now())
+}
+
+model RequestTag {
+  requestId    String
+  request      Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  tagId        String
+  tag          ComplianceTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([requestId, tagId])
+}
+
+model VmTag {
+  vmInstanceId String
+  vmInstance   VmInstance   @relation(fields: [vmInstanceId], references: [id], onDelete: Cascade)
+  tagId        String
+  tag          ComplianceTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([vmInstanceId, tagId])
+}
+
+model K8sRequestNodeGroup {
+  id        String      @id @default(uuid())
+  requestId String
+  request   Request     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  role      K8sNodeRole
+  nodeCount Int
+  vcpu      Int
+  ramGb     Int
+  storageGb Int
+}
+
+model K8sNode {
+  id              String       @id @default(uuid())
+  nodeGroupId     String
+  nodeGroup       K8sNodeGroup @relation(fields: [nodeGroupId], references: [id], onDelete: Cascade)
+  name            String
+  ipAddress       String?
+  externalIp      String?
+  subdomain       String?
+  subdomainStatus String       @default("PENDING")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model PasswordResetOtp {
+  id        String   @id @default(uuid())
+  email     String
+  otp       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
 }

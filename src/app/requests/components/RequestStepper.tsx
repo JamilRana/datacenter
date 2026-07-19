@@ -11,6 +11,7 @@ interface Step {
 }
 
 const steps: Step[] = [
+  { id: 0, title: "Type", description: "Request Type" },
   { id: 1, title: "Identity", description: "System & Project" },
   { id: 2, title: "Compute", description: "Resource Allocation" },
   { id: 3, title: "Network", description: "Access & Security" },
@@ -19,11 +20,23 @@ const steps: Step[] = [
 
 export function RequestStepper({ 
   currentStep, 
-  onStepClick 
+  onStepClick,
+  isEditOrCopy = false
 }: { 
   currentStep: number;
   onStepClick?: (stepId: number) => void;
+  isEditOrCopy?: boolean;
 }) {
+  const stepsToRender = isEditOrCopy ? steps.slice(1) : steps;
+  
+  // Calculate progress bar percentage based on active flow
+  let progressPercent = 0;
+  if (isEditOrCopy) {
+    progressPercent = Math.max(0, Math.min(100, ((currentStep - 1) / 3) * 100));
+  } else {
+    progressPercent = Math.max(0, Math.min(100, (currentStep / 4) * 100));
+  }
+  
   return (
     <div className="w-full py-6 px-2">
       <div className="relative flex justify-between">
@@ -33,21 +46,24 @@ export function RequestStepper({
         {/* Active Progress Bar */}
         <div 
           className="absolute top-5 left-0 h-0.5 bg-blue-600 transition-all duration-500 ease-in-out -z-10" 
-          style={{ width: `${((currentStep - 1) / (steps.length - 1)) * 100}%` }}
+          style={{ width: `${progressPercent}%` }}
         />
 
-        {steps.map((step) => {
+        {stepsToRender.map((step) => {
           const isCompleted = currentStep > step.id;
           const isActive = currentStep === step.id;
+          
+          // Click is allowed for completed/active steps, and never for step 0 in edit/copy mode
+          const isClickable = onStepClick && step.id <= currentStep && !(isEditOrCopy && step.id === 0);
 
           return (
             <div 
               key={step.id} 
               className={cn(
-                "flex flex-col items-center",
-                onStepClick && "cursor-pointer group"
+                "flex flex-col items-center select-none",
+                isClickable ? "cursor-pointer group" : "cursor-not-allowed opacity-60"
               )}
-              onClick={() => onStepClick?.(step.id)}
+              onClick={() => isClickable && onStepClick?.(step.id)}
             >
               <div
                 className={cn(
@@ -57,20 +73,20 @@ export function RequestStepper({
                     : isActive
                     ? "bg-white border-blue-600 text-blue-600 ring-4 ring-blue-50"
                     : "bg-white border-slate-300 text-slate-400",
-                  onStepClick && !isActive && "group-hover:border-blue-400 group-hover:text-blue-400"
+                  isClickable && !isActive && "group-hover:border-blue-400 group-hover:text-blue-400"
                 )}
               >
                 {isCompleted ? (
                   <Check className="w-5 h-5 stroke-[3px]" />
                 ) : (
-                  <span className="font-bold text-sm">{step.id}</span>
+                  <span className="font-bold text-sm">{step.id === 0 ? "T" : step.id}</span>
                 )}
               </div>
               <div className="mt-3 text-center">
                 <p className={cn(
                   "text-[11px] font-bold uppercase tracking-wider",
                   isActive ? "text-blue-600" : "text-slate-500",
-                  onStepClick && !isActive && "group-hover:text-blue-400"
+                  isClickable && !isActive && "group-hover:text-blue-400"
                 )}>
                   {step.title}
                 </p>
@@ -85,3 +101,4 @@ export function RequestStepper({
     </div>
   );
 }
+export default RequestStepper;

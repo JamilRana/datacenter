@@ -1,6 +1,6 @@
 # Stage 1: Dependencies
-FROM node:22-alpine AS deps
-RUN apk add --no-cache libc6-compat
+FROM node:22-slim AS deps
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -10,29 +10,37 @@ COPY prisma.config.js ./
 RUN npm ci
 
 # Stage 2: Builder
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Keep prisma directory intact for runtime seeding if needed
-
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
 
+# Remove development dependencies to keep production node_modules small
+FROM node:22-slim AS prod-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY prisma/schema.prisma ./prisma/
+COPY prisma.config.js ./
+COPY --from=deps /app/node_modules ./node_modules
+RUN npm prune --production
+
 # Stage 3: Runner
-FROM node:22-alpine AS runner
+FROM node:22-slim AS runner
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs \
- && adduser --system --uid 1001 nextjs
+RUN groupadd --system --gid 1001 nodejs \
+ && useradd --system --uid 1001 --gid nodejs nextjs
 
-# Copy ALL node_modules — avoids missing transitive deps (effect, etc.)
-COPY --from=deps /app/node_modules ./node_modules
+# Copy pruned production node_modules — avoids missing transitive deps (effect, etc.)
+COPY --from=prod-deps /app/node_modules ./node_modules
 
 # 1. Copy standalone files
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

@@ -23,6 +23,24 @@ const DEFAULT_WORKFLOW_CONFIG: Record<string, WorkflowConfig> = {
       { level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
     ],
   },
+  CLONE_VM: {
+    requestType: "CLONE_VM",
+    levels: [
+      { level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
+      { level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
+      { level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
+      { level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
+    ],
+  },
+  K8S_NAMESPACE: {
+    requestType: "K8S_NAMESPACE",
+    levels: [
+      { level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
+      { level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
+      { level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
+      { level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
+    ],
+  },
   CUSTOMIZED: {
     requestType: "CUSTOMIZED",
     levels: [
@@ -67,7 +85,7 @@ async function fetchWorkflowFromDb(requestType: string): Promise<WorkflowConfig 
 
     return {
       requestType,
-      levels: workflows.map(w => ({
+      levels: workflows.map((w: any) => ({
         level: w.level,
         role: w.role,
         roleLabel: w.roleLabel,

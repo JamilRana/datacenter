@@ -1,6 +1,9 @@
 import { createRequest } from "@/app/actions/request-actions";
 import { createCustomizationRequest } from "@/app/actions/customization-actions";
 import { createDecommissionRequest } from "@/app/actions/decommission-actions";
+import { createCloneRequest } from "@/app/actions/clone-actions";
+import { createK8sNamespaceRequest } from "@/app/actions/k8s-actions";
+import { createAccessRequest } from "@/app/actions/access-actions";
 import { NextResponse } from "next/server";
 import { RequestStatus } from "@prisma/client";
 
@@ -21,6 +24,21 @@ export async function POST(req: Request) {
       decommissionData.append("status", RequestStatus.DRAFT);
       
       const result = await createDecommissionRequest(decommissionData);
+      return NextResponse.json(result, { status: 201 });
+    }
+
+    if (requestType === "CLONE_VM") {
+      const result = await createCloneRequest(formData);
+      return NextResponse.json(result, { status: 201 });
+    }
+
+    if (requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") {
+      const result = await createAccessRequest(formData);
+      return NextResponse.json(result, { status: 201 });
+    }
+
+    if (requestType === "K8S_NAMESPACE") {
+      const result = await createK8sNamespaceRequest(formData);
       return NextResponse.json(result, { status: 201 });
     }
 

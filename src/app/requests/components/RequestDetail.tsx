@@ -6,6 +6,8 @@ import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
+import ComplianceTagsCard from "@/components/vms/ComplianceTagsCard";
 import { 
   Check, 
   Copy, 
@@ -31,6 +33,7 @@ export function RequestDetails({
 }: {
   requestId: string;
 }) {
+  const { data: session } = useSession();
   const [data, setData] = useState<detailsRequest | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -160,6 +163,16 @@ export function RequestDetails({
                 label="End Date" 
                 value={data.expectedEndDate ? format(new Date(data.expectedEndDate), "PPP") : "None"} 
               />
+              <DetailItem 
+                label="Expected Delivery Date" 
+                value={data.expectedDeliveryDate ? format(new Date(data.expectedDeliveryDate), "PPP") : "None"} 
+              />
+              {data.requestType === "K8S_NAMESPACE" && (
+                <>
+                  <DetailItem label="Namespace Source" value={data.underExistingNamespace ? "Existing Namespace" : "New Namespace"} />
+                  <DetailItem label="Namespace Name" value={data.kubernetesNamespace || "To be selected"} />
+                </>
+              )}
             </div>
           </Card>
 
@@ -216,25 +229,72 @@ export function RequestDetails({
 
         <div className="space-y-6">
           {/* Specification */}
-          <Card title="Resource Specification" icon={HardDrive}>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center border-b border-slate-50 pb-2">
-                <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-blue-500" /> <span className="text-sm text-slate-600">vCPU</span></div>
-                <span className="font-bold text-slate-900">{data.vcpu || 0} Cores</span>
+          {data.requestType === "VPN_ACCESS" || data.requestType === "HORIZON_ACCESS" ? (
+            <Card title="Access Specification" icon={Shield}>
+              <div className="space-y-3">
+                <DetailItem label="Access Type" value={data.accessType || (data.requestType === "VPN_ACCESS" ? "VPN" : "Horizon")} />
+                <DetailItem label="Target VM Hostname" value={data.targetVm?.hostname || "—"} />
+                <DetailItem label="Target VM IP Address" value={data.targetVm?.ipAddress || "—"} />
+                <DetailItem label="Access Justification" value={data.accessJustification || data.purpose} />
               </div>
-              <div className="flex justify-between items-center border-b border-slate-50 pb-2">
-                <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-indigo-500" /> <span className="text-sm text-slate-600">RAM</span></div>
-                <span className="font-bold text-slate-900">{data.ramGb || 0} GB</span>
+            </Card>
+          ) : data.requestType === "K8S_NAMESPACE" ? (
+            <Card title="K8s Namespace Spec" icon={Code}>
+              <div className="space-y-4">
+                <div className="bg-indigo-50/50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 flex items-center gap-2 mb-2">
+                  <span className="font-semibold">Note:</span> This request specifies Kubernetes node groups to be provisioned.
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        <th className="py-2">Role</th>
+                        <th className="py-2 text-center">Node Count</th>
+                        <th className="py-2 text-center">vCPU</th>
+                        <th className="py-2 text-center">RAM</th>
+                        <th className="py-2 text-right">Storage</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 text-xs">
+                      {data.k8sRequestNodeGroups?.map((group: any) => (
+                        <tr key={group.id} className="text-slate-700">
+                          <td className="py-2.5 font-bold text-indigo-700">{group.role}</td>
+                          <td className="py-2.5 text-center font-semibold">{group.nodeCount}</td>
+                          <td className="py-2.5 text-center">{group.vcpu} Cores</td>
+                          <td className="py-2.5 text-center">{group.ramGb} GB</td>
+                          <td className="py-2.5 text-right font-medium">{group.storageGb} GB</td>
+                        </tr>
+                      )) || (
+                        <tr>
+                          <td colSpan={5} className="py-4 text-center text-slate-400 italic">No node groups defined</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div className="flex justify-between items-center border-b border-slate-50 pb-2">
-                <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-emerald-500" /> <span className="text-sm text-slate-600">Storage</span></div>
-                <span className="font-bold text-slate-900">{data.storageGb || 0} GB</span>
+            </Card>
+          ) : (
+            <Card title="Resource Specification" icon={HardDrive}>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                  <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-blue-500" /> <span className="text-sm text-slate-600">vCPU</span></div>
+                  <span className="font-bold text-slate-900">{data.vcpu || 0} Cores</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                  <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-indigo-500" /> <span className="text-sm text-slate-600">RAM</span></div>
+                  <span className="font-bold text-slate-900">{data.ramGb || 0} GB</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                  <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-emerald-500" /> <span className="text-sm text-slate-600">Storage</span></div>
+                  <span className="font-bold text-slate-900">{data.storageGb || 0} GB</span>
+                </div>
+                <DetailItem label="Operating System" value={`${data.osName || ""} ${data.osVersion || ""}`} />
+                <DetailItem label="RAID Level" value={data.raid || "NONE"} />
+                <DetailItem label="Subdomain" value={data.subdomain} />
               </div>
-              <DetailItem label="Operating System" value={`${data.osName || ""} ${data.osVersion || ""}`} />
-              <DetailItem label="RAID Level" value={data.raid || "NONE"} />
-              <DetailItem label="Subdomain" value={data.subdomain} />
-            </div>
-          </Card>
+            </Card>
+          )}
 
           {/* Security & Compliance */}
           <Card title="Security & Network" icon={Shield}>
@@ -248,6 +308,16 @@ export function RequestDetails({
               )}
             </div>
           </Card>
+
+          {/* Compliance & Tags Card */}
+          <ComplianceTagsCard
+            entityId={data.id}
+            entityType="REQUEST"
+            assignedTags={data.tags || []}
+            currentUser={{
+              roles: session?.user?.roles || [],
+            }}
+          />
 
           {/* Attachments */}
           {data.attachments && data.attachments.length > 0 && (
@@ -281,20 +351,20 @@ export function RequestDetails({
       </div>
 
       {/* ✅ FIX 4: Null-safe vmInstances check */}
-      {data.vmInstances && data.vmInstances.length > 0 && (
+      {data?.vmInstances && data.vmInstances.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <Server className="h-5 w-5 text-blue-600" /> Provisioned Instances
           </h2>
-          <VmInstanceList vms={data.vmInstances} />
+          <VmInstanceList vms={data.vmInstances || []} />
         </div>
       )}
 
       {/* Approval Flow */}
-      {data.approvals && data.approvals.length > 0 && (
+      {data?.approvals && data.approvals.length > 0 && (
       <ApprovalPanel
-        approvals={data.approvals}
-        requestType={data.requestType}
+        approvals={data.approvals || []}
+        requestType={data.requestType || ""}
       />
       )}
       {/* Bottom Action Bar */}
@@ -306,7 +376,7 @@ export function RequestDetails({
         {isDraft && (
           <div className="flex gap-3">
             <Button variant="outline" asChild>
-              <Link href={`/requests/${data.id}/edit`}>Edit Content</Link>
+              <Link href={`/requests/${data?.id}/edit`}>Edit Content</Link>
             </Button>
             <Button onClick={handleSubmit} className="bg-blue-600 hover:bg-blue-700">
               Submit for Approval

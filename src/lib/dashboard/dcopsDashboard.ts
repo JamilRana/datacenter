@@ -31,6 +31,7 @@ export interface ProvisioningQueueItem {
   storageGb: number;
   environment: string;
   createdAt: Date;
+  expectedDeliveryDate?: Date;
 }
 
 export interface DcopsDashboardData {
@@ -152,5 +153,6 @@ async function getProvisioningQueue(): Promise<ProvisioningQueueItem[]> {
     storageGb: req.storageGb || 0,
     environment: req.environment,
     createdAt: req.createdAt,
+    expectedDeliveryDate: req.expectedDeliveryDate ?? undefined,
   }));
 }

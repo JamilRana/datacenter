@@ -5,7 +5,7 @@ import crypto from "crypto";
 
 const ENCRYPTION_KEY = process.env.EMAIL_ENCRYPTION_KEY || "default-32-char-encryption-key!!";
 
-function encrypt(text: string): string {
+export function encrypt(text: string): string {
   const iv = crypto.randomBytes(16);
   const key = Buffer.from(ENCRYPTION_KEY, "utf-8");
   const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
@@ -14,7 +14,7 @@ function encrypt(text: string): string {
   return iv.toString("hex") + ":" + encrypted;
 }
 
-function decrypt(text: string): string {
+export function decrypt(text: string): string {
   try {
     const parts = text.split(":");
     const iv = Buffer.from(parts[0], "hex");

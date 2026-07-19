@@ -9,6 +9,7 @@ import NextTopLoader from "nextjs-toploader";
 import PermissionHandler from "./providers/PermissionHandler";
 import { Suspense } from "react";
 import { LoadingProvider } from "@/context/LoadingContext";
+import { ThemeProvider } from "./providers/ThemeProvider";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -38,8 +39,24 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const theme = localStorage.getItem('theme') || 'system';
+                if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                  document.documentElement.classList.add('dark');
+                } else {
+                  document.documentElement.classList.remove('dark');
+                }
+              } catch (_) {}
+            `,
+          }}
+        />
+      </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-slate-50`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100`}
       >
         <NextTopLoader 
           color="#4f46e5"
@@ -53,6 +70,7 @@ export default function RootLayout({
           shadow="0 0 10px #4f46e5,0 0 5px #4f46e5"
         />
         <AuthSessionProvider>
+          <ThemeProvider>
             <LoadingProvider>
               <Sidebar>
                 {children}
@@ -62,7 +80,8 @@ export default function RootLayout({
                 <PermissionHandler />
               </Suspense>
             </LoadingProvider>
-          </AuthSessionProvider>
+          </ThemeProvider>
+        </AuthSessionProvider>
       </body>
     </html>
   );

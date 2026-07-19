@@ -13,15 +13,17 @@ interface AdminWidgetsProps {
 
 export function AdminStatsWidget({ data }: AdminWidgetsProps) {
   const { stats } = data;
-  
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <SummaryStatCard
-        label="Total VMs"
-        value={stats.totalVms}
-        icon={Server}
-        description="Infrastructure count"
-      />
+      <a href="/inventory/vms/">
+        <SummaryStatCard
+          label="Total VMs"
+          value={stats.totalVms}
+          icon={Server}
+          description="Infrastructure count"
+        />
+      </a>
       <SummaryStatCard
         label="Total Users"
         value={stats.totalUsers}

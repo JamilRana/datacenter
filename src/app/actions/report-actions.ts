@@ -543,3 +543,70 @@ export async function fetchUserReport(params: Record<string, unknown>) {
     userRoles: session.user.roles,
   });
 }
+
+export interface VpnHorizonReportItem {
+  id: string;
+  systemName: string;
+  projectName: string | null;
+  requestType: RequestType;
+  status: RequestStatus;
+  requesterName: string;
+  requesterEmail: string;
+  requesterOrg: string | null;
+  targetVmName: string | null;
+  targetVmIp: string | null;
+  createdAt: string;
+  provisionedAt: string | null;
+}
+
+export async function getVpnHorizonReportData(): Promise<{ success: boolean; data: VpnHorizonReportItem[] }> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) throw new Error("Unauthorized");
+
+    const isAdmin = session.user.roles?.includes(ROLES.ADMIN);
+    const isDCOps = session.user.roles?.includes(ROLES.DCOPS);
+    const isAuditor = session.user.roles?.includes("AUDITOR");
+
+    if (!isAdmin && !isDCOps && !isAuditor) {
+      throw new Error("Forbidden: Access restricted to administrative/auditor roles.");
+    }
+
+    const requests = await prisma.request.findMany({
+      where: {
+        requestType: { in: [RequestType.VPN_ACCESS, RequestType.HORIZON_ACCESS] },
+        status: { in: [RequestStatus.PROVISIONED, RequestStatus.APPROVED] }
+      },
+      include: {
+        requester: { select: { name: true, email: true, organization: true } },
+        accessTargetVm: {
+          select: {
+            hostname: true,
+            ipAddress: true
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const formattedData: VpnHorizonReportItem[] = requests.map(r => ({
+      id: r.id,
+      systemName: r.systemName,
+      projectName: r.projectName,
+      requestType: r.requestType,
+      status: r.status,
+      requesterName: r.requester?.name || "Unknown",
+      requesterEmail: r.requester?.email || "N/A",
+      requesterOrg: r.requester?.organization || "N/A",
+      targetVmName: r.accessTargetVm?.hostname || "N/A",
+      targetVmIp: r.accessTargetVm?.ipAddress || "N/A",
+      createdAt: r.createdAt.toISOString(),
+      provisionedAt: r.provisionedAt ? r.provisionedAt.toISOString() : null
+    }));
+
+    return { success: true, data: formattedData };
+  } catch (error) {
+    console.error("Error fetching VPN & Horizon report data:", error);
+    return { success: false, data: [] };
+  }
+}

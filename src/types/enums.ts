@@ -1,9 +1,13 @@
 // Consolidated enums - ONE definition per enum
 export enum RequestType {
   NEW_VM = "NEW_VM",
+  CLONE_VM = "CLONE_VM",
+  K8S_NAMESPACE = "K8S_NAMESPACE",
   CUSTOMIZED = "CUSTOMIZED",
   RENEWAL = "RENEWAL",
   DECOMMISSION = "DECOMMISSION",
+  VPN_ACCESS = "VPN_ACCESS",
+  HORIZON_ACCESS = "HORIZON_ACCESS",
 }
 
 export enum RequestStatus {
@@ -120,4 +124,14 @@ export enum UserRole {
   APPROVER_L1 = "APPROVER_L1",
   APPROVER_L2 = "APPROVER_L2",
   APPROVER_L3 = "APPROVER_L3",
+}
+
+export enum AccessType {
+  VPN = "VPN",
+  HORIZON = "HORIZON",
+}
+
+export enum K8sNodeRole {
+  MASTER = "MASTER",
+  WORKER = "WORKER",
 }

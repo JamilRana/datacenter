@@ -43,6 +43,9 @@ import { Protocol } from "@/types/enums";
 import { ROLES } from "@/lib/roles";
 import { getDetailedRequest } from "@/app/actions/request-actions";
 import { getRequesters } from "@/app/actions/user-actions";
+import { getCloneableVms, getSourceVmDetails } from "@/app/actions/clone-actions";
+import { getAccessableVms } from "@/app/actions/access-actions";
+import { getNamespaceOptions } from "@/app/actions/k8s-actions";
 import { User } from "@/types/users";
 import { RequestStepper } from "./RequestStepper";
 import { cn } from "@/lib/utils";
@@ -55,6 +58,14 @@ const requiredFields = [
   "osName",
   "osVersion",
   "subdomain",
+];
+
+const REQUEST_TYPES = [
+  { value: "NEW_VM", label: "New Virtual Machine", description: "Provision a new VM with custom specifications", icon: Server },
+  { value: "CLONE_VM", label: "Clone Existing VM", description: "Create a full disk clone of your existing VM", icon: Layers },
+  { value: "VPN_ACCESS", label: "VPN Access", description: "Request secure external VPN connectivity to your VM", icon: ShieldCheck },
+  { value: "HORIZON_ACCESS", label: "Horizon Access", description: "Request Horizon client desktop access to your VM", icon: Server },
+  { value: "K8S_NAMESPACE", label: "Kubernetes Namespace", description: "Request a namespace in the Kubernetes cluster", icon: Code },
 ];
 
 export function RequestForm({
@@ -89,6 +100,8 @@ export function RequestForm({
     }
   }, [isDeveloper]);
 
+
+
   const isEditing = !!editId;
   const requestId = editId || null;
   const searchParams = useSearchParams();
@@ -115,8 +128,63 @@ export function RequestForm({
   const [draftSaved, setDraftSaved] = useState(false);
   const [formValid, setFormValid] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [currentStep, setCurrentStep] = useState(1);
+  const queryType = searchParams.get("type");
+  const [requestType, setRequestType] = useState<string>(queryType || "NEW_VM");
+
+  const [cloneableVms, setCloneableVms] = useState<any[]>([]);
+  const [sourceVmId, setSourceVmId] = useState<string>("");
+  const [cloneFullDisk, setCloneFullDisk] = useState<boolean>(true);
+
+  const [upgradeableVms, setUpgradeableVms] = useState<any[]>([]);
+  const [upgradeVmId, setUpgradeVmId] = useState<string>("");
+  const [currentCpu, setCurrentCpu] = useState<number>(0);
+  const [currentRam, setCurrentRam] = useState<number>(0);
+  const [currentStorage, setCurrentStorage] = useState<number>(0);
+
+  const [accessableVms, setAccessableVms] = useState<any[]>([]);
+  const [accessTargetVmId, setAccessTargetVmId] = useState<string>("");
+  const [accessType, setAccessType] = useState<string>("");
+
+  const [k8sNodeGroups, setK8sNodeGroups] = useState<any[]>([
+    { role: "MASTER", nodeCount: 3, vcpu: 2, ramGb: 4, storageGb: 50 },
+    { role: "WORKER", nodeCount: 5, vcpu: 4, ramGb: 8, storageGb: 100 }
+  ]);
+
+  useEffect(() => {
+    if (requestType === "VPN_ACCESS") {
+      setAccessType("VPN");
+    } else if (requestType === "HORIZON_ACCESS") {
+      setAccessType("HORIZON");
+    }
+  }, [requestType]);
+
+  useEffect(() => {
+    if (requestType === "CLONE_VM") {
+      const fetchVms = async () => {
+        try {
+          const vms = await getCloneableVms();
+          setCloneableVms(vms);
+        } catch (error) {
+          toast.error(`Failed to load active VMs : ${error}`);
+        }
+      };
+      fetchVms();
+    } else if (requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") {
+      const fetchAccessable = async () => {
+        try {
+          const vms = await getAccessableVms();
+          setAccessableVms(vms);
+        } catch (error) {
+          toast.error(`Failed to load active VMs : ${error}`);
+        }
+      };
+      fetchAccessable();
+    }
+  }, [requestType]);
+  const isEditOrCopy = isEditing || !!copyFrom || !!queryType;
+  const [currentStep, setCurrentStep] = useState(isEditOrCopy ? 1 : 0);
   const totalSteps = 4;
+  const isSingleStep = requestType === "CLONE_VM" || requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS";
 
   const TERMS_CONTENT = `
     <h4 class="font-semibold mb-2">Terms and Conditions for Server Request</h4>
@@ -150,7 +218,6 @@ export function RequestForm({
 
   // Controlled values
   const [environment, setEnvironment] = useState<string>("PRODUCTION");
-  const [raid, setRaid] = useState<string>("NONE");
   const [requiredPublicIP, setRequiredPublicIP] = useState<boolean>(false);
   const [vpnRequired, setVpnRequired] = useState<boolean>(false);
   const [renewalRequired, setRenewalRequired] = useState<boolean>(false);
@@ -190,7 +257,6 @@ export function RequestForm({
       }
 
       if (prefillData.environment) setEnvironment(prefillData.environment.toString());
-      if (prefillData.raid) setRaid(prefillData.raid.toString());
       if (prefillData.requiredPublicIP !== undefined) setRequiredPublicIP(!!prefillData.requiredPublicIP);
       if (prefillData.vpnRequired !== undefined) setVpnRequired(!!prefillData.vpnRequired);
       if (prefillData.renewalRequired !== undefined) setRenewalRequired(!!prefillData.renewalRequired);
@@ -205,6 +271,24 @@ export function RequestForm({
       if (prefillData.backendTech) setBackendTech(prefillData.backendTech);
       if (prefillData.dataBase) setDataBase(prefillData.dataBase);
       if (prefillData.serverArchitecture) setServerArchitecture(prefillData.serverArchitecture);
+      if (prefillData.requestType) setRequestType(prefillData.requestType);
+      if (prefillData.sourceVmId) setSourceVmId(prefillData.sourceVmId);
+      if (prefillData.cloneFullDisk !== undefined) setCloneFullDisk(prefillData.cloneFullDisk);
+      if (prefillData.upgradeVmId) setUpgradeVmId(prefillData.upgradeVmId);
+      if (prefillData.upgradeCpu) setCurrentCpu(prefillData.upgradeCpu);
+      if (prefillData.upgradeRamGb) setCurrentRam(prefillData.upgradeRamGb);
+      if (prefillData.upgradeStorageGb) setCurrentStorage(prefillData.upgradeStorageGb);
+      if (prefillData.accessTargetVmId) setAccessTargetVmId(prefillData.accessTargetVmId);
+      if (prefillData.accessType) setAccessType(prefillData.accessType);
+      if (prefillData.k8sRequestNodeGroups && prefillData.k8sRequestNodeGroups.length > 0) {
+        setK8sNodeGroups(prefillData.k8sRequestNodeGroups.map((g: any) => ({
+          role: g.role,
+          nodeCount: g.nodeCount,
+          vcpu: g.vcpu,
+          ramGb: g.ramGb,
+          storageGb: g.storageGb
+        })));
+      }
       
       if (isDeveloper && prefillData.requesterId && prefillData.requesterId !== userId) {
         setAssignedRequesterId(prefillData.requesterId);
@@ -317,8 +401,17 @@ export function RequestForm({
       formData.set("requesterId", userId);
     }
 
-    formData.append("requestType", "NEW_VM");
+    formData.append("requestType", requestType);
     formData.append("status", submitType === "submit" ? "PENDING_L1" : "DRAFT");
+
+    if (requestType === "CLONE_VM") {
+      if (!sourceVmId) {
+        toast.error("Please select a source VM to clone");
+        return false;
+      }
+      formData.set("sourceVmId", sourceVmId);
+      formData.set("cloneFullDisk", cloneFullDisk ? "on" : "off");
+    }
     
     // Explicitly set all state-controlled fields to ensure they are captured regardless of current step
     formData.set("systemName", systemName);
@@ -329,7 +422,6 @@ export function RequestForm({
     formData.set("osName", osName);
     formData.set("osVersion", osVersion);
     formData.set("subdomain", subdomain);
-    formData.set("raid", raid);
     formData.set("requiredPublicIP", requiredPublicIP ? "on" : "off");
     formData.set("vpnRequired", vpnRequired ? "on" : "off");
     formData.set("renewalRequired", renewalRequired ? "on" : "off");
@@ -364,6 +456,26 @@ export function RequestForm({
     formData.set("vcpu", finalVcpu);
     formData.set("ramGb", finalRam);
     formData.set("storageGb", finalStorage);
+
+
+
+    if (requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") {
+      if (!accessTargetVmId) {
+        toast.error("Please select a target VM for access request");
+        return false;
+      }
+      formData.set("accessTargetVmId", accessTargetVmId);
+      formData.set("accessType", requestType === "VPN_ACCESS" ? "VPN" : "HORIZON");
+      formData.set("accessJustification", purpose);
+    }
+
+    if (requestType === "K8S_NAMESPACE") {
+      if (k8sNodeGroups.length === 0) {
+        toast.error("Please add at least one node group specification");
+        return false;
+      }
+      formData.set("k8sNodeGroups", JSON.stringify(k8sNodeGroups));
+    }
 
     if (securityReport) formData.append("securityReport", securityReport);
     if (justificationDoc) formData.append("justificationDoc", justificationDoc);
@@ -434,6 +546,82 @@ export function RequestForm({
     }
   };
 
+  const handleSourceVmChange = async (vmId: string) => {
+    if (vmId === "none") return;
+    setSourceVmId(vmId);
+    try {
+      const details = await getSourceVmDetails(vmId);
+      if (details) {
+        setSystemName(`Clone of ${details.hostname || details.request?.systemName || "VM"}`);
+        if (details.currentSpec) {
+          const spec = details.currentSpec;
+          setVcpuValue(spec.vcpu.toString());
+          setRamValue(spec.ramGb.toString());
+          setStorageValue(spec.storageGb.toString());
+          setOsName(spec.osName || "");
+          setOsVersion(spec.osVersion || "");
+        }
+        setSubdomain(details.subdomain ? `${details.subdomain}-clone` : "");
+        setEnvironment(details.environment || "PRODUCTION");
+      }
+    } catch (error) {
+      console.error("Failed to load source VM details:", error);
+      toast.error("Failed to load source VM details");
+    }
+  };
+
+  const handleUpgradeVmChange = async (vmId: string) => {
+    if (vmId === "none") return;
+    setUpgradeVmId(vmId);
+    try {
+      const details = await getSourceVmDetails(vmId);
+      if (details) {
+        setSystemName(`Upgrade of ${details.hostname || details.request?.systemName || "VM"}`);
+        if (details.currentSpec) {
+          const spec = details.currentSpec;
+          setCurrentCpu(spec.vcpu);
+          setCurrentRam(spec.ramGb);
+          setCurrentStorage(spec.storageGb);
+
+          setVcpuValue(spec.vcpu.toString());
+          setRamValue(spec.ramGb.toString());
+          setStorageValue(spec.storageGb.toString());
+          setOsName(spec.osName || "");
+          setOsVersion(spec.osVersion || "");
+        }
+        setSubdomain(details.subdomain || "");
+        setEnvironment(details.environment || "PRODUCTION");
+      }
+    } catch (error) {
+      console.error("Failed to load VM details:", error);
+      toast.error("Failed to load VM details");
+    }
+  };
+
+  const handleAccessVmChange = async (vmId: string) => {
+    if (vmId === "none") return;
+    setAccessTargetVmId(vmId);
+    try {
+      const details = await getSourceVmDetails(vmId);
+      if (details) {
+        setSystemName(`${requestType === "VPN_ACCESS" ? "VPN" : "Horizon"} Access to ${details.hostname || details.request?.systemName || "VM"}`);
+        if (details.currentSpec) {
+          const spec = details.currentSpec;
+          setVcpuValue(spec.vcpu.toString());
+          setRamValue(spec.ramGb.toString());
+          setStorageValue(spec.storageGb.toString());
+          setOsName(spec.osName || "");
+          setOsVersion(spec.osVersion || "");
+        }
+        setSubdomain(details.subdomain || "");
+        setEnvironment(details.environment || "PRODUCTION");
+      }
+    } catch (error) {
+      console.error("Failed to load VM details:", error);
+      toast.error("Failed to load VM details");
+    }
+  };
+
   const nextStep = async () => {
     // Auto-save progress as we move to the next step
     if (currentStep < totalSteps) {
@@ -446,7 +634,8 @@ export function RequestForm({
   };
 
   const prevStep = () => {
-    if (currentStep > 1) setCurrentStep(currentStep - 1);
+    const minStep = isEditOrCopy ? 1 : 0;
+    if (currentStep > minStep) setCurrentStep(currentStep - 1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -455,28 +644,247 @@ export function RequestForm({
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-28">
-      {/* Stepper Header */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8 overflow-hidden relative">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-indigo-600" />
-        <RequestStepper 
-          currentStep={currentStep} 
-          onStepClick={(stepId) => setCurrentStep(stepId)} 
-        />
-      </div>
+      {isSingleStep ? (
+        <form
+          ref={formRef}
+          key={copyFrom || "new-request"}
+          className="space-y-8"
+          onChange={checkFormValidity}
+        >
+          {copyFrom && (
+            <div className="bg-blue-50 p-3 rounded-md border border-blue-200 text-blue-800 text-sm mb-4">
+              📋 Prefilled from a previous request. Please review all fields.
+            </div>
+          )}
 
-      <form
-        ref={formRef}
-        key={copyFrom || "new-request"}
-        className="space-y-8"
-        onChange={checkFormValidity}
-      >
-        {copyFrom && (
-          <div className="bg-blue-50 p-3 rounded-md border border-blue-200 text-blue-800 text-sm mb-4">
-            📋 Prefilled from a previous request. Please review all fields.
+          {/* Source VM Selector for Clone */}
+          {requestType === "CLONE_VM" && (
+            <Card className="shadow-md border-blue-200 bg-blue-50/20">
+              <CardHeader className="bg-blue-50/50 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-blue-600">
+                  <Layers className="w-5 h-5" />
+                  <CardTitle className="text-lg">Select Source VM to Clone</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-6">
+                <div className="space-y-2">
+                  <Label className="text-blue-855 font-semibold">Source VM *</Label>
+                  <Select value={sourceVmId} onValueChange={handleSourceVmChange} required>
+                    <SelectTrigger className="border-blue-300">
+                      <SelectValue placeholder="Select one of your active VMs to clone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cloneableVms.length === 0 ? (
+                        <SelectItem value="none" disabled>No active VMs available to clone</SelectItem>
+                      ) : (
+                        cloneableVms.map((vm) => (
+                          <SelectItem key={vm.id} value={vm.id}>
+                            {vm.hostname || vm.request?.systemName || "Unnamed VM"} — {vm.ipAddress} ({vm.environment || "N/A"})
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-blue-100 mt-4">
+                  <Checkbox 
+                    id="cloneFullDisk" 
+                    checked={cloneFullDisk} 
+                    onCheckedChange={(c) => setCloneFullDisk(!!c)} 
+                  />
+                  <Label htmlFor="cloneFullDisk" className="text-sm font-semibold text-blue-900 cursor-pointer select-none">
+                    Confirm full disk clone of the source VM
+                  </Label>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Target VM Selector for Access Request */}
+          {(requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") && (
+            <Card className="shadow-md border-emerald-200 bg-emerald-50/20">
+              <CardHeader className="bg-emerald-50/50 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-emerald-600">
+                  <ShieldCheck className="w-5 h-5" />
+                  <CardTitle className="text-lg">Select Target VM for Access</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-6">
+                <div className="space-y-2">
+                  <Label className="text-emerald-855 font-semibold">Target VM *</Label>
+                  <Select value={accessTargetVmId} onValueChange={handleAccessVmChange} required>
+                    <SelectTrigger className="border-emerald-300">
+                      <SelectValue placeholder="Select one of your active VMs to request access" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accessableVms.length === 0 ? (
+                        <SelectItem value="none" disabled>No active VMs available</SelectItem>
+                      ) : (
+                        accessableVms.map((vm) => (
+                          <SelectItem key={vm.id} value={vm.id}>
+                            {vm.hostname || vm.request?.systemName || "Unnamed VM"} — {vm.ipAddress} ({vm.environment || "N/A"})
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Justification */}
+          <Card className="shadow-md border-slate-200">
+            <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+              <CardTitle className="text-lg">Purpose & Justification</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-4">
+              <div className="space-y-2">
+                <Label>Detailed Purpose / Justification *</Label>
+                <Textarea 
+                  placeholder="Describe the business or technical justification for this request..." 
+                  value={purpose}
+                  onChange={(e) => setPurpose(e.target.value)}
+                  className="min-h-32"
+                  required
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Terms */}
+          <Card className="shadow-md border-slate-200 overflow-hidden">
+            <div className="bg-slate-900 px-6 py-3">
+              <CardTitle className="text-sm text-white flex items-center gap-2">
+                📜 Terms of Agreement
+              </CardTitle>
+            </div>
+            <CardContent className="p-6 space-y-4">
+              <div className="max-h-40 overflow-y-auto bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs text-slate-600 leading-relaxed">
+                <div dangerouslySetInnerHTML={{ __html: TERMS_CONTENT }} />
+              </div>
+              <div className="flex items-center gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                <Checkbox id="termsAccepted" checked={termsAccepted} onCheckedChange={(c) => setTermsAccepted(!!c)} />
+                <Label htmlFor="termsAccepted" className="text-sm font-semibold text-blue-900 cursor-pointer select-none">
+                  I acknowledge and agree to the DGHS Data Center policies *
+                </Label>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Action Bar */}
+          <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-50">
+            <div className="max-w-6xl mx-auto flex justify-between items-center gap-4">
+              <Button
+                variant="ghost"
+                size="lg"
+                className="text-slate-500 hover:text-slate-900 font-bold"
+                onClick={() => {
+                  if (queryType) {
+                    router.push("/requests");
+                  } else {
+                    setRequestType("NEW_VM");
+                    setCurrentStep(0);
+                  }
+                }}
+                type="button"
+              >
+                Back
+              </Button>
+              <Button
+                size="sm"
+                className={cn(
+                  "px-10 min-w-[220px] transition-all duration-300 shadow-xl font-bold",
+                  termsAccepted && ((requestType === "CLONE_VM" && sourceVmId) || (requestType !== "CLONE_VM" && accessTargetVmId)) && purpose.trim()
+                    ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" 
+                    : "bg-slate-400 cursor-not-allowed opacity-50"
+                )}
+                disabled={isSubmitting || !termsAccepted || (requestType === "CLONE_VM" ? !sourceVmId : !accessTargetVmId) || !purpose.trim()}
+                type="button"
+                onClick={() => handleSubmit("submit")}
+              >
+                {isSubmitting ? "Processing..." : "Submit Request"}
+              </Button>
+            </div>
           </div>
-        )}
+        </form>
+      ) : (
+        <>
+          {/* Stepper Header */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8 overflow-hidden relative">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-indigo-600" />
+            <RequestStepper 
+              currentStep={currentStep} 
+              onStepClick={(stepId) => setCurrentStep(stepId)} 
+              isEditOrCopy={isEditOrCopy}
+            />
+          </div>
+
+          <form
+            ref={formRef}
+            key={copyFrom || "new-request"}
+            className="space-y-8"
+            onChange={checkFormValidity}
+          >
+            {copyFrom && (
+              <div className="bg-blue-50 p-3 rounded-md border border-blue-200 text-blue-800 text-sm mb-4">
+                📋 Prefilled from a previous request. Please review all fields.
+              </div>
+            )}
 
         <AnimatePresence mode="wait">
+          {currentStep === 0 && (
+            <motion.div
+              key="step0"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-6"
+            >
+              {/* Request Type Selection */}
+              <Card className="shadow-md border-slate-200">
+                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <Server className="w-5 h-5" />
+                    <CardTitle className="text-lg">Select Request Type</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {REQUEST_TYPES.map((type) => {
+                      const Icon = type.icon;
+                      return (
+                        <button
+                          key={type.value}
+                          type="button"
+                          onClick={() => {
+                            setRequestType(type.value);
+                            setCurrentStep(1);
+                          }}
+                          className={`p-6 rounded-xl border-2 transition-all duration-200 text-left hover:shadow-md ${
+                            requestType === type.value
+                              ? "border-blue-600 bg-blue-50"
+                              : "border-slate-200 hover:border-blue-300"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                              <Icon className="w-6 h-6 text-blue-600" />
+                            </div>
+                          </div>
+                          <h4 className="font-semibold text-slate-900">{type.label}</h4>
+                          <p className="text-sm text-slate-500 mt-1">{type.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+          
           {currentStep === 1 && (
             <motion.div
               key="step1"
@@ -486,6 +894,86 @@ export function RequestForm({
               transition={{ duration: 0.3 }}
               className="space-y-6"
             >
+              {/* Source VM Selector for Clone */}
+              {requestType === "CLONE_VM" && (
+                <Card className="shadow-md border-blue-200 bg-blue-50/20">
+                  <CardHeader className="bg-blue-50/50 border-b border-slate-100">
+                    <div className="flex items-center gap-2 text-blue-600">
+                      <Layers className="w-5 h-5" />
+                      <CardTitle className="text-lg">Select Source VM to Clone</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-6">
+                    <div className="space-y-2">
+                      <Label className="text-blue-855 font-semibold">Source VM *</Label>
+                      <Select value={sourceVmId} onValueChange={handleSourceVmChange} required>
+                        <SelectTrigger className="border-blue-300">
+                          <SelectValue placeholder="Select one of your active VMs to clone" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {cloneableVms.length === 0 ? (
+                            <SelectItem value="none" disabled>No active VMs available to clone</SelectItem>
+                          ) : (
+                            cloneableVms.map((vm) => (
+                              <SelectItem key={vm.id} value={vm.id}>
+                                {vm.hostname || vm.request?.systemName || "Unnamed VM"} — {vm.ipAddress} ({vm.environment || "N/A"})
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-blue-100 mt-4">
+                      <Checkbox 
+                        id="cloneFullDisk" 
+                        checked={cloneFullDisk} 
+                        onCheckedChange={(c) => setCloneFullDisk(!!c)} 
+                      />
+                      <Label htmlFor="cloneFullDisk" className="text-sm font-semibold text-blue-900 cursor-pointer select-none">
+                        Confirm full disk clone of the source VM
+                      </Label>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+
+
+              {/* Target VM Selector for Access Request */}
+              {(requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") && (
+                <Card className="shadow-md border-emerald-200 bg-emerald-50/20">
+                  <CardHeader className="bg-emerald-50/50 border-b border-slate-100">
+                    <div className="flex items-center gap-2 text-emerald-600">
+                      <ShieldCheck className="w-5 h-5" />
+                      <CardTitle className="text-lg">Select Target VM for Access</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-6">
+                    <div className="space-y-2">
+                      <Label className="text-emerald-855 font-semibold">Target VM *</Label>
+                      <Select value={accessTargetVmId} onValueChange={handleAccessVmChange} required>
+                        <SelectTrigger className="border-emerald-300">
+                          <SelectValue placeholder="Select one of your active VMs to request access" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accessableVms.length === 0 ? (
+                            <SelectItem value="none" disabled>No active VMs available</SelectItem>
+                          ) : (
+                            accessableVms.map((vm) => (
+                              <SelectItem key={vm.id} value={vm.id}>
+                                {vm.hostname || vm.request?.systemName || "Unnamed VM"} — {vm.ipAddress} ({vm.environment || "N/A"})
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+
               {/* Developer Assignment */}
               {isDeveloper && (
                 <Card className="shadow-md border-amber-200 bg-amber-50/30">
@@ -568,6 +1056,10 @@ export function RequestForm({
                     <Label>Expected End Date</Label>
                     <Input name="expectedEndDate" type="date" defaultValue={prefillData?.expectedEndDate ? new Date(prefillData.expectedEndDate).toISOString().split('T')[0] : ""} />
                   </div>
+                  <div className="space-y-2">
+                    <Label>Expected Delivery Date</Label>
+                    <Input name="expectedDeliveryDate" type="date" defaultValue={prefillData?.expectedDeliveryDate ? new Date(prefillData.expectedDeliveryDate).toISOString().split('T')[0] : ""} />
+                  </div>
                 </CardContent>
               </Card>
 
@@ -630,7 +1122,126 @@ export function RequestForm({
               transition={{ duration: 0.3 }}
               className="space-y-6"
             >
-              <Card className="shadow-md border-slate-200">
+              {requestType === "K8S_NAMESPACE" ? (
+                <Card className="shadow-md border-indigo-200 bg-indigo-50/20">
+                  <CardHeader className="bg-indigo-50/50 border-b border-indigo-100 flex flex-row items-center justify-between">
+                    <div className="flex items-center gap-2 text-indigo-600">
+                      <Code className="w-5 h-5" />
+                      <CardTitle className="text-lg">Kubernetes Node Specifications</CardTitle>
+                    </div>
+                    <Button 
+                      type="button" 
+                      onClick={() => setK8sNodeGroups([...k8sNodeGroups, { role: "WORKER", nodeCount: 1, vcpu: 2, ramGb: 4, storageGb: 50 }])}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 h-8 px-3 rounded-lg"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Node Group
+                    </Button>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-6">
+                    {k8sNodeGroups.length === 0 ? (
+                      <div className="text-center py-6 text-sm text-slate-500 italic bg-white rounded-lg border border-slate-100">
+                        No node groups defined. Please add at least one group.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {k8sNodeGroups.map((group, index) => (
+                          <div key={index} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4 relative">
+                            <button 
+                              type="button"
+                              onClick={() => setK8sNodeGroups(k8sNodeGroups.filter((_, idx) => idx !== index))}
+                              className="absolute top-4 right-4 text-red-500 hover:text-red-700 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                              <div className="space-y-1.5">
+                                <Label className="text-xs text-slate-500 font-bold uppercase">Node Role</Label>
+                                <Select 
+                                  value={group.role} 
+                                  onValueChange={(val) => {
+                                    const updated = [...k8sNodeGroups];
+                                    updated[index].role = val;
+                                    setK8sNodeGroups(updated);
+                                  }}
+                                >
+                                  <SelectTrigger className="h-9">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="MASTER">Master Node</SelectItem>
+                                    <SelectItem value="WORKER">Worker Node</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-xs text-slate-500 font-bold uppercase">Node Count</Label>
+                                <Input 
+                                  type="number" 
+                                  value={group.nodeCount} 
+                                  onChange={(e) => {
+                                    const updated = [...k8sNodeGroups];
+                                    updated[index].nodeCount = parseInt(e.target.value) || 1;
+                                    setK8sNodeGroups(updated);
+                                  }}
+                                  min="1" 
+                                  max="20"
+                                  className="h-9"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-xs text-slate-500 font-bold uppercase">vCPU Cores</Label>
+                                <Input 
+                                  type="number" 
+                                  value={group.vcpu} 
+                                  onChange={(e) => {
+                                    const updated = [...k8sNodeGroups];
+                                    updated[index].vcpu = parseInt(e.target.value) || 1;
+                                    setK8sNodeGroups(updated);
+                                  }}
+                                  min="1" 
+                                  max="64"
+                                  className="h-9"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-xs text-slate-500 font-bold uppercase">RAM (GB)</Label>
+                                <Input 
+                                  type="number" 
+                                  value={group.ramGb} 
+                                  onChange={(e) => {
+                                    const updated = [...k8sNodeGroups];
+                                    updated[index].ramGb = parseInt(e.target.value) || 1;
+                                    setK8sNodeGroups(updated);
+                                  }}
+                                  min="1" 
+                                  max="256"
+                                  className="h-9"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-xs text-slate-500 font-bold uppercase">Storage (GB)</Label>
+                                <Input 
+                                  type="number" 
+                                  value={group.storageGb} 
+                                  onChange={(e) => {
+                                    const updated = [...k8sNodeGroups];
+                                    updated[index].storageGb = parseInt(e.target.value) || 1;
+                                    setK8sNodeGroups(updated);
+                                  }}
+                                  min="10" 
+                                  max="2000"
+                                  className="h-9"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="shadow-md border-slate-200">
                 <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-row items-center justify-between">
                   <div className="flex items-center gap-2 text-indigo-600">
                     <Cpu className="w-5 h-5" />
@@ -650,6 +1261,28 @@ export function RequestForm({
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-8 pt-8">
+                  {/* Access Request Read-Only Specs Card */}
+                  {(requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") && accessTargetVmId && (
+                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl mb-6">
+                      <h4 className="text-xs font-bold text-emerald-800 mb-2 uppercase tracking-wide">VM Specifications (Read-Only)</h4>
+                      <p className="text-xs text-slate-500 mb-3">Access will be configured for the VM with the following specifications:</p>
+                      <div className="grid grid-cols-3 gap-4 text-center">
+                        <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                          <div className="text-[10px] text-slate-500 uppercase font-semibold">vCPU Cores</div>
+                          <div className="text-sm font-bold text-slate-800">{vcpuValue} Cores</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                          <div className="text-[10px] text-slate-500 uppercase font-semibold">Memory (RAM)</div>
+                          <div className="text-sm font-bold text-slate-800">{ramValue} GB</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                          <div className="text-[10px] text-slate-500 uppercase font-semibold">Disk Storage</div>
+                          <div className="text-sm font-bold text-slate-800">{storageValue} GB</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* vCPU */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -751,20 +1384,10 @@ export function RequestForm({
                         required 
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label>RAID Configuration</Label>
-                      <Select name="raid" value={raid} onValueChange={setRaid}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {["RAID0", "RAID1", "RAID5", "RAID10", "NONE"].map((r) => (
-                            <SelectItem key={r} value={r}>{r}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
                   </div>
                 </CardContent>
               </Card>
+              )}
             </motion.div>
           )}
 
@@ -1093,7 +1716,7 @@ export function RequestForm({
               variant="ghost"
               size="lg"
               className="text-slate-500 hover:text-slate-900 font-bold"
-              disabled={currentStep === 1 || isSubmitting}
+              disabled={currentStep === (isEditOrCopy ? 1 : 0) || isSubmitting}
               type="button"
               onClick={prevStep}
             >
@@ -1153,7 +1776,9 @@ export function RequestForm({
             </div>
           </div>
         </div>
-      </form>
+          </form>
+        </>
+      )}
     </div>
   );
 }

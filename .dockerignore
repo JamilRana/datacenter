@@ -15,3 +15,6 @@ scripts
 prisma/migrations
 public/uploads/*
 uploads/*
+*.mp4
+*.rar
+.graphify

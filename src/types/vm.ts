@@ -59,6 +59,7 @@ export interface VmSpecHistory extends VmSpec {
 
 export interface SerializedVmInstance {
   id: string;
+  systemName?: string | null;
   hostname: string | null;
   ipAddress: string | null;
   publicIpAddress: string | null;
@@ -83,6 +84,7 @@ export interface SerializedVmInstance {
     systemName: string | null; 
     environment: Environment | null 
   } | null;
+  tags?: { tag: { id: string; name: string; description: string | null } }[];
 }
 
 import { AuditLog } from "./audit";

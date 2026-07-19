@@ -4,9 +4,11 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { 
   Cpu, Database, HardDrive, User, History, ShieldAlert, 
-  Server, Zap, Trash2, Activity, Calendar, Monitor
+  Server, Zap, Trash2, Activity, Calendar, Monitor, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { updateVmSystemName } from "@/app/actions/vm-management-actions";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEffect, useState } from "react";
@@ -17,6 +19,8 @@ import { getPendingCustomizationForVm } from "@/app/actions/customization-action
 import { CustomizationModal } from "@/app/requests/customize/components/CustomizationModal";
 import { toast } from "sonner";
 import DecommissionModal from "@/components/vms/DecommissionModal";
+import VmCredentialsCard from "../components/VmCredentialsCard";
+import ComplianceTagsCard from "@/components/vms/ComplianceTagsCard";
 
 export default function VmDetailPage({ params }: { params: { id: string } }) {
   const { data: session } = useSession();
@@ -26,6 +30,17 @@ export default function VmDetailPage({ params }: { params: { id: string } }) {
   const [isDecommissionModalOpen, setIsDecommissionModalOpen] = useState(false);
   const [hasPendingCustomization, setHasPendingCustomization] = useState(false);
   const router = useRouter();
+
+  // VM Rename state
+  const [isEditingSystemName, setIsEditingSystemName] = useState(false);
+  const [newSystemName, setNewSystemName] = useState("");
+  const [isSavingSystemName, setIsSavingSystemName] = useState(false);
+
+  useEffect(() => {
+    if (vm) {
+      setNewSystemName(vm.systemName || "");
+    }
+  }, [vm]);
 
   if (!session?.user) redirect("/auth");
 
@@ -48,8 +63,29 @@ export default function VmDetailPage({ params }: { params: { id: string } }) {
     fetchVm();
   }, [params.id, session, isCustomizeModalOpen, isDecommissionModalOpen]);
 
+  const handleRename = async () => {
+    if (!newSystemName.trim() || !vm) return;
+    try {
+      setIsSavingSystemName(true);
+      const res = await updateVmSystemName(vm.id, newSystemName);
+      if (res.success) {
+        toast.success("VM renamed successfully!");
+        setVm({ ...vm, systemName: newSystemName });
+        setIsEditingSystemName(false);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to rename VM");
+    } finally {
+      setIsSavingSystemName(false);
+    }
+  };
+
   if (isLoading) return <div className="p-10 text-center">Loading VM details...</div>;
   if (!vm) return notFound();
+
+  const isOwner = vm?.owner?.id === session?.user?.id;
+  const isAdminUser = session?.user?.roles?.includes("ADMIN");
+  const canRename = isOwner || isAdminUser;
 
   return (
     <div className="p-6 md:p-10 space-y-6 bg-slate-50/20 min-h-screen">
@@ -182,6 +218,53 @@ export default function VmDetailPage({ params }: { params: { id: string } }) {
             </CardHeader>
             <CardContent className="pt-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">System Name</p>
+                  {isEditingSystemName ? (
+                    <div className="flex gap-2 items-center">
+                      <Input
+                        value={newSystemName}
+                        onChange={(e) => setNewSystemName(e.target.value)}
+                        className="h-8 text-xs font-semibold max-w-[200px]"
+                        disabled={isSavingSystemName}
+                      />
+                      <Button
+                        size="sm"
+                        className="h-8 px-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                        onClick={handleRename}
+                        disabled={isSavingSystemName}
+                      >
+                        {isSavingSystemName ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2"
+                        onClick={() => {
+                          setIsEditingSystemName(false);
+                          setNewSystemName(vm.systemName || "");
+                        }}
+                        disabled={isSavingSystemName}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-800">
+                        {vm.systemName || "None"}
+                      </span>
+                      {canRename && (
+                        <button
+                          onClick={() => setIsEditingSystemName(true)}
+                          className="text-xs text-indigo-600 hover:underline font-medium"
+                        >
+                          (Edit)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <DetailItem 
                   label="Operating System" 
                   value={`${vm.currentSpec?.osName || "Unknown"} ${vm.currentSpec?.osVersion || ""}`} 
@@ -270,6 +353,26 @@ export default function VmDetailPage({ params }: { params: { id: string } }) {
               </div>
             </CardContent>
           </Card>
+
+          {/* Credentials Card */}
+          <VmCredentialsCard
+            vmId={vm.id}
+            ownerId={vm.owner?.id || null}
+            currentUser={{
+              id: session.user.id,
+              roles: session.user.roles || [],
+            }}
+          />
+
+          {/* Compliance & Tags Card */}
+          <ComplianceTagsCard
+            entityId={vm.id}
+            entityType="VM"
+            assignedTags={vm.tags || []}
+            currentUser={{
+              roles: session.user.roles || [],
+            }}
+          />
 
           {/* Timeline Card */}
           <Card className="border-none shadow-sm ring-1 ring-slate-200">

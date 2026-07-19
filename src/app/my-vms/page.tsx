@@ -4,6 +4,7 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { getUserVms, getUserVmStats, getSystemSummary, type VmFilters, type UserVmStats, type UserVmData, type SystemSummary } from "@/app/actions/vm-management-actions";
+import { K8sDashboard } from "./components/K8sDashboard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -50,6 +51,7 @@ function saveState(page: number, filters: VmFilters) {
 export default function DashboardVmsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<"vms" | "k8s">("vms");
   
   const [listLoading, setListLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -197,7 +199,33 @@ export default function DashboardVmsPage() {
         </div>
       </div>
 
-      {/* Stats Summary */}
+      {/* Tabs */}
+      <div className="flex border-b border-slate-200 gap-6 mb-2">
+        <button
+          onClick={() => setActiveTab("vms")}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all ${
+            activeTab === "vms"
+              ? "border-indigo-650 text-indigo-600 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          Virtual Machines
+        </button>
+        <button
+          onClick={() => setActiveTab("k8s")}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all ${
+            activeTab === "k8s"
+              ? "border-indigo-650 text-indigo-600 font-extrabold"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          Kubernetes Namespaces
+        </button>
+      </div>
+
+      {activeTab === "vms" ? (
+        <>
+          {/* Stats Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Card className="border-none shadow-sm bg-white overflow-hidden group">
           <CardContent className="p-5">
@@ -432,15 +460,19 @@ export default function DashboardVmsPage() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
-      {vmsData && vmsData.totalPages > 1 && (
-        <div className="mt-8 flex justify-center">
-          <Pagination
-            currentPage={currentPage}
-            totalPages={vmsData.totalPages}
-            onPageChange={handlePageChange}
-          />
-        </div>
+          {/* Pagination */}
+          {vmsData && vmsData.totalPages > 1 && (
+            <div className="mt-8 flex justify-center">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={vmsData.totalPages}
+                onPageChange={handlePageChange}
+              />
+            </div>
+          )}
+        </>
+      ) : (
+        <K8sDashboard />
       )}
     </div>
   );

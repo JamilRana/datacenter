@@ -24,6 +24,7 @@ import { RequestsTable } from "./tables/RequestsTable";
 import { RenewalsTable } from "./tables/RenewalsTable";
 import { AuditTrailTable } from "./tables/AuditTrailTable";
 import { UserVmModal } from "./UserVmModal";
+import { VpnHorizonTable } from "./tables/VpnHorizonTable";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 
@@ -93,6 +94,7 @@ export function ReportsDashboardClient({ user, permissions }: ReportsDashboardCl
     { id: "inventory", label: "VM Inventory", icon: HardDrive, show: permissions.canViewInventory },
     { id: "capacity", label: "Cluster Capacity", icon: Activity, show: permissions.canViewCapacity },
     { id: "requests", label: "Requests", icon: ListChecks, show: permissions.canViewRequests },
+    { id: "vpnhorizon", label: "VPN & Horizon Access", icon: ShieldAlert, show: true },
     { id: "renewals", label: "Renewals", icon: AlertCircle, show: permissions.canViewRenewals },
     { id: "audit", label: "Audit Trail", icon: ShieldAlert, show: permissions.canViewAudit },
   ].filter(tab => tab.show);
@@ -195,6 +197,10 @@ export function ReportsDashboardClient({ user, permissions }: ReportsDashboardCl
 
           <TabsContent value="requests" className="m-0 focus-visible:outline-none">
             <RequestsTable dateRange={dateRange} />
+          </TabsContent>
+
+          <TabsContent value="vpnhorizon" className="m-0 focus-visible:outline-none">
+            <VpnHorizonTable dateRange={dateRange} />
           </TabsContent>
 
           <TabsContent value="renewals" className="m-0 focus-visible:outline-none">

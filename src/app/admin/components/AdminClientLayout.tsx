@@ -11,7 +11,8 @@ import {
   LayoutDashboard, 
   Menu, 
   X, 
-  ChevronLeft 
+  ChevronLeft,
+  Tag
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ const navItems = [
   { href: "/admin/workflows", label: "Workflows", icon: GitBranch },
   { href: "/admin/email-settings", label: "Email Settings", icon: Mail },
   { href: "/admin/audit-logs", label: "Audit Logs", icon: FileText },
+  { href: "/admin/tags", label: "Tag Management", icon: Tag },
 ];
 
 export function AdminClientLayout({

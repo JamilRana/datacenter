@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { 
   Trash2, 
@@ -24,6 +24,10 @@ interface RequestListProps {
 
 export function RequestList({ requests: initialRequests }: RequestListProps) {
   const [requests, setRequests] = useState<detailsRequest[]>(initialRequests);
+
+  useEffect(() => {
+    setRequests(initialRequests);
+  }, [initialRequests]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this draft?")) return;

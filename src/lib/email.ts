@@ -505,3 +505,47 @@ export async function sendProvisioningNotification(
   
   return sendEmail({ to, subject, html });
 }
+
+/**
+ * Generate password recovery OTP email HTML
+ */
+export function getOtpEmailHtml(recipientName: string, otp: string): string {
+  const escapedName = escapeHtml(recipientName);
+  const escapedOtp = escapeHtml(otp);
+
+  const content = `
+    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Password Recovery</h2>
+    <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+      Hello ${escapedName},
+    </p>
+    <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+      We received a request to reset your password for your MIS DC Portal account. Use the verification code (OTP) below to reset your password. This OTP is valid for 10 minutes.
+    </p>
+    
+    <div style="background-color: #f8fafc; border-radius: 8px; padding: 24px; margin: 24px 0; border: 1px solid #e2e8f0; text-align: center;">
+      <span style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #4f46e5; display: inline-block;">
+        ${escapedOtp}
+      </span>
+    </div>
+    
+    <p style="margin: 20px 0 0 0; color: #64748b; font-size: 13px;">
+      If you did not request a password reset, please ignore this email.
+    </p>
+  `;
+
+  return getEmailTemplate(content, "Password Reset Verification Code");
+}
+
+/**
+ * Helper: Send OTP notification
+ */
+export async function sendOtpEmail(
+  to: string,
+  recipientName: string,
+  otp: string
+): Promise<{ success: boolean; error?: string }> {
+  const subject = `Password Reset Verification Code - MIS DC Portal`;
+  const html = getOtpEmailHtml(recipientName, otp);
+  
+  return sendEmail({ to, subject, html });
+}

@@ -109,6 +109,9 @@ const SERIALIZED_VM_FULL_INCLUDE = {
     orderBy: { timestamp: "desc" }, 
     take: 10 
   },
+  tags: {
+    include: { tag: true }
+  },
 } satisfies Prisma.VmInstanceInclude;
 
 
@@ -594,6 +597,7 @@ export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVm
 
   return {
     id: vm.id,
+    systemName: vm.systemName,
     hostname: vm.hostname,
     ipAddress: vm.ipAddress,
     publicIpAddress: vm.publicIpAddress,
@@ -610,5 +614,12 @@ export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVm
     request,
     specHistory,
     auditLogs,
+    tags: (vm.tags || []).map((t) => ({
+      tag: {
+        id: t.tag.id,
+        name: t.tag.name,
+        description: t.tag.description,
+      }
+    })),
   };
 }

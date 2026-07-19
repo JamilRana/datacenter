@@ -133,6 +133,11 @@ export function DcopsProvisioningQueueWidget({ data }: DcopsWidgetsProps) {
                 </span>
                 <p className="text-xs text-slate-400 mt-1">
                   {format(new Date(item.createdAt), "MMM dd")}
+                  {item.expectedDeliveryDate && (
+                    <span className="text-indigo-600 ml-2 font-semibold">
+                      • Due: {format(new Date(item.expectedDeliveryDate), "MMM dd")}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>

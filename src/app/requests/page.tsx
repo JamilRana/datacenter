@@ -10,14 +10,14 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Search, Loader2, Plus, Zap, Trash2, Server, ArrowRight, Clock, CheckCircle2, XCircle, FileText, ChevronRight } from "lucide-react";
+import { Search, Loader2, Plus, Zap, Trash2, Server, ArrowRight, Clock, CheckCircle2, XCircle, FileText, ChevronRight, Code, Shield, Monitor } from "lucide-react";
 import { Pagination } from "@/components/Pagination";
 import { detailsRequest } from "@/types/requests";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-type RequestType = "NEW_VM" | "CUSTOMIZED" | "DECOMMISSION";
+type RequestType = "NEW_VM" | "CUSTOMIZED" | "DECOMMISSION" | "K8S_NAMESPACE" | "VPN_ACCESS" | "HORIZON_ACCESS";
 
 interface RequestStats {
   total: number;
@@ -171,7 +171,7 @@ export default function MyRequestsPage() {
       title: "New VM Requests",
       description: "Request provisioning of new virtual machines",
       icon: Server,
-      href: "/requests/new",
+      href: "/requests/new?type=NEW_VM",
       color: "bg-blue-50 border-blue-200 hover:border-blue-400",
       iconBg: "bg-blue-100",
       iconColor: "text-blue-600",
@@ -195,6 +195,36 @@ export default function MyRequestsPage() {
       color: "bg-red-50 border-red-200 hover:border-red-400",
       iconBg: "bg-red-100",
       iconColor: "text-red-600",
+    },
+    {
+      type: "K8S_NAMESPACE" as RequestType,
+      title: "K8s Namespace Requests",
+      description: "Request namespaces or clusters in Kubernetes",
+      icon: Code,
+      href: "/requests/new?type=K8S_NAMESPACE",
+      color: "bg-emerald-50 border-emerald-200 hover:border-emerald-400",
+      iconBg: "bg-emerald-100",
+      iconColor: "text-emerald-600",
+    },
+    {
+      type: "VPN_ACCESS" as RequestType,
+      title: "VPN Access Requests",
+      description: "Request secure external VPN connectivity to your VM",
+      icon: Shield,
+      href: "/requests/new?type=VPN_ACCESS",
+      color: "bg-indigo-50 border-indigo-200 hover:border-indigo-400",
+      iconBg: "bg-indigo-100",
+      iconColor: "text-indigo-600",
+    },
+    {
+      type: "HORIZON_ACCESS" as RequestType,
+      title: "Horizon Access Requests",
+      description: "Request Horizon client desktop access to your VM",
+      icon: Monitor,
+      href: "/requests/new?type=HORIZON_ACCESS",
+      color: "bg-purple-50 border-purple-200 hover:border-purple-400",
+      iconBg: "bg-purple-100",
+      iconColor: "text-purple-600",
     },
   ];
 
@@ -320,7 +350,12 @@ export default function MyRequestsPage() {
             }`}
           >
             <card.icon className="h-4 w-4" />
-            {card.type === "NEW_VM" ? "New VM" : card.type === "CUSTOMIZED" ? "Customize" : "Decommission"}
+            {card.type === "NEW_VM" ? "New VM" : 
+             card.type === "CUSTOMIZED" ? "Customize" : 
+             card.type === "DECOMMISSION" ? "Decommission" : 
+             card.type === "K8S_NAMESPACE" ? "K8s Namespace" : 
+             card.type === "VPN_ACCESS" ? "VPN Access" : 
+             card.type === "HORIZON_ACCESS" ? "Horizon Access" : card.type}
             <Badge variant="secondary" className="text-xs">{stats.byType[card.type] || 0}</Badge>
           </button>
         ))}
