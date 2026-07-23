@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { X, CheckCircle2, AlertCircle, Code } from "lucide-react";
+import { X, AlertCircle, Code } from "lucide-react";
 import { toast } from "sonner";
 import { provisionK8sNamespace } from "@/app/actions/k8s-actions";
 

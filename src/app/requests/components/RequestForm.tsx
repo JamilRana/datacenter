@@ -34,6 +34,7 @@ import {
   Code,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   Info,
   Layers,
 } from "lucide-react";
@@ -44,6 +45,7 @@ import { ROLES } from "@/lib/roles";
 import { getDetailedRequest } from "@/app/actions/request-actions";
 import { getRequesters } from "@/app/actions/user-actions";
 import { getCloneableVms, getSourceVmDetails } from "@/app/actions/clone-actions";
+import { getUpgradeableVms } from "@/app/actions/upgrade-actions";
 import { getAccessableVms } from "@/app/actions/access-actions";
 import { getNamespaceOptions } from "@/app/actions/k8s-actions";
 import { User } from "@/types/users";
@@ -63,6 +65,7 @@ const requiredFields = [
 const REQUEST_TYPES = [
   { value: "NEW_VM", label: "New Virtual Machine", description: "Provision a new VM with custom specifications", icon: Server },
   { value: "CLONE_VM", label: "Clone Existing VM", description: "Create a full disk clone of your existing VM", icon: Layers },
+  { value: "SYSTEM_UPGRADE", label: "Compute Resource Upgrade", description: "Upgrade CPU, RAM, or storage of an existing VM", icon: Cpu },
   { value: "VPN_ACCESS", label: "VPN Access", description: "Request secure external VPN connectivity to your VM", icon: ShieldCheck },
   { value: "HORIZON_ACCESS", label: "Horizon Access", description: "Request Horizon client desktop access to your VM", icon: Server },
   { value: "K8S_NAMESPACE", label: "Kubernetes Namespace", description: "Request a namespace in the Kubernetes cluster", icon: Code },
@@ -179,12 +182,32 @@ export function RequestForm({
         }
       };
       fetchAccessable();
+    } else if (requestType === "SYSTEM_UPGRADE") {
+      const fetchUpgradeable = async () => {
+        try {
+          const vms = await getUpgradeableVms();
+          setUpgradeableVms(vms);
+        } catch (error) {
+          toast.error(`Failed to load active VMs : ${error}`);
+        }
+      };
+      fetchUpgradeable();
     }
   }, [requestType]);
   const isEditOrCopy = isEditing || !!copyFrom || !!queryType;
   const [currentStep, setCurrentStep] = useState(isEditOrCopy ? 1 : 0);
   const totalSteps = 4;
-  const isSingleStep = requestType === "CLONE_VM" || requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS";
+  const isSingleStep = requestType === "CLONE_VM" || requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS" || requestType === "SYSTEM_UPGRADE";
+
+  // Sync request type selection from URL
+  useEffect(() => {
+    if (queryType) {
+      setRequestType(queryType);
+      setCurrentStep(1);
+    } else if (!isEditing && !copyFrom) {
+      setCurrentStep(0);
+    }
+  }, [queryType, isEditing, copyFrom]);
 
   const TERMS_CONTENT = `
     <h4 class="font-semibold mb-2">Terms and Conditions for Server Request</h4>
@@ -199,17 +222,38 @@ export function RequestForm({
     </ul>
   `;
 
+  const handleConnectivityChange = (val: string, checked: boolean, specIndex: number) => {
+    const updated = [...vmSpecifications];
+    let currentConn = [...(updated[specIndex].connectivity || [])];
+    if (checked) {
+      if (!currentConn.includes(val)) {
+        currentConn.push(val);
+      }
+    } else {
+      currentConn = currentConn.filter((c: string) => c !== val);
+    }
+    updated[specIndex].connectivity = currentConn;
+    setVmSpecifications(updated);
+  };
+
   const checkFormValidity = useCallback(() => {
     const form = formRef.current;
     if (!form) return;
 
     const formData = new FormData(form);
-    const isValid = requiredFields.every(field => {
+    let activeRequired = [...requiredFields];
+    if (requestType === "NEW_VM") {
+      activeRequired = ["systemName", "purpose"];
+    } else if (requestType === "K8S_NAMESPACE") {
+      activeRequired = ["systemName", "purpose", "environment"];
+    }
+
+    const isValid = activeRequired.every(field => {
       const value = formData.get(field);
       return value && String(value).trim() !== "";
     });
     setFormValid(isValid);
-  }, []);
+  }, [requestType]);
 
   // Hardware values
   const [vcpuValue, setVcpuValue] = useState<string>("2");
@@ -226,6 +270,7 @@ export function RequestForm({
   const [systemName, setSystemName] = useState<string>("");
   const [projectName, setProjectName] = useState<string>("");
   const [purpose, setPurpose] = useState<string>("");
+  const [vpnDetails, setVpnDetails] = useState<string>("");
   const [subdomain, setSubdomain] = useState<string>("");
   const [quantity, setQuantity] = useState<number>(1);
   const [frontendTech, setFrontendTech] = useState<string>("");
@@ -234,6 +279,26 @@ export function RequestForm({
   const [serverArchitecture, setServerArchitecture] = useState<string>("");
   const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
   const [draftRequestId, setDraftRequestId] = useState<string | null>(null);
+  const [vmSpecifications, setVmSpecifications] = useState<any[]>([
+    {
+      id: crypto.randomUUID(),
+      stack: "",
+      environment: "PRODUCTION",
+      vcpu: "2",
+      ramGb: "4",
+      storageGb: "50",
+      gpuEnabled: false,
+      gpuVramGb: "",
+      gpuStorageGb: "",
+      osVersion: "Ubuntu 22.04 LTS",
+      connectivity: ["LOCAL"],
+      firewallRules: [],
+      subdomain: "",
+      vpnDetails: "",
+      additionalStorage: []
+    }
+  ]);
+  const [expandedSpecs, setExpandedSpecs] = useState<string[]>([]);
 
   // Initialize from prefill data
   useEffect(() => {
@@ -265,6 +330,7 @@ export function RequestForm({
       if (prefillData.systemName) setSystemName(prefillData.systemName);
       if (prefillData.projectName) setProjectName(prefillData.projectName);
       if (prefillData.purpose) setPurpose(prefillData.purpose);
+      if (prefillData.vpnDetails) setVpnDetails(prefillData.vpnDetails);
       if (prefillData.subdomain) setSubdomain(prefillData.subdomain);
       if (prefillData.quantity) setQuantity(prefillData.quantity);
       if (prefillData.frontendTech) setFrontendTech(prefillData.frontendTech);
@@ -288,6 +354,37 @@ export function RequestForm({
           ramGb: g.ramGb,
           storageGb: g.storageGb
         })));
+      }
+      if (prefillData.vmSpecifications && prefillData.vmSpecifications.length > 0) {
+        const mapped = prefillData.vmSpecifications.map((spec: any) => ({
+          id: spec.id || crypto.randomUUID(),
+          stack: spec.stack || "",
+          environment: spec.environment || "PRODUCTION",
+          vcpu: spec.vcpu?.toString() || "2",
+          ramGb: spec.ramGb?.toString() || "4",
+          storageGb: spec.storageGb?.toString() || "50",
+          gpuEnabled: !!spec.gpuEnabled,
+          gpuVramGb: spec.gpuVramGb?.toString() || "",
+          gpuStorageGb: spec.gpuStorageGb?.toString() || "",
+          osVersion: spec.osVersion || "",
+          subdomain: spec.subdomain || "",
+          vpnDetails: spec.vpnDetails || "",
+          connectivity: spec.connectivity ? spec.connectivity.map((c: any) => c.accessType) : ["LOCAL"],
+          firewallRules: spec.firewallRules ? spec.firewallRules.map((f: any) => ({
+            port: f.port,
+            protocol: f.protocol,
+            purpose: f.purpose,
+            source: f.source || ""
+          })) : [],
+          additionalStorage: spec.additionalStorage ? spec.additionalStorage.map((d: any) => ({
+            sizeGb: d.sizeGb,
+            purpose: d.purpose || ""
+          })) : []
+        }));
+        setVmSpecifications(mapped);
+        if (mapped.length > 0) {
+          setExpandedSpecs([mapped[0].id]);
+        }
       }
       
       if (isDeveloper && prefillData.requesterId && prefillData.requesterId !== userId) {
@@ -412,6 +509,21 @@ export function RequestForm({
       formData.set("sourceVmId", sourceVmId);
       formData.set("cloneFullDisk", cloneFullDisk ? "on" : "off");
     }
+
+    if (requestType === "SYSTEM_UPGRADE") {
+      if (!upgradeVmId) {
+        toast.error("Please select a target VM for upgrade");
+        return false;
+      }
+      formData.set("upgradeVmId", upgradeVmId);
+      const upgradeCpuInput = form.querySelector('input[name="upgradeCpu"]') as HTMLInputElement;
+      const upgradeRamInput = form.querySelector('input[name="upgradeRamGb"]') as HTMLInputElement;
+      const upgradeStorageInput = form.querySelector('input[name="upgradeStorageGb"]') as HTMLInputElement;
+
+      if (upgradeCpuInput?.value) formData.set("upgradeCpu", upgradeCpuInput.value);
+      if (upgradeRamInput?.value) formData.set("upgradeRamGb", upgradeRamInput.value);
+      if (upgradeStorageInput?.value) formData.set("upgradeStorageGb", upgradeStorageInput.value);
+    }
     
     // Explicitly set all state-controlled fields to ensure they are captured regardless of current step
     formData.set("systemName", systemName);
@@ -422,8 +534,19 @@ export function RequestForm({
     formData.set("osName", osName);
     formData.set("osVersion", osVersion);
     formData.set("subdomain", subdomain);
-    formData.set("requiredPublicIP", requiredPublicIP ? "on" : "off");
-    formData.set("vpnRequired", vpnRequired ? "on" : "off");
+    const hasVpn = requestType === "NEW_VM" 
+      ? vmSpecifications.some(spec => spec.connectivity?.includes("VPN"))
+      : networkAccess.includes("VPN");
+    formData.set("vpnRequired", hasVpn ? "on" : "off");
+    
+    const hasPublicIp = requestType === "NEW_VM" 
+      ? vmSpecifications.some(spec => spec.connectivity?.includes("INTERNET"))
+      : networkAccess.includes("INTERNET");
+    formData.set("requiredPublicIP", hasPublicIp ? "on" : "off");
+
+    if (requestType === "K8S_NAMESPACE" || requestType === "NEW_VM") {
+      formData.set("vpnDetails", vpnDetails);
+    }
     formData.set("renewalRequired", renewalRequired ? "on" : "off");
     formData.set("frontendTech", frontendTech);
     formData.set("backendTech", backendTech);
@@ -457,7 +580,100 @@ export function RequestForm({
     formData.set("ramGb", finalRam);
     formData.set("storageGb", finalStorage);
 
-
+    if (requestType === "NEW_VM") {
+      if (vmSpecifications.length === 0) {
+        toast.error("Please add at least one VM specification");
+        setIsSubmitting(false);
+        setIsAutoSaving(false);
+        return false;
+      }
+      for (let i = 0; i < vmSpecifications.length; i++) {
+        const spec = vmSpecifications[i];
+        if (!spec.environment) {
+          toast.error(`Environment is required for VM Specification ${i + 1}`);
+          setIsSubmitting(false);
+          setIsAutoSaving(false);
+          return false;
+        }
+        const vcpuNum = parseInt(spec.vcpu);
+        if (isNaN(vcpuNum) || vcpuNum <= 0) {
+          toast.error(`vCPU Cores must be a positive number for VM Specification ${i + 1}`);
+          setIsSubmitting(false);
+          setIsAutoSaving(false);
+          return false;
+        }
+        const ramNum = parseInt(spec.ramGb);
+        if (isNaN(ramNum) || ramNum <= 0) {
+          toast.error(`Memory (RAM) must be a positive number for VM Specification ${i + 1}`);
+          setIsSubmitting(false);
+          setIsAutoSaving(false);
+          return false;
+        }
+        const storageNum = parseInt(spec.storageGb);
+        if (isNaN(storageNum) || storageNum <= 0) {
+          toast.error(`Primary Storage must be a positive number for VM Specification ${i + 1}`);
+          setIsSubmitting(false);
+          setIsAutoSaving(false);
+          return false;
+        }
+        if (spec.gpuEnabled) {
+          const vramNum = parseInt(spec.gpuVramGb);
+          if (isNaN(vramNum) || vramNum <= 0) {
+            toast.error(`GPU VRAM must be a positive number for VM Specification ${i + 1}`);
+            setIsSubmitting(false);
+            setIsAutoSaving(false);
+            return false;
+          }
+          const gpuStorageNum = parseInt(spec.gpuStorageGb);
+          if (isNaN(gpuStorageNum) || gpuStorageNum <= 0) {
+            toast.error(`GPU Storage must be a positive number for VM Specification ${i + 1}`);
+            setIsSubmitting(false);
+            setIsAutoSaving(false);
+            return false;
+          }
+        }
+      }
+      formData.set("vmSpecifications", JSON.stringify(vmSpecifications));
+      
+      // Clear or set request-level fields based on first spec
+      const firstSpec = vmSpecifications[0];
+      formData.set("vcpu", firstSpec.vcpu);
+      formData.set("ramGb", firstSpec.ramGb);
+      formData.set("storageGb", firstSpec.storageGb);
+      formData.set("osVersion", firstSpec.osVersion);
+      formData.set("subdomain", firstSpec.subdomain);
+      formData.set("environment", firstSpec.environment);
+    } else if (requestType === "K8S_NAMESPACE") {
+      if (k8sNodeGroups.length === 0) {
+        toast.error("Please add at least one node group specification");
+        setIsSubmitting(false);
+        setIsAutoSaving(false);
+        return false;
+      }
+      for (let i = 0; i < k8sNodeGroups.length; i++) {
+        const group = k8sNodeGroups[i];
+        if (group.nodeCount <= 0 || group.vcpu <= 0 || group.ramGb <= 0 || group.storageGb <= 0) {
+          toast.error(`Invalid values in node group ${i + 1}`);
+          setIsSubmitting(false);
+          setIsAutoSaving(false);
+          return false;
+        }
+      }
+      formData.set("k8sNodeGroups", JSON.stringify(k8sNodeGroups));
+      formData.set("vcpu", "0");
+      formData.set("ramGb", "0");
+      formData.set("storageGb", "0");
+      formData.set("osVersion", "");
+      formData.set("subdomain", subdomain);
+      formData.set("environment", environment);
+    } else {
+      formData.set("vcpu", finalVcpu);
+      formData.set("ramGb", finalRam);
+      formData.set("storageGb", finalStorage);
+      formData.set("osVersion", osVersion);
+      formData.set("subdomain", subdomain);
+      formData.set("environment", environment);
+    }
 
     if (requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") {
       if (!accessTargetVmId) {
@@ -467,14 +683,6 @@ export function RequestForm({
       formData.set("accessTargetVmId", accessTargetVmId);
       formData.set("accessType", requestType === "VPN_ACCESS" ? "VPN" : "HORIZON");
       formData.set("accessJustification", purpose);
-    }
-
-    if (requestType === "K8S_NAMESPACE") {
-      if (k8sNodeGroups.length === 0) {
-        toast.error("Please add at least one node group specification");
-        return false;
-      }
-      formData.set("k8sNodeGroups", JSON.stringify(k8sNodeGroups));
     }
 
     if (securityReport) formData.append("securityReport", securityReport);
@@ -622,12 +830,32 @@ export function RequestForm({
     }
   };
 
+  useEffect(() => {
+    if (vmSpecifications.length > 0 && expandedSpecs.length === 0) {
+      setExpandedSpecs([vmSpecifications[0].id]);
+    }
+  }, [vmSpecifications, expandedSpecs]);
+
+  const handleRemoveSpec = (index: number) => {
+    if (vmSpecifications.length <= 1) {
+      toast.error("At least one VM specification is required");
+      return;
+    }
+    if (window.confirm("Are you sure you want to remove this VM Specification?")) {
+      setVmSpecifications(vmSpecifications.filter((_, idx) => idx !== index));
+    }
+  };
+
   const nextStep = async () => {
     // Auto-save progress as we move to the next step
     if (currentStep < totalSteps) {
       const success = await handleSubmit("draft", true);
       if (success) {
-        setCurrentStep(currentStep + 1);
+        if (requestType === "NEW_VM" && currentStep === 2) {
+          setCurrentStep(4);
+        } else {
+          setCurrentStep(currentStep + 1);
+        }
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
@@ -635,7 +863,13 @@ export function RequestForm({
 
   const prevStep = () => {
     const minStep = isEditOrCopy ? 1 : 0;
-    if (currentStep > minStep) setCurrentStep(currentStep - 1);
+    if (currentStep > minStep) {
+      if (requestType === "NEW_VM" && currentStep === 4) {
+        setCurrentStep(2);
+      } else {
+        setCurrentStep(currentStep - 1);
+      }
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -650,6 +884,7 @@ export function RequestForm({
           key={copyFrom || "new-request"}
           className="space-y-8"
           onChange={checkFormValidity}
+          onSubmit={(e) => e.preventDefault()}
         >
           {copyFrom && (
             <div className="bg-blue-50 p-3 rounded-md border border-blue-200 text-blue-800 text-sm mb-4">
@@ -734,6 +969,96 @@ export function RequestForm({
             </Card>
           )}
 
+          {/* Target VM Selector for System Upgrade */}
+          {requestType === "SYSTEM_UPGRADE" && (
+            <Card className="shadow-md border-indigo-200 bg-indigo-50/20">
+              <CardHeader className="bg-indigo-50/50 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <Cpu className="w-5 h-5" />
+                  <CardTitle className="text-lg">Select Target VM for Upgrade</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6 pt-6">
+                <div className="space-y-2">
+                  <Label className="text-indigo-855 font-semibold">Target VM *</Label>
+                  <Select value={upgradeVmId} onValueChange={handleUpgradeVmChange} required>
+                    <SelectTrigger className="border-indigo-300">
+                      <SelectValue placeholder="Select one of your active VMs to upgrade" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {upgradeableVms.length === 0 ? (
+                        <SelectItem value="none" disabled>No active VMs available for upgrade</SelectItem>
+                      ) : (
+                        upgradeableVms.map((vm) => (
+                          <SelectItem key={vm.id} value={vm.id}>
+                            {vm.hostname || vm.request?.systemName || "Unnamed VM"} — {vm.ipAddress} ({vm.environment || "N/A"})
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {upgradeVmId && upgradeVmId !== "none" && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 pt-6 border-t border-slate-200 animate-in fade-in-50 duration-200">
+                    {/* Left: Current Specs */}
+                    <div className="space-y-4">
+                      <h4 className="font-semibold text-slate-700 text-sm">Current Specifications</h4>
+                      <div className="bg-slate-100 p-4 rounded-lg border border-slate-200 space-y-3 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500 font-medium">vCPU Cores</span>
+                          <span className="font-bold text-slate-800">{currentCpu} Cores</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500 font-medium">Memory (RAM)</span>
+                          <span className="font-bold text-slate-800">{currentRam} GB</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500 font-medium">Primary Storage</span>
+                          <span className="font-bold text-slate-800">{currentStorage} GB</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Upgrade Requested Specs */}
+                    <div className="space-y-4">
+                      <h4 className="font-semibold text-indigo-700 text-sm">Upgrade Specifications</h4>
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs">New vCPU Cores (optional)</Label>
+                          <Input 
+                            type="number" 
+                            name="upgradeCpu" 
+                            min={currentCpu + 1} 
+                            placeholder={`Must be > ${currentCpu} cores`} 
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">New RAM in GB (optional)</Label>
+                          <Input 
+                            type="number" 
+                            name="upgradeRamGb" 
+                            min={currentRam + 1} 
+                            placeholder={`Must be > ${currentRam} GB`} 
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Additional Storage in GB (optional)</Label>
+                          <Input 
+                            type="number" 
+                            name="upgradeStorageGb" 
+                            min={1} 
+                            placeholder="Additive (e.g. 50 for +50GB)" 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Justification */}
           <Card className="shadow-md border-slate-200">
             <CardHeader className="bg-slate-50/50 border-b border-slate-100">
@@ -774,7 +1099,7 @@ export function RequestForm({
           </Card>
 
           {/* Action Bar */}
-          <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-50">
+          <div className="fixed bottom-0 left-0 lg:left-64 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-50">
             <div className="max-w-6xl mx-auto flex justify-between items-center gap-4">
               <Button
                 variant="ghost"
@@ -796,11 +1121,15 @@ export function RequestForm({
                 size="sm"
                 className={cn(
                   "px-10 min-w-[220px] transition-all duration-300 shadow-xl font-bold",
-                  termsAccepted && ((requestType === "CLONE_VM" && sourceVmId) || (requestType !== "CLONE_VM" && accessTargetVmId)) && purpose.trim()
+                  termsAccepted && (
+                    (requestType === "CLONE_VM" && sourceVmId) || 
+                    (requestType === "SYSTEM_UPGRADE" && upgradeVmId) || 
+                    (requestType !== "CLONE_VM" && requestType !== "SYSTEM_UPGRADE" && accessTargetVmId)
+                  ) && purpose.trim()
                     ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" 
                     : "bg-slate-400 cursor-not-allowed opacity-50"
                 )}
-                disabled={isSubmitting || !termsAccepted || (requestType === "CLONE_VM" ? !sourceVmId : !accessTargetVmId) || !purpose.trim()}
+                disabled={isSubmitting || !termsAccepted || (requestType === "CLONE_VM" ? !sourceVmId : requestType === "SYSTEM_UPGRADE" ? !upgradeVmId : !accessTargetVmId) || !purpose.trim()}
                 type="button"
                 onClick={() => handleSubmit("submit")}
               >
@@ -816,7 +1145,12 @@ export function RequestForm({
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-indigo-600" />
             <RequestStepper 
               currentStep={currentStep} 
-              onStepClick={(stepId) => setCurrentStep(stepId)} 
+              onStepClick={(stepId) => {
+                if (requestType === "NEW_VM" && stepId === 3) {
+                  return; // Skip/disable Step 3
+                }
+                setCurrentStep(stepId);
+              }}
               isEditOrCopy={isEditOrCopy}
             />
           </div>
@@ -826,6 +1160,7 @@ export function RequestForm({
             key={copyFrom || "new-request"}
             className="space-y-8"
             onChange={checkFormValidity}
+            onSubmit={(e) => e.preventDefault()}
           >
             {copyFrom && (
               <div className="bg-blue-50 p-3 rounded-md border border-blue-200 text-blue-800 text-sm mb-4">
@@ -862,6 +1197,9 @@ export function RequestForm({
                           onClick={() => {
                             setRequestType(type.value);
                             setCurrentStep(1);
+                            const url = new URL(window.location.href);
+                            url.searchParams.set("type", type.value);
+                            router.replace(url.pathname + url.search);
                           }}
                           className={`p-6 rounded-xl border-2 transition-all duration-200 text-left hover:shadow-md ${
                             requestType === type.value
@@ -1041,75 +1379,77 @@ export function RequestForm({
                       required 
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Target Environment</Label>
-                    <Select name="environment" value={environment} onValueChange={setEnvironment}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {["DEVELOPMENT", "STAGING", "PRODUCTION", "TESTING"].map((e) => (
-                          <SelectItem key={e} value={e}>{e}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Expected End Date</Label>
-                    <Input name="expectedEndDate" type="date" defaultValue={prefillData?.expectedEndDate ? new Date(prefillData.expectedEndDate).toISOString().split('T')[0] : ""} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Expected Delivery Date</Label>
-                    <Input name="expectedDeliveryDate" type="date" defaultValue={prefillData?.expectedDeliveryDate ? new Date(prefillData.expectedDeliveryDate).toISOString().split('T')[0] : ""} />
-                  </div>
+                  {requestType !== "NEW_VM" && requestType !== "K8S_NAMESPACE" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Target Environment</Label>
+                        <Select name="environment" value={environment} onValueChange={setEnvironment}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {["DEVELOPMENT", "STAGING", "PRODUCTION", "TESTING"].map((e) => (
+                              <SelectItem key={e} value={e}>{e}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Expected Delivery Date</Label>
+                        <Input name="expectedDeliveryDate" type="date" defaultValue={prefillData?.expectedDeliveryDate ? new Date(prefillData.expectedDeliveryDate).toISOString().split('T')[0] : ""} />
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
               {/* Tech Stack */}
-              <Card className="shadow-md border-slate-200">
-                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
-                  <div className="flex items-center gap-2 text-purple-600">
-                    <Code className="w-5 h-5" />
-                    <CardTitle className="text-lg">Technology Stack</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
-                  <div className="space-y-2">
-                    <Label>Frontend Technology</Label>
-                    <Input 
-                      name="frontendTech" 
-                      placeholder="e.g. Next.js, Flutter" 
-                      value={frontendTech}
-                      onChange={(e) => setFrontendTech(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Backend Technology</Label>
-                    <Input 
-                      name="backendTech" 
-                      placeholder="e.g. Node.js, Go" 
-                      value={backendTech}
-                      onChange={(e) => setBackendTech(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Database</Label>
-                    <Input 
-                      name="dataBase" 
-                      placeholder="e.g. PostgreSQL, Redis" 
-                      value={dataBase}
-                      onChange={(e) => setDataBase(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Architecture</Label>
-                    <Input 
-                      name="serverArchitecture" 
-                      placeholder="e.g. Microservices, Docker" 
-                      value={serverArchitecture}
-                      onChange={(e) => setServerArchitecture(e.target.value)}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
+              {requestType !== "NEW_VM" && requestType !== "K8S_NAMESPACE" && (
+                <Card className="shadow-md border-slate-200">
+                  <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                    <div className="flex items-center gap-2 text-purple-600">
+                      <Code className="w-5 h-5" />
+                      <CardTitle className="text-lg">Technology Stack</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
+                    <div className="space-y-2">
+                      <Label>Frontend Technology</Label>
+                      <Input 
+                        name="frontendTech" 
+                        placeholder="e.g. Next.js, Flutter" 
+                        value={frontendTech}
+                        onChange={(e) => setFrontendTech(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Backend Technology</Label>
+                      <Input 
+                        name="backendTech" 
+                        placeholder="e.g. Node.js, Go" 
+                        value={backendTech}
+                        onChange={(e) => setBackendTech(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Database</Label>
+                      <Input 
+                        name="dataBase" 
+                        placeholder="e.g. PostgreSQL, Redis" 
+                        value={dataBase}
+                        onChange={(e) => setDataBase(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Architecture</Label>
+                      <Input 
+                        name="serverArchitecture" 
+                        placeholder="e.g. Microservices, Docker" 
+                        value={serverArchitecture}
+                        onChange={(e) => setServerArchitecture(e.target.value)}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </motion.div>
           )}
 
@@ -1122,7 +1462,436 @@ export function RequestForm({
               transition={{ duration: 0.3 }}
               className="space-y-6"
             >
-              {requestType === "K8S_NAMESPACE" ? (
+              {requestType === "NEW_VM" ? (
+                <Card className="shadow-md border-slate-200">
+                  <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-row items-center justify-between">
+                    <div className="flex items-center gap-2 text-indigo-600">
+                      <Cpu className="w-5 h-5" />
+                      <CardTitle className="text-lg">Resource Specifications</CardTitle>
+                    </div>
+                    <Button 
+                      type="button" 
+                      onClick={() => {
+                        const newId = crypto.randomUUID();
+                        setVmSpecifications([...vmSpecifications, {
+                          id: newId,
+                          stack: "",
+                          environment: "PRODUCTION",
+                          vcpu: "2",
+                          ramGb: "4",
+                          storageGb: "50",
+                          gpuEnabled: false,
+                          gpuVramGb: "",
+                          gpuStorageGb: "",
+                          osVersion: "Ubuntu 22.04 LTS",
+                          connectivity: ["LOCAL"],
+                          firewallRules: [],
+                          subdomain: "",
+                          additionalStorage: []
+                        }]);
+                        setExpandedSpecs([...expandedSpecs, newId]);
+                      }}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 h-8 px-3 rounded-lg"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add VM Specification
+                    </Button>
+                  </CardHeader>
+                  <CardContent className="space-y-4 pt-6">
+                    {vmSpecifications.map((spec, index) => {
+                      const isExpanded = expandedSpecs.includes(spec.id);
+                      return (
+                        <div key={spec.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200">
+                          {/* Card Header toggle */}
+                          <div 
+                            onClick={() => {
+                              if (isExpanded) {
+                                setExpandedSpecs(expandedSpecs.filter(id => id !== spec.id));
+                              } else {
+                                setExpandedSpecs([...expandedSpecs, spec.id]);
+                              }
+                            }}
+                            className="bg-slate-50/40 hover:bg-slate-50 px-5 py-3 border-b border-slate-100 flex justify-between items-center cursor-pointer select-none"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="h-5 w-5 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center text-xs font-bold">
+                                {index + 1}
+                              </span>
+                              <span className="font-bold text-slate-700 text-sm">
+                                VM Specification {index + 1} {spec.stack ? `— ${spec.stack}` : ""}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                              <Button 
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemoveSpec(index)}
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50 text-xs px-2 h-7"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
+                              </Button>
+                              <div className="text-slate-400">
+                                {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Card Content */}
+                          {isExpanded && (
+                            <div className="p-5 space-y-6">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                  <Label className="text-sm font-bold text-slate-700">Technology Stack</Label>
+                                  <Input 
+                                    value={spec.stack || ""}
+                                    onChange={(e) => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].stack = e.target.value;
+                                      setVmSpecifications(updated);
+                                    }}
+                                    placeholder="e.g. Next.js, Node.js, PostgreSQL, Redis"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-sm font-bold text-slate-700">Environment Type *</Label>
+                                  <Select 
+                                    value={spec.environment}
+                                    onValueChange={(val) => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].environment = val;
+                                      setVmSpecifications(updated);
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="PRODUCTION">Production</SelectItem>
+                                      <SelectItem value="STAGING">Staging</SelectItem>
+                                      <SelectItem value="TESTING">Testing</SelectItem>
+                                      <SelectItem value="DEVELOPMENT">Development</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                  <Label className="text-sm font-bold text-slate-700">OS Version *</Label>
+                                  <Input 
+                                    value={spec.osVersion || ""}
+                                    onChange={(e) => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].osVersion = e.target.value;
+                                      setVmSpecifications(updated);
+                                    }}
+                                    placeholder="e.g. Ubuntu 22.04 LTS, Windows Server 2022"
+                                    required
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-sm font-bold text-slate-700">Proposed Subdomain (Optional)</Label>
+                                  <Input 
+                                    value={spec.subdomain || ""}
+                                    onChange={(e) => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].subdomain = e.target.value;
+                                      setVmSpecifications(updated);
+                                    }}
+                                    placeholder="e.g. app-name"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-100">
+                                <div className="space-y-2">
+                                  <Label className="text-sm font-bold text-slate-700">vCPU Cores *</Label>
+                                  <Input 
+                                    type="number"
+                                    value={spec.vcpu || ""}
+                                    onChange={(e) => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].vcpu = e.target.value;
+                                      setVmSpecifications(updated);
+                                    }}
+                                    min="1"
+                                    required
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-sm font-bold text-slate-700">Memory (RAM GB) *</Label>
+                                  <Input 
+                                    type="number"
+                                    value={spec.ramGb || ""}
+                                    onChange={(e) => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].ramGb = e.target.value;
+                                      setVmSpecifications(updated);
+                                    }}
+                                    min="1"
+                                    required
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-sm font-bold text-slate-700">Primary Storage (GB) *</Label>
+                                  <Input 
+                                    type="number"
+                                    value={spec.storageGb || ""}
+                                    onChange={(e) => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].storageGb = e.target.value;
+                                      setVmSpecifications(updated);
+                                    }}
+                                    min="1"
+                                    required
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="space-y-4 pt-4 border-t border-slate-100">
+                                <div className="flex items-center justify-between">
+                                  <Label className="text-sm font-bold text-slate-700">Require GPU</Label>
+                                  <Switch 
+                                    checked={spec.gpuEnabled}
+                                    onCheckedChange={(val) => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].gpuEnabled = val;
+                                      setVmSpecifications(updated);
+                                    }}
+                                  />
+                                </div>
+                                {spec.gpuEnabled && (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                                    <div className="space-y-2">
+                                      <Label className="text-sm font-bold text-slate-700">GPU VRAM (GB) *</Label>
+                                      <Input 
+                                        type="number"
+                                        value={spec.gpuVramGb || ""}
+                                        onChange={(e) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].gpuVramGb = e.target.value;
+                                          setVmSpecifications(updated);
+                                        }}
+                                        min="1"
+                                        required
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-sm font-bold text-slate-700">GPU Storage (GB) *</Label>
+                                      <Input 
+                                        type="number"
+                                        value={spec.gpuStorageGb || ""}
+                                        onChange={(e) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].gpuStorageGb = e.target.value;
+                                          setVmSpecifications(updated);
+                                        }}
+                                        min="1"
+                                        required
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="space-y-3 pt-4 border-t border-slate-100">
+                                <Label className="text-sm font-bold text-slate-700">Connectivity</Label>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-1">
+                                  {[
+                                    { label: "Local", value: "LOCAL" },
+                                    { label: "Internet", value: "INTERNET" },
+                                    { label: "Remote", value: "REMOTE" },
+                                    { label: "VPN", value: "VPN" },
+                                  ].map((option) => {
+                                    const isChecked = spec.connectivity.includes(option.value);
+                                    return (
+                                      <div key={option.value} className="flex items-center space-x-2">
+                                        <Checkbox 
+                                          id={`connectivity-${index}-${option.value}`} 
+                                          checked={isChecked}
+                                          onCheckedChange={(checked) => {
+                                            handleConnectivityChange(option.value, !!checked, index);
+                                          }}
+                                        />
+                                        <Label 
+                                          htmlFor={`connectivity-${index}-${option.value}`} 
+                                          className="text-sm font-semibold text-slate-700 cursor-pointer"
+                                        >
+                                          {option.label}
+                                        </Label>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                {spec.connectivity.includes("VPN") && (
+                                  <div className="mt-3 space-y-2">
+                                    <Label className="text-sm font-bold text-slate-700">VPN Details *</Label>
+                                    <Input 
+                                      placeholder="Please describe your VPN requirement and who needs access..."
+                                      value={spec.vpnDetails || ""}
+                                      onChange={(e) => {
+                                        const updated = [...vmSpecifications];
+                                        updated[index].vpnDetails = e.target.value;
+                                        setVmSpecifications(updated);
+                                      }}
+                                      required
+                                    />
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="space-y-4 pt-4 border-t border-slate-100">
+                                <Label className="text-sm font-bold text-slate-700">Firewall Rules</Label>
+                                <div className="space-y-3">
+                                  {(spec.firewallRules || []).map((rule: any, ruleIdx: number) => (
+                                    <div key={ruleIdx} className="grid grid-cols-12 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 relative group">
+                                      <div className="col-span-12 md:col-span-3 space-y-1.5">
+                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Port</Label>
+                                        <Input 
+                                          placeholder="Port" 
+                                          value={rule.port || ""} 
+                                          onChange={(e) => {
+                                            const updated = [...vmSpecifications];
+                                            updated[index].firewallRules[ruleIdx].port = parseInt(e.target.value) || 0;
+                                            setVmSpecifications(updated);
+                                          }} 
+                                          type="number" 
+                                          className="h-9 no-spinner" 
+                                        />
+                                      </div>
+                                      <div className="col-span-12 md:col-span-3 space-y-1.5">
+                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Protocol</Label>
+                                        <Select 
+                                          value={rule.protocol} 
+                                          onValueChange={(v) => {
+                                            const updated = [...vmSpecifications];
+                                            updated[index].firewallRules[ruleIdx].protocol = v;
+                                            setVmSpecifications(updated);
+                                          }}
+                                        >
+                                          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="TCP">TCP</SelectItem>
+                                            <SelectItem value="UDP">UDP</SelectItem>
+                                            <SelectItem value="OTHER">Other</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div className="col-span-12 md:col-span-5 space-y-1.5">
+                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Purpose</Label>
+                                        <Input 
+                                          placeholder="Description" 
+                                          value={rule.purpose || ""} 
+                                          onChange={(e) => {
+                                            const updated = [...vmSpecifications];
+                                            updated[index].firewallRules[ruleIdx].purpose = e.target.value;
+                                            setVmSpecifications(updated);
+                                          }} 
+                                          className="h-9" 
+                                        />
+                                      </div>
+                                      <div className="col-span-12 md:col-span-1 flex items-end justify-end">
+                                        <Button 
+                                          type="button" 
+                                          variant="ghost" 
+                                          size="icon" 
+                                          className="h-9 w-9 text-red-500 hover:bg-red-50" 
+                                          onClick={() => {
+                                            const updated = [...vmSpecifications];
+                                            updated[index].firewallRules = spec.firewallRules.filter((_: any, idx: number) => idx !== ruleIdx);
+                                            setVmSpecifications(updated);
+                                          }}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  <Button 
+                                    type="button" 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="w-full border-dashed border-2 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700 h-10" 
+                                    onClick={() => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].firewallRules = [...(spec.firewallRules || []), { port: 80, protocol: "TCP", purpose: "" }];
+                                      setVmSpecifications(updated);
+                                    }}
+                                  >
+                                    <Plus className="w-4 h-4 mr-2" /> Add Firewall Rule
+                                  </Button>
+                                </div>
+                              </div>
+
+                              <div className="space-y-4 pt-4 border-t border-slate-100">
+                                <Label className="text-sm font-bold text-slate-700">Additional Storage</Label>
+                                <div className="space-y-4">
+                                  {(spec.additionalStorage || []).map((disk: any, diskIdx: number) => (
+                                    <div key={diskIdx} className="flex gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 items-end">
+                                      <div className="w-32 space-y-1.5">
+                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Size (GB)</Label>
+                                        <Input 
+                                          placeholder="Size" 
+                                          type="number" 
+                                          value={disk.sizeGb || ""} 
+                                          onChange={(e) => {
+                                            const updated = [...vmSpecifications];
+                                            updated[index].additionalStorage[diskIdx].sizeGb = parseInt(e.target.value) || 0;
+                                            setVmSpecifications(updated);
+                                          }} 
+                                          className="no-spinner" 
+                                        />
+                                      </div>
+                                      <div className="flex-1 space-y-1.5">
+                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Mount Point/Purpose</Label>
+                                        <Input 
+                                          placeholder="e.g. /var/lib/mysql" 
+                                          value={disk.purpose || ""} 
+                                          onChange={(e) => {
+                                            const updated = [...vmSpecifications];
+                                            updated[index].additionalStorage[diskIdx].purpose = e.target.value;
+                                            setVmSpecifications(updated);
+                                          }} 
+                                        />
+                                      </div>
+                                      <Button 
+                                        type="button" 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        className="text-red-500 hover:bg-red-50" 
+                                        onClick={() => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].additionalStorage = spec.additionalStorage.filter((_: any, idx: number) => idx !== diskIdx);
+                                          setVmSpecifications(updated);
+                                        }}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </div>
+                                  ))}
+                                  <Button 
+                                    type="button" 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="w-full border-dashed border-2 h-10" 
+                                    onClick={() => {
+                                      const updated = [...vmSpecifications];
+                                      updated[index].additionalStorage = [...(spec.additionalStorage || []), { sizeGb: 0, purpose: "" }];
+                                      setVmSpecifications(updated);
+                                    }}
+                                  >
+                                    <Plus className="w-4 h-4 mr-2" /> Add Data Disk
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              ) : requestType === "K8S_NAMESPACE" ? (
                 <Card className="shadow-md border-indigo-200 bg-indigo-50/20">
                   <CardHeader className="bg-indigo-50/50 border-b border-indigo-100 flex flex-row items-center justify-between">
                     <div className="flex items-center gap-2 text-indigo-600">
@@ -1148,7 +1917,13 @@ export function RequestForm({
                           <div key={index} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4 relative">
                             <button 
                               type="button"
-                              onClick={() => setK8sNodeGroups(k8sNodeGroups.filter((_, idx) => idx !== index))}
+                              onClick={() => {
+                                if (k8sNodeGroups.length <= 1) {
+                                  toast.error("At least one node group is required");
+                                  return;
+                                }
+                                setK8sNodeGroups(k8sNodeGroups.filter((_, idx) => idx !== index));
+                              }}
                               className="absolute top-4 right-4 text-red-500 hover:text-red-700 transition-colors"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1391,7 +2166,7 @@ export function RequestForm({
             </motion.div>
           )}
 
-          {currentStep === 3 && (
+          {currentStep === 3 && (requestType !== "NEW_VM") && (
             <motion.div
               key="step3"
               initial={{ opacity: 0, x: 20 }}
@@ -1410,39 +2185,47 @@ export function RequestForm({
                 <CardContent className="space-y-8 pt-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
-                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Access Control</Label>
-                      <div className="flex flex-wrap gap-2">
-                        {["LOCAL", "INTERNET", "REMOTE"].map((t) => (
-                          <div key={t} className={cn("flex items-center gap-2 px-4 py-2 rounded-xl border-2 transition-all", networkAccess.includes(t) ? "border-emerald-600 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500")}>
-                            <Checkbox checked={networkAccess.includes(t)} onCheckedChange={(checked) => {
-                                if (typeof checked === "boolean") {
-                                  if (checked) setNetworkAccess([...networkAccess, t]);
-                                  else setNetworkAccess(networkAccess.filter(x => x !== t));
-                                }
-                              }} />
-                            <span className="text-xs font-bold">{t}</span>
-                          </div>
-                        ))}
+                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Connectivity</Label>
+                      <div className="grid grid-cols-2 gap-4 mt-2">
+                        {[
+                          { label: "Local", value: "LOCAL" },
+                          { label: "Internet", value: "INTERNET" },
+                          { label: "Remote", value: "REMOTE" },
+                          { label: "VPN", value: "VPN" },
+                        ].map((option) => {
+                          const isChecked = networkAccess.includes(option.value);
+                          return (
+                            <div key={option.value} className="flex items-center space-x-2">
+                              <Checkbox 
+                                id={`net-conn-${option.value}`} 
+                                checked={isChecked}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setNetworkAccess([...networkAccess, option.value]);
+                                  } else {
+                                    setNetworkAccess(networkAccess.filter((n) => n !== option.value));
+                                  }
+                                }}
+                              />
+                              <Label htmlFor={`net-conn-${option.value}`} className="text-sm font-semibold text-slate-700 cursor-pointer">
+                                {option.label}
+                              </Label>
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
-                    <div className="space-y-4">
-                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Connectivity Options</Label>
-                      <div className="space-y-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Info className="w-4 h-4 text-slate-400" />
-                            <Label className="text-sm">Public IP Address</Label>
-                          </div>
-                          <Switch name="requiredPublicIP" checked={requiredPublicIP} onCheckedChange={setRequiredPublicIP} />
+                      {networkAccess.includes("VPN") && (
+                        <div className="mt-4 space-y-2">
+                          <Label className="text-sm font-bold text-slate-700">VPN Details *</Label>
+                          <Input 
+                            name="vpnDetails"
+                            placeholder="Describe who needs access and what resources are required via VPN..."
+                            value={vpnDetails}
+                            onChange={(e) => setVpnDetails(e.target.value)}
+                            required
+                          />
                         </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <ShieldCheck className="w-4 h-4 text-slate-400" />
-                            <Label className="text-sm">Required VPN Access</Label>
-                          </div>
-                          <Switch name="vpnRequired" checked={vpnRequired} onCheckedChange={setVpnRequired} />
-                        </div>
-                      </div>
+                      )}
                     </div>
                   </div>
 
@@ -1565,41 +2348,131 @@ export function RequestForm({
               className="space-y-6"
             >
               {/* Request Summary Preview */}
-              <Card className="shadow-lg border-blue-200 bg-blue-50/20 overflow-hidden">
-                <CardHeader className="bg-blue-600 py-3">
-                  <CardTitle className="text-sm text-white flex items-center gap-2">
-                    <Info className="w-4 h-4" /> Review Your Request
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold">System</p>
-                    <p className="text-sm font-bold text-blue-900 truncate" title={systemName}>{systemName || "N/A"}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold">Resources</p>
-                    <p className="text-sm font-bold text-blue-900">{vcpuValue === 'other' ? 'Custom' : vcpuValue}v / {ramValue === 'other' ? 'Custom' : ramValue}GB</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold">OS/Disk</p>
-                    <p className="text-sm font-bold text-blue-900 truncate" title={`${storageValue}GB ${osName}`}>
-                      {storageValue === 'other' ? 'Custom' : storageValue}GB {osName}
-                    </p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold">Subdomain</p>
-                    <p className="text-sm font-bold text-blue-900 truncate" title={subdomain}>{subdomain || "N/A"}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold">Env</p>
-                    <p className="text-sm font-bold text-blue-900">{environment}</p>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold">Network</p>
-                    <p className="text-sm font-bold text-blue-900">{firewallPorts.length} Rules</p>
-                  </div>
-                </CardContent>
-              </Card>
+              {requestType === "NEW_VM" ? (
+                <Card className="shadow-lg border-blue-200 bg-blue-50/20 overflow-hidden">
+                  <CardHeader className="bg-blue-600 py-3">
+                    <CardTitle className="text-sm text-white flex items-center gap-2">
+                      <Info className="w-4 h-4" /> Review Your VM Specifications ({vmSpecifications.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm mb-2">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">System Name</p>
+                      <p className="text-sm font-bold text-blue-900 truncate">{systemName || "N/A"}</p>
+                    </div>
+                    {vmSpecifications.map((spec, i) => (
+                      <div key={i} className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm grid grid-cols-2 md:grid-cols-5 gap-4">
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">VM {i + 1} Stack</p>
+                          <p className="text-sm font-bold text-blue-900 truncate">{spec.stack || "N/A"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Compute Resources</p>
+                          <p className="text-sm font-bold text-blue-900">{spec.vcpu} Cores / {spec.ramGb} GB RAM</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">OS Version & Storage</p>
+                          <p className="text-sm font-bold text-blue-900">{spec.storageGb} GB ({spec.osVersion || "N/A"})</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Environment</p>
+                          <p className="text-sm font-bold text-blue-900">{spec.environment}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Network & Storage</p>
+                          <p className="text-sm font-bold text-blue-900">
+                            {spec.connectivity?.includes("INTERNET") ? "Public IP" : "VPN"} / {spec.firewallRules?.length || 0} Firewall / {spec.additionalStorage?.length || 0} Disks
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              ) : requestType === "K8S_NAMESPACE" ? (
+                <Card className="shadow-lg border-indigo-200 bg-indigo-50/20 overflow-hidden">
+                  <CardHeader className="bg-indigo-600 py-3">
+                    <CardTitle className="text-sm text-white flex items-center gap-2">
+                      <Info className="w-4 h-4" /> Review Your Kubernetes Request
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4 mb-2">
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">System Name</p>
+                        <p className="text-sm font-bold text-indigo-900 truncate">{systemName || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Subdomain</p>
+                        <p className="text-sm font-bold text-indigo-900 truncate">{subdomain || "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Environment</p>
+                        <p className="text-sm font-bold text-indigo-900">{environment}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Node Groups</p>
+                        <p className="text-sm font-bold text-indigo-900">{k8sNodeGroups.length} Groups</p>
+                      </div>
+                    </div>
+                    {k8sNodeGroups.map((group, i) => (
+                      <div key={i} className="bg-white p-4 rounded-xl border border-indigo-100 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Node Group {i + 1} Role</p>
+                          <p className="text-sm font-bold text-slate-800">{group.role}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Node Count</p>
+                          <p className="text-sm font-bold text-slate-800">{group.nodeCount}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Compute Resource Per Node</p>
+                          <p className="text-sm font-bold text-slate-800">{group.vcpu} Cores / {group.ramGb} GB RAM</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Storage Per Node</p>
+                          <p className="text-sm font-bold text-slate-800">{group.storageGb} GB</p>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="shadow-lg border-blue-200 bg-blue-50/20 overflow-hidden">
+                  <CardHeader className="bg-blue-600 py-3">
+                    <CardTitle className="text-sm text-white flex items-center gap-2">
+                      <Info className="w-4 h-4" /> Review Your Request
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">System</p>
+                      <p className="text-sm font-bold text-blue-900 truncate" title={systemName}>{systemName || "N/A"}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">Resources</p>
+                      <p className="text-sm font-bold text-blue-900">{vcpuValue === 'other' ? 'Custom' : vcpuValue}v / {ramValue === 'other' ? 'Custom' : ramValue}GB</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">OS/Disk</p>
+                      <p className="text-sm font-bold text-blue-900 truncate" title={`${storageValue}GB ${osName}`}>
+                        {storageValue === 'other' ? 'Custom' : storageValue}GB {osName}
+                      </p>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">Subdomain</p>
+                      <p className="text-sm font-bold text-blue-900 truncate" title={subdomain}>{subdomain || "N/A"}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">Env</p>
+                      <p className="text-sm font-bold text-blue-900">{environment}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold">Network</p>
+                      <p className="text-sm font-bold text-blue-900">{firewallPorts.length} Rules</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Contacts */}
@@ -1678,7 +2551,7 @@ export function RequestForm({
                     <div className="pt-4 flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
                       <div className="space-y-0.5">
                         <Label>Automated Renewal</Label>
-                        <p className="text-[10px] text-slate-500 italic">Periodic review of system necessity</p>
+                        <p className="text-[10px] text-slate-500 italic">Automated renewal — Notify 1 month before expiry. Without renewal, VM will remain active for 6 months.</p>
                       </div>
                       <Switch name="renewalRequired" checked={renewalRequired} onCheckedChange={setRenewalRequired} />
                     </div>
@@ -1710,7 +2583,7 @@ export function RequestForm({
         </AnimatePresence>
 
         {/* Action Bar */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-50">
+        <div className="fixed bottom-0 left-0 lg:left-64 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-50">
           <div className="max-w-6xl mx-auto flex justify-between items-center gap-4">
             <Button
               variant="ghost"

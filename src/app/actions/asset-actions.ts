@@ -146,7 +146,7 @@ export async function fetchAssetDetailsWithLicenses(id: string) {
   return {
     ...asset,
     warrantyExpiry: asset.warrantyExpiry?.toISOString() ?? null,
-    licenses: asset.licenses.map((license) => ({
+    licenses: asset.licenses.map((license: any) => ({
       ...license,
       expiryDate: license.expiryDate?.toISOString() ?? null,
       maintenanceExpiry: license.maintenanceExpiry?.toISOString() ?? null,

@@ -17,6 +17,8 @@ export function Timeline({ requestType, currentStatus, approvals }: TimelineProp
   const levels: TimelineLevel[] =
     requestType === "DECOMMISSION"
       ? [1, "DCOPS"]
+      : approvals?.some(a => a.level === 4)
+      ? [1, 2, 3, 4, "DCOPS"]
       : [1, 2, 3, "DCOPS"];
   return (
     <div className="space-y-8 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">

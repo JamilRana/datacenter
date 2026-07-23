@@ -94,7 +94,7 @@ export async function getAuditLogs(params: AuditLogParams): Promise<PaginatedAud
   ]);
 
   return {
-    logs: logs.map((log) => ({
+    logs: logs.map((log: any) => ({
       id: log.id,
       actorId: log.actorId,
       actorName: log.actor.name,
@@ -151,10 +151,10 @@ export async function getAuditStats(days: number = 30) {
 
   return {
     totalLogs,
-    byAction: byAction.map((a) => ({ action: a.action, count: a._count })),
+    byAction: byAction.map((a: any) => ({ action: a.action, count: a._count })),
     byEntity: byEntity
-      .filter((e) => e.entityType)
-      .map((e) => ({ entityType: e.entityType, count: e._count })),
+      .filter((e: any) => e.entityType)
+      .map((e: any) => ({ entityType: e.entityType, count: e._count })),
   };
 }
 

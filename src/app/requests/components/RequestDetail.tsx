@@ -19,9 +19,11 @@ import {
   LucideIcon,
   Shield,
   FileText,
-  Download
+  Download,
+  Cpu
 } from "lucide-react";
 import { ApprovalPanel } from "@/app/approvals/components/ApprovalPanel";
+import { Timeline } from "@/app/approvals/components/Timeline";
 import { VmInstanceList } from "./VmInstanceList";
 import { getDetailedRequest, submitRequest } from "@/app/actions/request-actions";
 import { detailsRequest, Person } from "@/types/requests";
@@ -160,10 +162,6 @@ export function RequestDetails({
               </div>
               <DetailItem label="Quantity" value={data.quantity?.toString() || "1"} />
               <DetailItem 
-                label="End Date" 
-                value={data.expectedEndDate ? format(new Date(data.expectedEndDate), "PPP") : "None"} 
-              />
-              <DetailItem 
                 label="Expected Delivery Date" 
                 value={data.expectedDeliveryDate ? format(new Date(data.expectedDeliveryDate), "PPP") : "None"} 
               />
@@ -177,7 +175,7 @@ export function RequestDetails({
           </Card>
 
           {/* Technology Stack */}
-          {data.requestType !== "DECOMMISSION" && (
+          {data.requestType !== "DECOMMISSION" && data.requestType !== "NEW_VM" && (
             <Card title="Technology Stack" icon={Code}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <DetailItem label="Frontend" value={data.frontendTech} />
@@ -191,10 +189,121 @@ export function RequestDetails({
             </Card>
           )}
 
+          {/* Repeatable VM Specifications */}
+          {(data.requestType === "NEW_VM") && data.vmSpecifications && data.vmSpecifications.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Server className="w-5 h-5 text-indigo-600" /> 
+                Requested VM Specifications ({data.vmSpecifications.length})
+              </h3>
+              <div className="space-y-4">
+                {data.vmSpecifications.map((spec: any, index: number) => (
+                  <div key={spec.id || index} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="bg-slate-50/50 px-5 py-3 border-b border-slate-100 flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                        <span className="h-5 w-5 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center text-xs font-bold">
+                          {index + 1}
+                        </span>
+                        <span className="font-bold text-slate-700 text-sm">
+                          {spec.stack || "General Purpose VM"}
+                        </span>
+                      </div>
+                      <Badge className="bg-indigo-100 text-indigo-800">{spec.environment}</Badge>
+                    </div>
+                    <div className="p-5 space-y-4 text-xs">
+                      {/* Grid of attributes */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-[10px] uppercase text-slate-400 font-bold">Compute</p>
+                          <p className="font-semibold text-slate-800 mt-0.5">{spec.vcpu} Cores / {spec.ramGb} GB RAM</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase text-slate-400 font-bold">Primary Storage</p>
+                          <p className="font-semibold text-slate-800 mt-0.5">{spec.storageGb} GB</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase text-slate-400 font-bold">OS Version</p>
+                          <p className="font-semibold text-slate-800 mt-0.5">{spec.osVersion || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase text-slate-400 font-bold">Proposed Subdomain</p>
+                          <p className="font-semibold text-slate-800 mt-0.5">{spec.subdomain ? `https://${spec.subdomain}.dghs.gov.bd` : "—"}</p>
+                        </div>
+                      </div>
+
+                      {/* GPU */}
+                      {spec.gpuEnabled && (
+                        <div className="bg-amber-50/50 border border-amber-200 rounded-lg p-3 grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-[10px] uppercase text-amber-600 font-bold">GPU VRAM</p>
+                            <p className="font-semibold text-amber-800 mt-0.5">{spec.gpuVramGb} GB</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase text-amber-600 font-bold">GPU Storage</p>
+                            <p className="font-semibold text-amber-800 mt-0.5">{spec.gpuStorageGb} GB</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Connectivity */}
+                      {spec.connectivity && spec.connectivity.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[10px] uppercase text-slate-400 font-bold mb-1">Connectivity</p>
+                          <div className="flex flex-wrap gap-2">
+                            {spec.connectivity.map((c: any, i: number) => (
+                              <Badge key={i} variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-bold">
+                                {c.accessType === "LOCAL" ? "Local" : c.accessType === "INTERNET" ? "Internet" : c.accessType === "REMOTE" ? "Remote" : c.accessType === "VPN" ? "VPN" : c.accessType}
+                              </Badge>
+                            ))}
+                          </div>
+                          {spec.vpnDetails && (
+                            <div className="bg-emerald-50/50 border border-emerald-100 p-2.5 rounded-lg text-emerald-800 mt-1 max-w-xl">
+                              <p className="font-bold text-[10px] uppercase text-emerald-600 mb-0.5">VPN Connection Details</p>
+                              <p className="text-xs">{spec.vpnDetails}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Firewall Ports */}
+                      {spec.firewallRules && spec.firewallRules.length > 0 && (
+                        <div className="border-t border-slate-100 pt-3">
+                          <p className="text-[10px] uppercase text-slate-400 font-bold mb-2">Firewall Rules</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {spec.firewallRules.map((rule: any, i: number) => (
+                              <div key={i} className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex justify-between items-center">
+                                <span className="font-bold text-slate-700">{rule.port} / {rule.protocol}</span>
+                                <span className="text-slate-500 italic">{rule.purpose}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Additional Storage */}
+                      {spec.additionalStorage && spec.additionalStorage.length > 0 && (
+                        <div className="border-t border-slate-100 pt-3">
+                          <p className="text-[10px] uppercase text-slate-400 font-bold mb-2">Additional Storage</p>
+                          <div className="space-y-2">
+                            {spec.additionalStorage.map((disk: any, i: number) => (
+                              <div key={i} className="bg-slate-50 p-2 rounded-lg border border-slate-100 flex justify-between items-center">
+                                <span className="font-bold text-slate-700">{disk.sizeGb} GB</span>
+                                <span className="text-slate-500 italic">{disk.purpose || `Disk ${disk.sequence}`}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* People */}
           <Card title="Responsible Personnel" icon={Users}>
             <div className="space-y-6">
-              {/* ✅ FIX 1: Proper requester display (Requester type, not Person) */}
               {data.requester && (
                 <PersonSection 
                   title="Primary Contact (Requester)" 
@@ -208,7 +317,6 @@ export function RequestDetails({
                 />
               )}
               
-              {/* ✅ FIX 2: Null-safe alternative person */}
               {data.alternativePerson?.name && (
                 <PersonSection 
                   title="Alternative Contact" 
@@ -216,7 +324,6 @@ export function RequestDetails({
                 />
               )}
               
-              {/* ✅ FIX 3: Null-safe developer */}
               {data.developer?.name && (
                 <PersonSection 
                   title="Technical Developer" 
@@ -229,71 +336,114 @@ export function RequestDetails({
 
         <div className="space-y-6">
           {/* Specification */}
-          {data.requestType === "VPN_ACCESS" || data.requestType === "HORIZON_ACCESS" ? (
-            <Card title="Access Specification" icon={Shield}>
-              <div className="space-y-3">
-                <DetailItem label="Access Type" value={data.accessType || (data.requestType === "VPN_ACCESS" ? "VPN" : "Horizon")} />
-                <DetailItem label="Target VM Hostname" value={data.targetVm?.hostname || "—"} />
-                <DetailItem label="Target VM IP Address" value={data.targetVm?.ipAddress || "—"} />
-                <DetailItem label="Access Justification" value={data.accessJustification || data.purpose} />
-              </div>
-            </Card>
-          ) : data.requestType === "K8S_NAMESPACE" ? (
-            <Card title="K8s Namespace Spec" icon={Code}>
-              <div className="space-y-4">
-                <div className="bg-indigo-50/50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 flex items-center gap-2 mb-2">
-                  <span className="font-semibold">Note:</span> This request specifies Kubernetes node groups to be provisioned.
+          {data.requestType !== "NEW_VM" && (
+            data.requestType === "VPN_ACCESS" || data.requestType === "HORIZON_ACCESS" ? (
+              <Card title="Access Specification" icon={Shield}>
+                <div className="space-y-3">
+                  <DetailItem label="Access Type" value={data.accessType || (data.requestType === "VPN_ACCESS" ? "VPN" : "Horizon")} />
+                  <DetailItem label="Target VM Hostname" value={data.targetVm?.hostname || "—"} />
+                  <DetailItem label="Target VM IP Address" value={data.targetVm?.ipAddress || "—"} />
+                  <DetailItem label="Access Justification" value={data.accessJustification || data.purpose} />
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        <th className="py-2">Role</th>
-                        <th className="py-2 text-center">Node Count</th>
-                        <th className="py-2 text-center">vCPU</th>
-                        <th className="py-2 text-center">RAM</th>
-                        <th className="py-2 text-right">Storage</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50 text-xs">
-                      {data.k8sRequestNodeGroups?.map((group: any) => (
-                        <tr key={group.id} className="text-slate-700">
-                          <td className="py-2.5 font-bold text-indigo-700">{group.role}</td>
-                          <td className="py-2.5 text-center font-semibold">{group.nodeCount}</td>
-                          <td className="py-2.5 text-center">{group.vcpu} Cores</td>
-                          <td className="py-2.5 text-center">{group.ramGb} GB</td>
-                          <td className="py-2.5 text-right font-medium">{group.storageGb} GB</td>
+              </Card>
+            ) : data.requestType === "K8S_NAMESPACE" ? (
+              <Card title="K8s Namespace Spec" icon={Code}>
+                <div className="space-y-4">
+                  <div className="bg-indigo-50/50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 flex items-center gap-2 mb-2">
+                    <span className="font-semibold">Note:</span> This request specifies Kubernetes node groups to be provisioned.
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          <th className="py-2">Role</th>
+                          <th className="py-2 text-center">Node Count</th>
+                          <th className="py-2 text-center">vCPU</th>
+                          <th className="py-2 text-center">RAM</th>
+                          <th className="py-2 text-right">Storage</th>
                         </tr>
-                      )) || (
-                        <tr>
-                          <td colSpan={5} className="py-4 text-center text-slate-400 italic">No node groups defined</td>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50 text-xs">
+                        {data.k8sRequestNodeGroups?.map((group: any) => (
+                          <tr key={group.id} className="text-slate-700">
+                            <td className="py-2.5 font-bold text-indigo-700">{group.role}</td>
+                            <td className="py-2.5 text-center font-semibold">{group.nodeCount}</td>
+                            <td className="py-2.5 text-center">{group.vcpu} Cores</td>
+                            <td className="py-2.5 text-center">{group.ramGb} GB</td>
+                            <td className="py-2.5 text-right font-medium">{group.storageGb} GB</td>
+                          </tr>
+                        )) || (
+                          <tr>
+                            <td colSpan={5} className="py-4 text-center text-slate-400 italic">No node groups defined</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </Card>
+            ) : data.requestType === "SYSTEM_UPGRADE" ? (
+              <Card title="Compute Upgrade Specifications" icon={Cpu}>
+                <div className="space-y-4">
+                  <div className="bg-indigo-50/50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 flex items-center gap-2 mb-2">
+                    <span className="font-semibold">Note:</span> This is a request to upgrade compute resources of VM: <strong className="ml-1">{data.targetVm?.hostname || data.vmInstances?.[0]?.hostname || "Target VM"}</strong>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          <th className="py-2">Resource</th>
+                          <th className="py-2 text-center">Current</th>
+                          <th className="py-2 text-center">Requested Upgrade</th>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50 text-xs">
+                        <tr className="text-slate-700">
+                          <td className="py-2.5 font-semibold">vCPU Cores</td>
+                          <td className="py-2.5 text-center">{data.targetVm?.currentSpec?.vcpu || "—"} Cores</td>
+                          <td className="py-2.5 text-center font-bold text-indigo-700">
+                            {data.upgradeCpu ? `${data.upgradeCpu} Cores` : "No Change"}
+                          </td>
+                        </tr>
+                        <tr className="text-slate-700">
+                          <td className="py-2.5 font-semibold">Memory (RAM)</td>
+                          <td className="py-2.5 text-center">{data.targetVm?.currentSpec?.ramGb || "—"} GB</td>
+                          <td className="py-2.5 text-center font-bold text-indigo-700">
+                            {data.upgradeRamGb ? `${data.upgradeRamGb} GB` : "No Change"}
+                          </td>
+                        </tr>
+                        <tr className="text-slate-700">
+                          <td className="py-2.5 font-semibold">Additional Storage</td>
+                          <td className="py-2.5 text-center">{data.targetVm?.currentSpec?.storageGb || "—"} GB (Current Total)</td>
+                          <td className="py-2.5 text-center font-bold text-indigo-700">
+                            {data.upgradeStorageGb ? `+${data.upgradeStorageGb} GB (Additional)` : "No Change"}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            </Card>
-          ) : (
-            <Card title="Resource Specification" icon={HardDrive}>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center border-b border-slate-50 pb-2">
-                  <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-blue-500" /> <span className="text-sm text-slate-600">vCPU</span></div>
-                  <span className="font-bold text-slate-900">{data.vcpu || 0} Cores</span>
+              </Card>
+            ) : (
+              <Card title="Resource Specification" icon={HardDrive}>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                    <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full" /> <span className="text-sm text-slate-600">vCPU</span></div>
+                    <span className="font-bold text-slate-900">{data.vcpu || 0} Cores</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                    <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full" /> <span className="text-sm text-slate-600">RAM</span></div>
+                    <span className="font-bold text-slate-900">{data.ramGb || 0} GB</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-slate-50 pb-2">
+                    <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-emerald-500" /> <span className="text-sm text-slate-600">Storage</span></div>
+                    <span className="font-bold text-slate-900">{data.storageGb || 0} GB</span>
+                  </div>
+                  <DetailItem label="Operating System" value={`${data.osName || ""} ${data.osVersion || ""}`} />
+                  <DetailItem label="Subdomain" value={data.subdomain} />
                 </div>
-                <div className="flex justify-between items-center border-b border-slate-50 pb-2">
-                  <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-indigo-500" /> <span className="text-sm text-slate-600">RAM</span></div>
-                  <span className="font-bold text-slate-900">{data.ramGb || 0} GB</span>
-                </div>
-                <div className="flex justify-between items-center border-b border-slate-50 pb-2">
-                  <div className="flex items-center gap-2"><div className="h-2 w-2 rounded-full bg-emerald-500" /> <span className="text-sm text-slate-600">Storage</span></div>
-                  <span className="font-bold text-slate-900">{data.storageGb || 0} GB</span>
-                </div>
-                <DetailItem label="Operating System" value={`${data.osName || ""} ${data.osVersion || ""}`} />
-                <DetailItem label="RAID Level" value={data.raid || "NONE"} />
-                <DetailItem label="Subdomain" value={data.subdomain} />
-              </div>
-            </Card>
+              </Card>
+            )
           )}
 
           {/* Security & Compliance */}
@@ -301,6 +451,12 @@ export function RequestDetails({
             <div className="space-y-2">
               <ComplianceItem label="Public IP" status={data.requiredPublicIP} />
               <ComplianceItem label="VPN Required" status={data.vpnRequired} />
+              {data.vpnRequired && data.vpnDetails && (
+                <div className="bg-emerald-50/50 border border-emerald-100 p-2.5 rounded-lg text-emerald-800 text-[11px] mt-2 max-w-full">
+                  <p className="font-bold text-[10px] uppercase text-emerald-600 mb-0.5">VPN Connection Details</p>
+                  <p className="text-xs">{data.vpnDetails}</p>
+                </div>
+              )}
               <ComplianceItem label="VA Report" status={data.vaReportSubmitted} />
               <ComplianceItem label="Renewal" status={data.renewalRequired} />
               {data.renewalPeriodMonths && (
@@ -350,7 +506,7 @@ export function RequestDetails({
         </div>
       </div>
 
-      {/* ✅ FIX 4: Null-safe vmInstances check */}
+      {/* Provisioned Instances */}
       {data?.vmInstances && data.vmInstances.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
@@ -362,10 +518,21 @@ export function RequestDetails({
 
       {/* Approval Flow */}
       {data?.approvals && data.approvals.length > 0 && (
-      <ApprovalPanel
-        approvals={data.approvals || []}
-        requestType={data.requestType || ""}
-      />
+        <div className="space-y-6">
+          <ApprovalPanel
+            approvals={data.approvals || []}
+            requestType={data.requestType || ""}
+          />
+          <Card title="Approval Progress & Timeline" icon={Clock}>
+            <div className="p-4 bg-slate-50/30 rounded-xl">
+              <Timeline
+                requestType={data.requestType || ""}
+                currentStatus={data.status || ""}
+                approvals={data.approvals as any || []}
+              />
+            </div>
+          </Card>
+        </div>
       )}
       {/* Bottom Action Bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t p-4 shadow-2xl flex justify-between items-center z-50">

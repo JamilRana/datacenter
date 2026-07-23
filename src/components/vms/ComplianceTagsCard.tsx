@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Tag, Plus, Loader2, Info } from "lucide-react";
+import { Tag, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { getComplianceTags, assignTagsToVm, assignTagsToRequest } from "@/app/actions/tag-actions";
 import { ROLES, hasRole } from "@/lib/roles";
@@ -59,7 +59,7 @@ export default function ComplianceTagsCard({
       const data = await getComplianceTags();
       setAllTags(data);
       setIsEditing(true);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load compliance tags");
     } finally {
       setIsLoadingTags(false);

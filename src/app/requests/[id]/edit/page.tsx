@@ -91,7 +91,7 @@ export default function EditRequestPage({
         <ChevronRight className="h-4 w-4 mx-2" />
         <Link href="/requests" className="hover:text-slate-900">Requests</Link>
         <ChevronRight className="h-4 w-4 mx-2" />
-        <Link href={`/requests/${params.id}`} className="hover:text-slate-900">Details</Link>
+        <Link href={`/requests/${params.id}/view`} className="hover:text-slate-900">Details</Link>
         <ChevronRight className="h-4 w-4 mx-2" />
         <span className="text-slate-900 font-medium">Edit</span>
       </div>

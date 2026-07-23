@@ -54,7 +54,7 @@ export async function fetchDashboardData(
   };
   
   const userApprovalLevels = userRoles
-    .map(role => levelMapping[role])
+    .map((role: any) => levelMapping[role])
     .filter((lvl): lvl is number => lvl !== undefined);
 
   // Admins see everything - regardless of also having approver role
@@ -377,7 +377,7 @@ export async function fetchDashboardData(
   // ✅ TRANSFORM WITH STRING VALUES (no enum conflicts)
   const dashboardRequests: DashboardRequest[] = [
     // Standard requests (NEW_VM, RENEWAL, DECOMMISSION)
-    ...requests.map(req => ({
+    ...requests.map((req: any) => ({
       id: req.id,
       createdAt: req.createdAt,
       status: req.status, // ✅ Prisma enum auto-converts to string
@@ -390,7 +390,7 @@ export async function fetchDashboardData(
         email: req.requester.email,
         designation: req.requester.designation || null
       } : null,
-      targetVm: req.requestType === RequestType.DECOMMISSION && req.targetVm 
+      targetVm: req.targetVm 
         ? { hostname: req.targetVm.hostname } 
         : null,
       approvals: req.approvals,
@@ -400,7 +400,7 @@ export async function fetchDashboardData(
     })),
     
     // Customization requests
-    ...customizations.map(cust => ({
+    ...customizations.map((cust: any) => ({
       id: cust.id,
       createdAt: cust.createdAt,
       status: cust.status, // ✅ Prisma enum → string
@@ -421,7 +421,7 @@ export async function fetchDashboardData(
       approvals: cust.approvals
     }))
   ]
-  .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  .sort((a: any, b: any) => b.createdAt.getTime() - a.createdAt.getTime())
   .slice(0, 100); // Limit final display
 
   return {

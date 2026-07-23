@@ -112,7 +112,7 @@ export async function deleteWorkflowLevel(id: string) {
     }
   }
 
-  if (remaining.length > 0 && !remaining.some((w) => w.isFinal)) {
+  if (remaining.length > 0 && !remaining.some((w: any) => w.isFinal)) {
     await prisma.approvalWorkflow.update({
       where: { id: remaining[remaining.length - 1].id },
       data: { isFinal: true },
@@ -156,7 +156,7 @@ export async function duplicateWorkflow(sourceRequestType: string, targetRequest
   });
 
   return prisma.$transaction(
-    sourceWorkflows.map((w) =>
+    sourceWorkflows.map((w: any) =>
       prisma.approvalWorkflow.create({
         data: {
           requestType: targetRequestType,

@@ -7,7 +7,10 @@ COPY package.json package-lock.json ./
 COPY prisma/schema.prisma ./prisma/
 COPY prisma.config.js ./  
 
-RUN npm ci
+RUN npm config set fetch-retry-maxtimeout 600000 \
+ && npm config set fetch-retry-mintimeout 60000 \
+ && npm config set fetch-retries 10 \
+ && npm ci
 
 # Stage 2: Builder
 FROM node:22-slim AS builder

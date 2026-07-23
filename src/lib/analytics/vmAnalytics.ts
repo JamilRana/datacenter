@@ -107,16 +107,16 @@ async function getVmByOwner(): Promise<VmByOwner[]> {
     take: 10,
   });
 
-  const ownerIds = result.map((r) => r.ownerId).filter(Boolean) as string[];
+  const ownerIds = result.map((r: any) => r.ownerId).filter(Boolean) as string[];
 
   const owners = await prisma.user.findMany({
     where: { id: { in: ownerIds } },
     select: { id: true, name: true },
   });
 
-  const ownerMap = new Map(owners.map((u) => [u.id, u.name]));
+  const ownerMap = new Map(owners.map((u: any) => [u.id, u.name]));
 
-  return result.map((r) => ({
+  return result.map((r: any) => ({
     ownerName: ownerMap.get(r.ownerId!) || "Unknown",
     count: r._count,
   }));
@@ -131,7 +131,7 @@ async function getVmByDomain(): Promise<VmByDomain[]> {
     take: 10,
   });
 
-  return result.map((r) => ({
+  return result.map((r: any) => ({
     subdomain: r.subdomain || "No Domain",
     count: r._count,
   }));
@@ -143,7 +143,7 @@ async function getVmStatus(): Promise<VmByStatus[]> {
     _count: true,
   });
 
-  return result.map((r) => ({
+  return result.map((r: any) => ({
     status: r.status,
     count: r._count,
   }));
@@ -163,7 +163,7 @@ async function getRecentVmActivity(): Promise<VmActivity[]> {
     },
   });
 
-  return logs.map((log) => ({
+  return logs.map((log: any) => ({
     id: log.id,
     action: log.action,
     entityType: log.entityType || "VM",
@@ -205,6 +205,6 @@ async function getVmResourceAllocation(): Promise<VmResourceAllocation[]> {
   }
 
   return Array.from(allocationMap.values()).sort(
-    (a, b) => b.totalCpu - a.totalCpu
+    (a: VmResourceAllocation, b: VmResourceAllocation) => b.totalCpu - a.totalCpu
   );
 }

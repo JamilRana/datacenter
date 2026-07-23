@@ -191,7 +191,7 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
   });
   
   const avgApprovalTimeHours = approvedRequests.length > 0
-    ? approvedRequests.reduce((acc, r) => {
+    ? approvedRequests.reduce((acc: number, r: any) => {
         const approvedApproval = r.approvals[0];
         if (approvedApproval?.decidedAt && r.submittedAt) {
           return acc + differenceInHours(approvedApproval.decidedAt, r.submittedAt);
@@ -209,7 +209,7 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
     where: whereClause
   });
 
-  const envDistribution: EnvDistributionItem[] = envGroups.map(g => ({
+  const envDistribution: EnvDistributionItem[] = envGroups.map((g: any) => ({
     environment: g.environment as Environment,
     count: g._count._all,
     percentage: Math.round((g._count._all / totalForPercent) * 100)
@@ -222,7 +222,7 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
     where: whereClause
   });
 
-  const typeDistribution: TypeDistributionItem[] = typeGroups.map(g => ({
+  const typeDistribution: TypeDistributionItem[] = typeGroups.map((g: any) => ({
     type: g.requestType as RequestType,
     count: g._count._all,
     percentage: Math.round((g._count._all / totalForPercent) * 100)
@@ -235,7 +235,7 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
     where: whereClause
   });
 
-  const statusDistribution: StatusDistributionItem[] = statusGroups.map(g => ({
+  const statusDistribution: StatusDistributionItem[] = statusGroups.map((g: any) => ({
     status: g.status as RequestStatus,
     count: g._count._all,
     percentage: Math.round((g._count._all / totalForPercent) * 100)
@@ -285,7 +285,7 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
     where: whereClause
   });
 
-  const topRequesters: TopRequesterItem[] = await Promise.all(topRequestersRaw.map(async (tr) => {
+  const topRequesters: TopRequesterItem[] = await Promise.all(topRequestersRaw.map(async (tr: any) => {
     const user = await prisma.user.findUnique({ 
       where: { id: tr.requesterId }, 
       select: { name: true, email: true, organization: true } 
@@ -308,7 +308,7 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
     });
     
     const avgTime = userRequests.length > 0
-      ? userRequests.reduce((acc, r) => {
+      ? userRequests.reduce((acc: number, r: any) => {
           const approvedApproval = r.approvals[0];
           if (approvedApproval?.decidedAt && r.submittedAt) {
             return acc + differenceInHours(approvedApproval.decidedAt, r.submittedAt);
@@ -328,28 +328,28 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
   }));
 
   // 7. Department Breakdown (from User.organization)
-  const requesterIds = topRequestersRaw.map(g => g.requesterId);
+  const requesterIds = topRequestersRaw.map((g: any) => g.requesterId);
   const usersWithOrg = await prisma.user.findMany({
     where: { id: { in: requesterIds } },
     select: { id: true, organization: true }
   });
   
-  const orgMap = new Map(usersWithOrg.map(u => [u.id, u.organization || "Unassigned"]));
+  const orgMap = new Map<string, string>(usersWithOrg.map((u: any) => [u.id, u.organization || "Unassigned"]));
   
   const deptCounts = new Map<string, number>();
-  for (const tr of topRequestersRaw) {
+  for (const tr of topRequestersRaw as any[]) {
     const dept = orgMap.get(tr.requesterId) || "Unassigned";
     deptCounts.set(dept, (deptCounts.get(dept) || 0) + tr._count._all);
   }
   
   const departmentBreakdown: DepartmentBreakdownItem[] = Array.from(deptCounts.entries())
-    .map(([dept, count]) => ({
+    .map(([dept, count]: any) => ({
       department: dept,
       requestCount: count,
       budgetUsed: count * 1250, // Example: $1250 avg cost per request
       percentage: Math.round((count / totalForPercent) * 100)
     }))
-    .sort((a, b) => b.requestCount - a.requestCount)
+    .sort((a: any, b: any) => b.requestCount - a.requestCount)
     .slice(0, 8);
 
   // 8. Resource Metrics from VM instances (avg specs by environment)
@@ -374,7 +374,7 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
     m.count += 1;
   }
   
-  const resourceMetrics: ResourceMetricItem[] = Array.from(envMetrics.entries()).map(([env, data]) => ({
+  const resourceMetrics: ResourceMetricItem[] = Array.from(envMetrics.entries()).map(([env, data]: any) => ({
     environment: env as Environment,
     avgCpu: data.count > 0 ? Math.round((data.cpu / data.count) * 10) / 10 : 0,
     avgRam: data.count > 0 ? Math.round((data.ram / data.count) * 10) / 10 : 0,
@@ -385,7 +385,7 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
   // 9. Approval Funnel Analysis
   const funnelStages: RequestStatus[] = ["DRAFT", "PENDING_L1", "PENDING_L2", "PENDING_L3", "APPROVED", "PROVISIONED"];
   
-  const approvalFunnel: ApprovalFunnelItem[] = await Promise.all(funnelStages.map(async (stage, idx) => {
+  const approvalFunnel: ApprovalFunnelItem[] = await Promise.all(funnelStages.map(async (stage: RequestStatus, idx: number) => {
     const count = await prisma.request.count({
       where: { 
         status: stage,
@@ -474,7 +474,7 @@ export async function getExportData(
     take: 1000 // Limit for export performance
   });
 
-  return requests.map(r => {
+  return requests.map((r: any) => {
     const firstVm = r.vmInstances[0];
     const vmSpec = firstVm?.currentSpec;
     return {
@@ -589,7 +589,7 @@ export async function getVpnHorizonReportData(): Promise<{ success: boolean; dat
       orderBy: { createdAt: "desc" }
     });
 
-    const formattedData: VpnHorizonReportItem[] = requests.map(r => ({
+    const formattedData: VpnHorizonReportItem[] = requests.map((r: any) => ({
       id: r.id,
       systemName: r.systemName,
       projectName: r.projectName,

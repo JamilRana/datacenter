@@ -6,7 +6,7 @@ async function checkWorkflows() {
   });
   
   console.log('Total workflows:', workflows.length);
-  workflows.forEach(w => {
+  workflows.forEach((w: any) => {
     console.log(`${w.requestType} | Level ${w.level} | ${w.role} | isFinal: ${w.isFinal}`);
   });
   

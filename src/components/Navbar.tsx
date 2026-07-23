@@ -192,12 +192,14 @@ export function Navbar() {
                     <UserCircle className="h-4 w-4" /> Profile Settings
                   </Link>
                   <div className="border-t my-1"></div>
-                  <button
-                    onClick={() => signOut()}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 w-full"
-                  >
-                    <LogOut className="h-4 w-4" /> Sign Out
-                  </button>
+                  {!(pathname === "/requests/new" || (/^\/requests\/[a-zA-Z0-9-]+\/edit$/).test(pathname)) && (
+                    <button
+                      onClick={() => signOut()}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 w-full"
+                    >
+                      <LogOut className="h-4 w-4" /> Sign Out
+                    </button>
+                  )}
                 </div>
               )}
             </div>

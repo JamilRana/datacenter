@@ -36,7 +36,7 @@ export default function AdminTagsPage() {
       const data = await getComplianceTags();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setTags(data as any);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load compliance tags");
     } finally {
       setIsLoading(false);

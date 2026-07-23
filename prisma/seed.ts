@@ -1,4 +1,4 @@
-import { PrismaClient, RequestType, RequestStatus, ServerType, Environment, Protocol, Raid, LicenseProvider, ApprovalDecision, ApprovalEntityType } from "@prisma/client";
+import { PrismaClient, RequestType, RequestStatus, ServerType, Environment, Protocol, LicenseProvider, ApprovalDecision, ApprovalEntityType } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import * as path from 'path';

@@ -1,12 +1,10 @@
 // src/app/actions/clone-actions.ts
 "use server";
 
-import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { 
-  Prisma,
   AttachmentType, 
   Environment, 
   RequestStatus, 
@@ -19,7 +17,6 @@ import {
   VmStatus
 } from "@prisma/client";
 import { generateApprovals } from "./approval-actions";
-import { notifyApprovers } from "@/lib/notifications";
 import { AdditionalDisk, FirewallPort } from "@/types/requests";
 import { ROLES, hasRole } from "@/lib/roles";
 
@@ -56,7 +53,7 @@ export async function createCloneRequest(formData: FormData) {
         include: { roles: { include: { role: true } } }
       });
 
-      if (!assignedUser || !assignedUser.roles.some(r => r.role.name === ROLES.REQUESTER)) {
+      if (!assignedUser || !assignedUser.roles.some((r: any) => r.role.name === ROLES.REQUESTER)) {
         throw new Error("Assigned user must have REQUESTER role");
       }
 
@@ -139,7 +136,7 @@ export async function createCloneRequest(formData: FormData) {
     }
 
     // ✅ CREATE REQUEST WITH CORRECT FIELDS
-    const newCreatedRequest = await prisma.$transaction(async (tx) => {
+    const newCreatedRequest = await prisma.$transaction(async (tx: any) => {
       const created = await tx.request.create({
         data: {
           requestType: RequestType.CLONE_VM,
@@ -149,9 +146,6 @@ export async function createCloneRequest(formData: FormData) {
           projectName: formData.get("projectName")?.toString() || null,
           purpose: formData.get("purpose")?.toString() || "",
           environment: env as Environment,
-          expectedEndDate: formData.get("expectedEndDate")
-            ? new Date(formData.get("expectedEndDate") as string)
-            : null,
           expectedDeliveryDate: formData.get("expectedDeliveryDate")
             ? new Date(formData.get("expectedDeliveryDate") as string)
             : null,
@@ -263,7 +257,6 @@ export async function createCloneRequest(formData: FormData) {
         "REQUEST",
         RequestType.CLONE_VM
       );
-      await notifyApprovers(newCreatedRequest.id, newCreatedRequest.systemName);
     }
 
     // Audit log

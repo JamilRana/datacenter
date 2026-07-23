@@ -6,20 +6,18 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { uploadBuffer, deleteFile } from "@/lib/services/minio.service";
 import { Prisma,
-  ApprovalDecision, 
   ApprovalEntityType,  
   AttachmentType, 
   Environment, 
   LicenseProvider, 
   NetworkAccess, 
-  Raid, 
   RequestStatus, 
   RequestType, 
   ServerType, 
   SSLProvider,
-  Protocol
+  Protocol,
+  K8sNodeRole
 } from "@prisma/client";
-import { notifyApprovers } from "@/lib/notifications";
 import { unlink } from "fs/promises";
 import path from "path";
 import * as fs from "fs";
@@ -84,7 +82,7 @@ export async function createRequest(formData: FormData) {
         include: { roles: { include: { role: true } } }
       });
 
-      if (!assignedUser || !assignedUser.roles.some(r => r.role.name === ROLES.REQUESTER)) {
+      if (!assignedUser || !assignedUser.roles.some((r: any) => r.role.name === ROLES.REQUESTER)) {
         throw new Error("Assigned user must have REQUESTER role");
       }
 
@@ -96,9 +94,11 @@ export async function createRequest(formData: FormData) {
     const rawAdditionalDisks = formData.get("additionalDisks")?.toString();
     const rawFirewallPorts = formData.get("firewallPorts")?.toString();
     const rawNetworkAccess = formData.get("networkAccess")?.toString();
+    const rawVmSpecifications = formData.get("vmSpecifications")?.toString();
     const additionalDisks = rawAdditionalDisks ? JSON.parse(rawAdditionalDisks) : [];
     const firewallPorts = rawFirewallPorts ? JSON.parse(rawFirewallPorts) : [];
     const networkAccess = rawNetworkAccess ? JSON.parse(rawNetworkAccess) : [];
+    const vmSpecifications = rawVmSpecifications ? JSON.parse(rawVmSpecifications) : [];
     const securityFile = formData.get("securityReport") as File;
     const justificationFile = formData.get("justificationDoc") as File;
     const requestId = crypto.randomUUID();
@@ -144,19 +144,25 @@ export async function createRequest(formData: FormData) {
     }
 
     // ✅ CREATE REQUEST WITH CORRECT FIELDS (schema-aligned)
-    const newCreatedRequest = await prisma.$transaction(async (tx) => {
+    const newCreatedRequest = await prisma.$transaction(async (tx: any) => {
+      const rType = (formData.get("requestType") as RequestType) || RequestType.NEW_VM;
+      const firstSpec = vmSpecifications[0];
+      const isNewVmOnly = rType === RequestType.NEW_VM;
+      const finalVcpu = isNewVmOnly && firstSpec ? (parseInt(firstSpec.vcpu) || 0) : parseInt(formData.get("vcpu")?.toString() || "0");
+      const finalRam = isNewVmOnly && firstSpec ? (parseInt(firstSpec.ramGb) || 0) : parseInt(formData.get("ramGb")?.toString() || "0");
+      const finalStorage = isNewVmOnly && firstSpec ? (parseInt(firstSpec.storageGb) || 0) : parseInt(formData.get("storageGb")?.toString() || "0");
+      const finalOsVersion = isNewVmOnly && firstSpec ? firstSpec.osVersion : formData.get("osVersion")?.toString() || null;
+      const finalSubdomain = isNewVmOnly && firstSpec ? firstSpec.subdomain : formData.get("subdomain")?.toString() || null;
+
       const created = await tx.request.create({
         data: {
-          requestType: (formData.get("requestType") as RequestType) || RequestType.NEW_VM,
+          requestType: rType,
           status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
           quantity: parseInt(formData.get("quantity")?.toString() || "1", 10),
           systemName: formData.get("systemName")?.toString() || "",
           projectName: formData.get("projectName")?.toString() || null,
           purpose: formData.get("purpose")?.toString() || "",
           environment: env as Environment,
-          expectedEndDate: formData.get("expectedEndDate")
-            ? new Date(formData.get("expectedEndDate") as string)
-            : null,
           expectedDeliveryDate: formData.get("expectedDeliveryDate")
             ? new Date(formData.get("expectedDeliveryDate") as string)
             : null,
@@ -177,25 +183,25 @@ export async function createRequest(formData: FormData) {
           }),
 
           // VM Spec
-          vcpu: parseInt(formData.get("vcpu")?.toString() || "0"),
-          ramGb: parseInt(formData.get("ramGb")?.toString() || "0"),
-          storageGb: parseInt(formData.get("storageGb")?.toString() || "0"),
+          vcpu: finalVcpu,
+          ramGb: finalRam,
+          storageGb: finalStorage,
           serverType: (formData.get("serverType") as ServerType) || ServerType.OTHER,
-          osName: formData.get("osName")?.toString() || null,
-          osVersion: formData.get("osVersion")?.toString() || null,
+          osName: isNewVmOnly ? null : (formData.get("osName")?.toString() || null),
+          osVersion: finalOsVersion,
           osLicenseBy: formData.get("osLicenseBy") as LicenseProvider || null,
-          subdomain: formData.get("subdomain")?.toString() || null,
+          subdomain: finalSubdomain,
           sslProvider: formData.get("sslProvider") as SSLProvider || SSLProvider.MIS,
           sslCostPaidBy: formData.get("sslCostPaidBy")?.toString() || null,
-          raid: formData.get("raid") as Raid || Raid.NONE,
           requiredPublicIP: formData.get("requiredPublicIP") === "on",
           vpnRequired: formData.get("vpnRequired") === "on",
+          vpnDetails: formData.get("vpnDetails")?.toString() || null,
 
           // Tech Stack
-          frontendTech: formData.get("frontendTech")?.toString() || null,
-          backendTech: formData.get("backendTech")?.toString() || null,
-          dataBase: formData.get("dataBase")?.toString() || null,
-          serverArchitecture: formData.get("serverArchitecture")?.toString() || null,
+          frontendTech: isNewVmOnly ? null : (formData.get("frontendTech")?.toString() || null),
+          backendTech: isNewVmOnly ? null : (formData.get("backendTech")?.toString() || null),
+          dataBase: isNewVmOnly ? null : (formData.get("dataBase")?.toString() || null),
+          serverArchitecture: isNewVmOnly ? null : (formData.get("serverArchitecture")?.toString() || null),
           additionalTechNotes: formData.get("additionalTechNotes")?.toString() || null,
 
           // Alternate Person (optional backup contact)
@@ -215,33 +221,103 @@ export async function createRequest(formData: FormData) {
 
           // Relations
           additionalDisks: {
-            create: additionalDisks
-              .filter((d: AdditionalDisk) => d.sizeGb && d.sizeGb > 0)
-              .map((d: AdditionalDisk, index: number) => ({
-                sizeGb: d.sizeGb,
-                purpose: d.purpose || null,
-                sequence: index + 1,
-              })),
+            create: isNewVmOnly
+              ? []
+              : additionalDisks
+                  .filter((d: AdditionalDisk) => d.sizeGb && d.sizeGb > 0)
+                  .map((d: AdditionalDisk, index: number) => ({
+                    sizeGb: d.sizeGb,
+                    purpose: d.purpose || null,
+                    sequence: index + 1,
+                  })),
           },
           firewallPorts: {
-            create: firewallPorts
-              .filter((p: FirewallPort) => p.port && p.port > 0)
-              .map((p: FirewallPort) => ({
-                port: p.port,
-                protocol: p.protocol as Protocol,
-                purpose: p.purpose || "N/A",
-                source: p.source || null,
-              })),
+            create: isNewVmOnly
+              ? []
+              : firewallPorts
+                  .filter((p: FirewallPort) => p.port && p.port > 0)
+                  .map((p: FirewallPort) => ({
+                    port: p.port,
+                    protocol: p.protocol as Protocol,
+                    purpose: p.purpose || "N/A",
+                    source: p.source || null,
+                  })),
           },
           networkAccess: {
-            create: networkAccess
-              .filter((type: string) => type)
-              .map((type: string) => ({
-                accessType: type as NetworkAccess,
-              })),
+            create: isNewVmOnly
+              ? []
+              : networkAccess
+                  .filter((type: string) => type)
+                  .map((type: string) => ({
+                    accessType: type as NetworkAccess,
+                  })),
           },
         },
       });
+
+      // Loop over vmSpecifications and create VmSpecification records + nested connectivity/firewallRules/additionalStorage
+      if (isNewVmOnly && vmSpecifications && vmSpecifications.length > 0) {
+        for (const spec of vmSpecifications) {
+          const createdSpec = await tx.vmSpecification.create({
+            data: {
+              requestId: created.id,
+              stack: spec.stack || null,
+              environment: spec.environment || Environment.PRODUCTION,
+              vcpu: parseInt(spec.vcpu) || 0,
+              ramGb: parseInt(spec.ramGb) || 0,
+              storageGb: parseInt(spec.storageGb) || 0,
+              gpuEnabled: !!spec.gpuEnabled,
+              gpuVramGb: spec.gpuEnabled ? (parseInt(spec.gpuVramGb) || 0) : null,
+              gpuStorageGb: spec.gpuEnabled ? (parseInt(spec.gpuStorageGb) || 0) : null,
+              osVersion: spec.osVersion || null,
+              subdomain: spec.subdomain || null,
+              vpnDetails: spec.vpnDetails || null,
+            }
+          });
+
+          // Create connectivity (NetworkAccessEntry)
+          if (spec.connectivity && spec.connectivity.length > 0) {
+            await tx.networkAccessEntry.createMany({
+              data: spec.connectivity.map((type: string) => ({
+                requestId: created.id,
+                vmSpecificationId: createdSpec.id,
+                accessType: type as NetworkAccess
+              }))
+            });
+          }
+
+          // Create firewall rules (FirewallPort)
+          if (spec.firewallRules && spec.firewallRules.length > 0) {
+            await tx.firewallPort.createMany({
+              data: spec.firewallRules
+                .filter((p: any) => p.port && p.port > 0)
+                .map((p: any) => ({
+                  requestId: created.id,
+                  vmSpecificationId: createdSpec.id,
+                  port: parseInt(p.port),
+                  protocol: p.protocol as Protocol,
+                  purpose: p.purpose || "N/A",
+                  source: p.source || null,
+                }))
+            });
+          }
+
+          // Create additional storage (AdditionalDisk)
+          if (spec.additionalStorage && spec.additionalStorage.length > 0) {
+            await tx.additionalDisk.createMany({
+              data: spec.additionalStorage
+                .filter((d: any) => d.sizeGb && d.sizeGb > 0)
+                .map((d: any, index: number) => ({
+                  requestId: created.id,
+                  vmSpecificationId: createdSpec.id,
+                  sizeGb: parseInt(d.sizeGb),
+                  purpose: d.purpose || null,
+                  sequence: index + 1
+                }))
+            });
+          }
+        }
+      }
 
       // Attachments
       if (attachments.length > 0) {
@@ -267,7 +343,6 @@ export async function createRequest(formData: FormData) {
         "REQUEST",
         newCreatedRequest.requestType
       );
-      await notifyApprovers(newCreatedRequest.id, newCreatedRequest.systemName);
     }
 
     // Audit log
@@ -316,9 +391,11 @@ export async function editRequest(formData: FormData) {
     const rawAdditionalDisks = formData.get("additionalDisks")?.toString();
     const rawFirewallPorts = formData.get("firewallPorts")?.toString();
     const rawNetworkAccess = formData.get("networkAccess")?.toString();
+    const rawVmSpecifications = formData.get("vmSpecifications")?.toString();
     const additionalDisks = rawAdditionalDisks ? JSON.parse(rawAdditionalDisks) : [];
     const firewallPorts = rawFirewallPorts ? JSON.parse(rawFirewallPorts) : [];
     const networkAccess = rawNetworkAccess ? JSON.parse(rawNetworkAccess) : [];
+    const vmSpecifications = rawVmSpecifications ? JSON.parse(rawVmSpecifications) : [];
     const securityFile = formData.get("securityReport") as File;
     const justificationFile = formData.get("justificationDoc") as File;
     const attachments: Attachment[] = [];
@@ -357,7 +434,7 @@ export async function editRequest(formData: FormData) {
       });
     }
 
-    const updatedRequest = await prisma.$transaction(async (tx) => {
+    const updatedRequest = await prisma.$transaction(async (tx: any) => {
       // Fetch existing request with relations
       const original = await tx.request.findUnique({
         where: { id: requestId },
@@ -388,6 +465,7 @@ export async function editRequest(formData: FormData) {
       }
 
       // Clean up existing related records
+      await tx.vmSpecification.deleteMany({ where: { requestId } });
       await tx.additionalDisk.deleteMany({ where: { requestId } });
       await tx.firewallPort.deleteMany({ where: { requestId } });
       await tx.networkAccessEntry.deleteMany({ where: { requestId } });
@@ -445,44 +523,50 @@ export async function editRequest(formData: FormData) {
         }
       }
 
+      const rType = (formData.get("requestType") as RequestType) || RequestType.NEW_VM;
+      const firstSpec = vmSpecifications[0];
+      const isNewVmOnly = rType === RequestType.NEW_VM;
+      const finalVcpu = isNewVmOnly && firstSpec ? (parseInt(firstSpec.vcpu) || 0) : parseInt(formData.get("vcpu")?.toString() || "0");
+      const finalRam = isNewVmOnly && firstSpec ? (parseInt(firstSpec.ramGb) || 0) : parseInt(formData.get("ramGb")?.toString() || "0");
+      const finalStorage = isNewVmOnly && firstSpec ? (parseInt(firstSpec.storageGb) || 0) : parseInt(formData.get("storageGb")?.toString() || "0");
+      const finalOsVersion = isNewVmOnly && firstSpec ? firstSpec.osVersion : formData.get("osVersion")?.toString() || null;
+      const finalSubdomain = isNewVmOnly && firstSpec ? firstSpec.subdomain : formData.get("subdomain")?.toString() || null;
+
       // ✅ CRITICAL FIX: DO NOT include requesterId/developerId in update
       // Prisma automatically preserves existing relation values
       // Only include fields that can actually change during edit
       const updateData = {
-        requestType: (formData.get("requestType") as RequestType) || RequestType.NEW_VM,
+        requestType: rType,
         status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
         quantity: parseInt(formData.get("quantity")?.toString() || "1", 10),
         systemName: formData.get("systemName")?.toString() || "",
         projectName: formData.get("projectName")?.toString() || null,
         purpose: formData.get("purpose")?.toString() || "",
         environment: formData.get("environment") as Environment,
-        expectedEndDate: formData.get("expectedEndDate")
-          ? new Date(formData.get("expectedEndDate") as string)
-          : null,
         expectedDeliveryDate: formData.get("expectedDeliveryDate")
           ? new Date(formData.get("expectedDeliveryDate") as string)
           : null,
 
         // VM Spec (only editable fields)
-        vcpu: parseInt(formData.get("vcpu")?.toString() || "0"),
-        ramGb: parseInt(formData.get("ramGb")?.toString() || "0"),
-        storageGb: parseInt(formData.get("storageGb")?.toString() || "0"),
+        vcpu: finalVcpu,
+        ramGb: finalRam,
+        storageGb: finalStorage,
         serverType: formData.get("serverType") as ServerType || ServerType.OTHER,
-        osName: formData.get("osName")?.toString() || null,
-        osVersion: formData.get("osVersion")?.toString() || null,
+        osName: isNewVmOnly ? null : (formData.get("osName")?.toString() || null),
+        osVersion: finalOsVersion,
         osLicenseBy: formData.get("osLicenseBy") as LicenseProvider || null,
-        subdomain: formData.get("subdomain")?.toString() || null,
+        subdomain: finalSubdomain,
         sslProvider: formData.get("sslProvider") as SSLProvider || SSLProvider.MIS,
         sslCostPaidBy: formData.get("sslCostPaidBy")?.toString() || null,
-        raid: formData.get("raid") as Raid || Raid.NONE,
         requiredPublicIP: formData.get("requiredPublicIP") === "on",
         vpnRequired: formData.get("vpnRequired") === "on",
+        vpnDetails: formData.get("vpnDetails")?.toString() || null,
 
         // Tech Stack
-        frontendTech: formData.get("frontendTech")?.toString() || null,
-        backendTech: formData.get("backendTech")?.toString() || null,
-        dataBase: formData.get("dataBase")?.toString() || null,
-        serverArchitecture: formData.get("serverArchitecture")?.toString() || null,
+        frontendTech: isNewVmOnly ? null : (formData.get("frontendTech")?.toString() || null),
+        backendTech: isNewVmOnly ? null : (formData.get("backendTech")?.toString() || null),
+        dataBase: isNewVmOnly ? null : (formData.get("dataBase")?.toString() || null),
+        serverArchitecture: isNewVmOnly ? null : (formData.get("serverArchitecture")?.toString() || null),
         additionalTechNotes: formData.get("additionalTechNotes")?.toString() || null,
 
         // ✅ ALTERNATE PERSON (editable backup contact)
@@ -492,36 +576,38 @@ export async function editRequest(formData: FormData) {
         alternativePersonContact: formData.get("alternativePersonContact")?.toString() || null,
         alternativePersonEmail: formData.get("alternativePersonEmail")?.toString() || null,
 
-        // ✅ DEVELOPER FLAT FIELDS (preserve original values - NOT editable after creation)
-        // ⚠️ DO NOT update these on edit - they should remain as originally set
-        // developerName, developerDesignation, etc. are preserved automatically
-
         // Relations (recreate)
         additionalDisks: {
-          create: additionalDisks
-            .filter((d: AdditionalDisk) => d.sizeGb && d.sizeGb > 0)
-            .map((d: AdditionalDisk, index: number) => ({
-              sizeGb: d.sizeGb,
-              purpose: d.purpose || null,
-              sequence: index + 1,
-            })),
+          create: isNewVmOnly
+            ? []
+            : additionalDisks
+                .filter((d: AdditionalDisk) => d.sizeGb && d.sizeGb > 0)
+                .map((d: AdditionalDisk, index: number) => ({
+                  sizeGb: d.sizeGb,
+                  purpose: d.purpose || null,
+                  sequence: index + 1,
+                })),
         },
         firewallPorts: {
-          create: firewallPorts
-            .filter((p: FirewallPort) => p.port && p.port > 0)
-            .map((p: FirewallPort) => ({
-              port: p.port,
-              protocol: p.protocol as Protocol,
-              purpose: p.purpose || "N/A",
-              source: p.source || null,
-            })),
+          create: isNewVmOnly
+            ? []
+            : firewallPorts
+                .filter((p: FirewallPort) => p.port && p.port > 0)
+                .map((p: FirewallPort) => ({
+                  port: p.port,
+                  protocol: p.protocol as Protocol,
+                  purpose: p.purpose || "N/A",
+                  source: p.source || null,
+                })),
         },
         networkAccess: {
-          create: networkAccess
-            .filter((type: string) => type)
-            .map((type: string) => ({
-              accessType: type as NetworkAccess,
-            })),
+          create: isNewVmOnly
+            ? []
+            : networkAccess
+                .filter((type: string) => type)
+                .map((type: string) => ({
+                  accessType: type as NetworkAccess,
+                })),
         },
 
         // Compliance
@@ -537,6 +623,91 @@ export async function editRequest(formData: FormData) {
         where: { id: requestId },
         data: updateData,
       });
+
+      // Recreate vmSpecifications
+      if (rType === RequestType.NEW_VM && vmSpecifications && vmSpecifications.length > 0) {
+        for (const spec of vmSpecifications) {
+          const createdSpec = await tx.vmSpecification.create({
+            data: {
+              requestId: updated.id,
+              stack: spec.stack || null,
+              environment: spec.environment || Environment.PRODUCTION,
+              vcpu: parseInt(spec.vcpu) || 0,
+              ramGb: parseInt(spec.ramGb) || 0,
+              storageGb: parseInt(spec.storageGb) || 0,
+              gpuEnabled: !!spec.gpuEnabled,
+              gpuVramGb: spec.gpuEnabled ? (parseInt(spec.gpuVramGb) || 0) : null,
+              gpuStorageGb: spec.gpuEnabled ? (parseInt(spec.gpuStorageGb) || 0) : null,
+              osVersion: spec.osVersion || null,
+              subdomain: spec.subdomain || null,
+              vpnDetails: spec.vpnDetails || null,
+            }
+          });
+
+          // Create connectivity (NetworkAccessEntry)
+          if (spec.connectivity && spec.connectivity.length > 0) {
+            await tx.networkAccessEntry.createMany({
+              data: spec.connectivity.map((type: string) => ({
+                requestId: updated.id,
+                vmSpecificationId: createdSpec.id,
+                accessType: type as NetworkAccess
+              }))
+            });
+          }
+
+          // Create firewall rules (FirewallPort)
+          if (spec.firewallRules && spec.firewallRules.length > 0) {
+            await tx.firewallPort.createMany({
+              data: spec.firewallRules
+                .filter((p: any) => p.port && p.port > 0)
+                .map((p: any) => ({
+                  requestId: updated.id,
+                  vmSpecificationId: createdSpec.id,
+                  port: parseInt(p.port),
+                  protocol: p.protocol as Protocol,
+                  purpose: p.purpose || "N/A",
+                  source: p.source || null,
+                }))
+            });
+          }
+
+          // Create additional storage (AdditionalDisk)
+          if (spec.additionalStorage && spec.additionalStorage.length > 0) {
+            await tx.additionalDisk.createMany({
+              data: spec.additionalStorage
+                .filter((d: any) => d.sizeGb && d.sizeGb > 0)
+                .map((d: any, index: number) => ({
+                  requestId: updated.id,
+                  vmSpecificationId: createdSpec.id,
+                  sizeGb: parseInt(d.sizeGb),
+                  purpose: d.purpose || null,
+                  sequence: index + 1
+                }))
+            });
+          }
+        }
+      }
+
+      // Also map to k8sRequestNodeGroup if requestType is K8S_NAMESPACE
+      if (updated.requestType === RequestType.K8S_NAMESPACE) {
+        // Delete old K8s Node Groups
+        await tx.k8sRequestNodeGroup.deleteMany({ where: { requestId: updated.id } });
+        
+        const rawK8sNodeGroups = formData.get("k8sNodeGroups")?.toString();
+        const k8sNodeGroupsInput = rawK8sNodeGroups ? JSON.parse(rawK8sNodeGroups) : [];
+        if (k8sNodeGroupsInput && k8sNodeGroupsInput.length > 0) {
+          await tx.k8sRequestNodeGroup.createMany({
+            data: k8sNodeGroupsInput.map((g: any) => ({
+              requestId: updated.id,
+              role: g.role as K8sNodeRole,
+              nodeCount: g.nodeCount,
+              vcpu: g.vcpu,
+              ramGb: g.ramGb,
+              storageGb: g.storageGb
+            }))
+          });
+        }
+      }
 
       // Attachments
       if (attachments.length > 0) {
@@ -587,8 +758,6 @@ export async function editRequest(formData: FormData) {
         "REQUEST",
         updatedRequest.requestType
       );
-      
-      await notifyApprovers(requestId, updatedRequest.systemName);
     }
 
     revalidatePath(`/requests/${requestId}`);
@@ -631,7 +800,57 @@ export async function submitRequest(requestId: string) {
     throw new Error(`Cannot submit request in status: ${request.status}. Only DRAFT or REJECTED requests can be submitted.`);
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  // Backend submission validation
+  if (!request.systemName?.trim()) {
+    throw new Error("System Name is required before submitting");
+  }
+  if (!request.purpose?.trim()) {
+    throw new Error("System Purpose/Justification is required before submitting");
+  }
+
+  if (request.requestType === RequestType.NEW_VM) {
+    const specs = await prisma.vmSpecification.findMany({
+      where: { requestId },
+      include: { connectivity: true }
+    });
+    if (specs.length === 0) {
+      throw new Error("Please add at least one VM specification before submitting");
+    }
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i];
+      if (!spec.environment) {
+        throw new Error(`Environment is required for VM Specification ${i + 1}`);
+      }
+      if (!spec.vcpu || spec.vcpu <= 0) {
+        throw new Error(`vCPU Cores must be a positive number for VM Specification ${i + 1}`);
+      }
+      if (!spec.ramGb || spec.ramGb <= 0) {
+        throw new Error(`Memory (RAM) must be a positive number for VM Specification ${i + 1}`);
+      }
+      if (!spec.storageGb || spec.storageGb <= 0) {
+        throw new Error(`Primary Storage must be a positive number for VM Specification ${i + 1}`);
+      }
+      const hasVpn = spec.connectivity.some((c: any) => c.accessType === "VPN");
+      if (hasVpn && (!spec.vpnDetails || !spec.vpnDetails.trim())) {
+        throw new Error(`VPN Details description is required when VPN connectivity is selected in VM Specification ${i + 1}`);
+      }
+    }
+  } else if (request.requestType === RequestType.K8S_NAMESPACE) {
+    const groups = await prisma.k8sRequestNodeGroup.findMany({
+      where: { requestId }
+    });
+    if (groups.length === 0) {
+      throw new Error("Please add at least one node group specification before submitting");
+    }
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i];
+      if (group.nodeCount <= 0 || group.vcpu <= 0 || group.ramGb <= 0 || group.storageGb <= 0) {
+        throw new Error(`Invalid values in node group ${i + 1}`);
+      }
+    }
+  }
+
+  const updated = await prisma.$transaction(async (tx: any) => {
     // ✅ DELETE ALL PREVIOUS APPROVALS (not just pending) to prevent duplicate levels
     await tx.approval.deleteMany({
       where: { 
@@ -677,7 +896,6 @@ export async function submitRequest(requestId: string) {
     return updatedReq;
   }, { timeout: 15000 });
 
-  await notifyApprovers(requestId, request.systemName);
   revalidatePath(`/requests/${requestId}`);
 
   return updated;
@@ -697,9 +915,9 @@ export async function getApprovers(): Promise<User[]> {
   });
 
   // ✅ CRITICAL: Transform to match User.roles: string[]
-  return approvers.map(user => ({
+  return approvers.map((user: any) => ({
     ...user,
-    roles: user.roles.map(ur => ur.role.name) // Extract role names
+    roles: user.roles.map((ur: any) => ur.role.name) // Extract role names
   }));
 }
 
@@ -713,7 +931,7 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
   const isAdmin = session.user.roles.includes(ROLES.ADMIN);
-  const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_"));
+  const isApprover = session.user.roles.some((r: any) => r.startsWith("APPROVER_"));
   const isDcopsUser = session.user.roles.includes(ROLES.DCOPS);
 
   // ✅ INCLUDE ALL REQUIRED FIELDS & RELATIONS
@@ -776,11 +994,87 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
       tags: {
         include: { tag: true }
       },
-      k8sRequestNodeGroups: true
+      k8sRequestNodeGroups: true,
+      vmSpecifications: {
+        include: {
+          connectivity: true,
+          firewallRules: true,
+          additionalStorage: true
+        }
+      }
     },
   });
 
   if (!request) throw new Error("Request not found");
+
+  // Map vmSpecifications with fallback for legacy requests
+  let vmSpecsTransformed: any[] = [];
+  if (request.vmSpecifications && request.vmSpecifications.length > 0) {
+    vmSpecsTransformed = request.vmSpecifications.map((spec: any) => ({
+      id: spec.id,
+      requestId: spec.requestId,
+      stack: spec.stack || null,
+      environment: spec.environment,
+      vcpu: spec.vcpu,
+      ramGb: spec.ramGb,
+      storageGb: spec.storageGb,
+      gpuEnabled: spec.gpuEnabled,
+      gpuVramGb: spec.gpuVramGb,
+      gpuStorageGb: spec.gpuStorageGb,
+      osVersion: spec.osVersion,
+      subdomain: spec.subdomain,
+      connectivity: (spec.connectivity || []).map((c: any) => ({
+        accessType: c.accessType
+      })),
+      firewallRules: (spec.firewallRules || []).map((f: any) => ({
+        port: f.port,
+        protocol: f.protocol,
+        purpose: f.purpose,
+        source: f.source || undefined
+      })),
+      additionalStorage: (spec.additionalStorage || []).map((d: any) => ({
+        sizeGb: d.sizeGb,
+        purpose: d.purpose || undefined,
+        sequence: d.sequence
+      }))
+    }));
+  } else if (request.requestType === RequestType.NEW_VM) {
+    vmSpecsTransformed = [
+      {
+        id: "legacy-spec",
+        requestId: request.id,
+        stack: [
+          request.frontendTech ? `Frontend: ${request.frontendTech}` : '',
+          request.backendTech ? `Backend: ${request.backendTech}` : '',
+          request.dataBase ? `Database: ${request.dataBase}` : '',
+          request.serverArchitecture ? `Architecture: ${request.serverArchitecture}` : ''
+        ].filter(Boolean).join(", ") || null,
+        environment: request.environment,
+        vcpu: request.vcpu || 0,
+        ramGb: request.ramGb || 0,
+        storageGb: request.storageGb || 0,
+        gpuEnabled: false,
+        gpuVramGb: null,
+        gpuStorageGb: null,
+        osVersion: [request.osName, request.osVersion].filter(Boolean).join(" ") || null,
+        subdomain: request.subdomain || "",
+        connectivity: (request.networkAccess || []).map((c: any) => ({
+          accessType: c.accessType
+        })),
+        firewallRules: (request.firewallPorts || []).map((f: any) => ({
+          port: f.port,
+          protocol: f.protocol,
+          purpose: f.purpose,
+          source: f.source || undefined
+        })),
+        additionalStorage: (request.additionalDisks || []).map((d: any) => ({
+          sizeGb: d.sizeGb,
+          purpose: d.purpose || undefined,
+          sequence: d.sequence
+        }))
+      }
+    ];
+  }
 
   // ✅ CRITICAL FIX: Transform flat schema fields → Person interface
   const transformed: detailsRequest = {
@@ -793,7 +1087,6 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
     systemName: request.systemName,
     purpose: request.purpose,
     environment: request.environment,
-    expectedEndDate: request.expectedEndDate || null,
     expectedDeliveryDate: request.expectedDeliveryDate || null,
 
     requesterId: request.requesterId,
@@ -860,10 +1153,10 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
     subdomain: request.subdomain || null,
     sslProvider: request.sslProvider || null,
     sslCostPaidBy: request.sslCostPaidBy || null,
-    raid: request.raid || null,
     retentionPeriod: request.retentionPeriod || null,
     requiredPublicIP: request.requiredPublicIP,
     vpnRequired: request.vpnRequired,
+    vpnDetails: request.vpnDetails || null,
 
     // Compliance
     vaReportSubmitted: request.vaReportSubmitted,
@@ -910,21 +1203,21 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
         : { id: "", name: "Unknown", email: "", designation: "" },
     })),
     customizations: [], // Empty array (not included in query - add include if needed)
-    additionalDisks: (request.additionalDisks || []).map((d) => ({
+    additionalDisks: (request.additionalDisks || []).map((d: any) => ({
       sizeGb: d.sizeGb,
       purpose: d.purpose || undefined,
       sequence: d.sequence,
     })),
-    firewallPorts: (request.firewallPorts || []).map((p) => ({
+    firewallPorts: (request.firewallPorts || []).map((p: any) => ({
       port: p.port,
       protocol: p.protocol,
       purpose: p.purpose,
       source: p.source || undefined,
     })),
-    networkAccess: (request.networkAccess || []).map((n) => ({
+    networkAccess: (request.networkAccess || []).map((n: any) => ({
       accessType: n.accessType,
     })),
-    attachments: (request.attachments || []).map((a) => ({
+    attachments: (request.attachments || []).map((a: any) => ({
       id: a.id,
       fileName: a.fileName,
       filePath: a.filePath 
@@ -950,7 +1243,7 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
     accessJustification: request.accessJustification || null,
     underExistingNamespace: request.underExistingNamespace,
     existingNamespaceId: request.existingNamespaceId || null,
-    tags: (request.tags || []).map((t) => ({
+    tags: (request.tags || []).map((t: any) => ({
       tag: {
         id: t.tag.id,
         name: t.tag.name,
@@ -958,6 +1251,7 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
       }
     })),
     k8sRequestNodeGroups: request.k8sRequestNodeGroups || [],
+    vmSpecifications: vmSpecsTransformed,
   };
 
   return transformed;
@@ -973,15 +1267,7 @@ export async function getRequests(
 
   const userId = session.user.id;
   const userRoles = session.user.roles;
-  const isAdmin = userRoles.includes(ROLES.ADMIN);
-  const isApprover = session.user.roles.some(r => r.startsWith("APPROVER_") || r === ROLES.L4_APPROVER);
   
-  const levelMapping: Record<string, number> = {
-      "APPROVER_L1": 1,
-      "APPROVER_L2": 2,
-      "APPROVER_L3": 3,
-      [ROLES.L4_APPROVER]: 4,
-    };
   const skip = (page - 1) * pageSize;
   const andConditions: Prisma.RequestWhereInput[] = [];
 
@@ -1037,7 +1323,7 @@ export async function getRequests(
   return {
     success: true,
     data: {
-      requests: requests.map(r => transformRequestListItem(r)),
+      requests: requests.map((r: any) => transformRequestListItem(r)),
       total,
       totalPages: Math.ceil(total / pageSize),
       currentPage: page
@@ -1126,8 +1412,9 @@ export async function getRequestStats(requestType?: string) {
     ...(requestType && requestType !== "ALL" ? { requestType: requestType as RequestType } : {}),
   };
 
-  const [total, pending, approved, rejected, byTypeRaw] = await Promise.all([
+  const [total, draft, pending, approved, rejected, deployed, byTypeRaw] = await Promise.all([
     prisma.request.count({ where: baseWhere }),
+    prisma.request.count({ where: { ...baseWhere, status: RequestStatus.DRAFT } }),
     prisma.request.count({
       where: {
         ...baseWhere,
@@ -1136,6 +1423,7 @@ export async function getRequestStats(requestType?: string) {
     }),
     prisma.request.count({ where: { ...baseWhere, status: RequestStatus.APPROVED } }),
     prisma.request.count({ where: { ...baseWhere, status: RequestStatus.REJECTED } }),
+    prisma.request.count({ where: { ...baseWhere, status: RequestStatus.PROVISIONED } }),
     prisma.request.groupBy({
       by: ["requestType"],
       where: isAdmin ? {} : { requesterId: session.user.id },
@@ -1150,6 +1438,6 @@ export async function getRequestStats(requestType?: string) {
 
   return {
     success: true,
-    data: { total, pending, approved, rejected, byType },
+    data: { total, draft, pending, approved, rejected, deployed, byType },
   };
 }

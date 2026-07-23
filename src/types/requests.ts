@@ -9,7 +9,6 @@ import {
   ServerType,
   LicenseProvider,
   SSLProvider,
-  Raid,
   NetworkAccess,
   Protocol,
   CustomizationStatus,
@@ -70,7 +69,6 @@ export interface detailsRequest {
   systemName: string;
   purpose: string;
   environment: Environment;
-  expectedEndDate?: Date | null;
   expectedDeliveryDate?: Date | null;
 
   requesterId: string;
@@ -91,10 +89,10 @@ export interface detailsRequest {
   subdomain?: string | null;
   sslProvider?: SSLProvider | null;
   sslCostPaidBy?: string | null;
-  raid?: Raid | null;
   retentionPeriod?: string | null;
   requiredPublicIP: boolean;
   vpnRequired: boolean;
+  vpnDetails?: string | null;
 
   // Clone fields
   sourceVmId?: string | null;
@@ -148,6 +146,7 @@ export interface detailsRequest {
   targetVm?: VmInstance | null;
   tags?: { tag: { id: string; name: string; description: string | null } }[];
   k8sRequestNodeGroups?: K8sRequestNodeGroup[] | null;
+  vmSpecifications?: VmSpecification[] | null;
 }
 
 export interface K8sRequestNodeGroup {
@@ -158,6 +157,24 @@ export interface K8sRequestNodeGroup {
   vcpu: number;
   ramGb: number;
   storageGb: number;
+}
+
+export interface VmSpecification {
+  id: string;
+  requestId: string;
+  stack?: string | null;
+  environment: Environment;
+  vcpu: number;
+  ramGb: number;
+  storageGb: number;
+  gpuEnabled: boolean;
+  gpuVramGb?: number | null;
+  gpuStorageGb?: number | null;
+  osVersion?: string | null;
+  subdomain?: string | null;
+  connectivity?: NetworkAccessEntry[] | null;
+  firewallRules?: FirewallPort[] | null;
+  additionalStorage?: AdditionalDisk[] | null;
 }
 
 export interface Request {
@@ -193,7 +210,6 @@ export interface Request {
   subdomain?: string | null;
   sslProvider?: SSLProvider | null;
   sslCostPaidBy?: string | null;
-  raid?: Raid | null;
   retentionPeriod?: string | null;
   requiredPublicIP: boolean;
   vpnRequired: boolean;
@@ -244,6 +260,7 @@ export interface Request {
   additionalDisks: AdditionalDisk[];
   firewallPorts: FirewallPort[];
   networkAccess: NetworkAccessEntry[];
+  vmSpecifications?: VmSpecification[];
 }
 
 export interface RequestListItem extends Pick<Request, 

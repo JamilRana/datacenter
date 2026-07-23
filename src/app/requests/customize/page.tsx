@@ -39,7 +39,7 @@ export default function CustomizationRequestsPage() {
         fetchAllVms()
       ]);
       if (!isMounted.current) return;
-      const transformedRequests: CustomizationRequestType[] = requestsRes.requests.map(req => ({
+      const transformedRequests: CustomizationRequestType[] = requestsRes.requests.map((req: any) => ({
         ...req,
         status: req.status as CustomizationStatus,
         targetVm: {
@@ -58,7 +58,7 @@ export default function CustomizationRequestsPage() {
         additionalDisks: req.additionalDisks ?? [],
         firewallPorts: req.firewallPorts ?? [],
         networkAccess: req.networkAccess ?? [],
-        approvals: (req.approvals ?? []).map(a => ({
+        approvals: (req.approvals ?? []).map((a: any) => ({
           id: a.id,
           level: a.level,
           approverId: a.approverId,

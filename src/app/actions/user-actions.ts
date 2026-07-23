@@ -32,7 +32,7 @@ export async function getRequesters() {
       },
     });
 
-      return users.map((user) => ({
+      return users.map((user: any) => ({
     id: user.id,
     name: user.name,
     email: user.email,
@@ -40,7 +40,7 @@ export async function getRequesters() {
     designation: user.designation,
     organization: user.organization,
     isActive: user.isActive,
-    roles: user.roles.map((r) => r.role.name),
+    roles: user.roles.map((r: any) => r.role.name),
   }));
   } catch (error) {
     console.error("Error fetching requesters:", error);
@@ -81,7 +81,7 @@ const users = await prisma.user.findMany({
     },
     orderBy: { name: "asc" },
   });
-  return users.map((user) => ({
+  return users.map((user: any) => ({
     id: user.id,
     name: user.name,
     email: user.email,
@@ -89,7 +89,7 @@ const users = await prisma.user.findMany({
     designation: user.designation,
     organization: user.organization,
     isActive: user.isActive,
-    roles: user.roles.map((r) => r.role.name), // <-- FIX
+    roles: user.roles.map((r: any) => r.role.name), // <-- FIX
   }));
 }
 
@@ -163,7 +163,7 @@ export async function createUser(formData: FormData) {
       contact: contact || null,
       isActive: true,
       roles: { 
-        create: validRoles.map(role => ({ roleId: role.id })) // ✅ CREATE MULTIPLE
+        create: validRoles.map((role: any) => ({ roleId: role.id })) // ✅ CREATE MULTIPLE
       },
     },
   });
@@ -207,7 +207,7 @@ export async function updateUserDetails(formData: FormData) {
     }
   }
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     // Update user details
     await tx.user.update({
       where: { id: userId },
@@ -226,7 +226,7 @@ export async function updateUserDetails(formData: FormData) {
       await tx.userRole.deleteMany({ where: { userId } });
       // Create new roles
       await tx.userRole.createMany({
-        data: validRoles.map(role => ({ userId, roleId: role.id })),
+        data: validRoles.map((role: any) => ({ userId, roleId: role.id })),
       });
     }
   });
@@ -247,7 +247,7 @@ export async function deleteUser(userId: string) {
     include: { roles: { include: { role: true } } },
   });
   
-  if (user?.roles.some(r => r.role.name === "ADMIN")) {
+  if (user?.roles.some((r: any) => r.role.name === "ADMIN")) {
     const adminCount = await prisma.user.count({
       where: {
         roles: { some: { role: { name: "ADMIN" } } },

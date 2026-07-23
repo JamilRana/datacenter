@@ -105,8 +105,8 @@ async function getLicenseByVendor(): Promise<LicenseByVendor[]> {
   }
   
   return Object.entries(vendorCount)
-    .map(([vendor, count]) => ({ vendor, count }))
-    .sort((a, b) => b.count - a.count)
+    .map(([vendor, count]: any) => ({ vendor, count }))
+    .sort((a: any, b: any) => b.count - a.count)
     .slice(0, 10);
 }
 
@@ -122,8 +122,8 @@ async function getLicenseByType(): Promise<LicenseByType[]> {
   }
   
   return Object.entries(typeCount)
-    .map(([type, count]) => ({ type, count }))
-    .sort((a, b) => b.count - a.count)
+    .map(([type, count]: any) => ({ type, count }))
+    .sort((a: any, b: any) => b.count - a.count)
     .slice(0, 10);
 }
 
@@ -165,7 +165,7 @@ async function getRecentLicenseActivity(): Promise<LicenseActivity[]> {
     },
   });
 
-  return logs.map((log) => ({
+  return logs.map((log: any) => ({
     id: log.id,
     action: log.action,
     entityType: log.entityType || "LICENSE",

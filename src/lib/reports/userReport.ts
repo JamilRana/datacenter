@@ -52,7 +52,7 @@ export async function getUserReport(params: UserReportParams): Promise<UserRepor
   } = params;
 
   const skip = (page - 1) * pageSize;
-  const isAdmin = userRoles?.some(r => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
+  const isAdmin = userRoles?.some((r: any) => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
 
   if (!isAdmin) {
     return { 
@@ -87,7 +87,7 @@ export async function getUserReport(params: UserReportParams): Promise<UserRepor
       },
       select: { userId: true },
     });
-    where.id = { in: usersWithRole.map(u => u.userId) };
+    where.id = { in: usersWithRole.map((u: any) => u.userId) };
   }
 
   if (department) {
@@ -113,7 +113,7 @@ export async function getUserReport(params: UserReportParams): Promise<UserRepor
 
   const analytics = await getUserReportAnalytics();
 
-  const userIds = users.map(u => u.id);
+  const userIds = users.map((u: any) => u.id);
   
   const [vmCounts, requestCounts, pendingApprovalCounts] = await Promise.all([
     prisma.vmInstance.groupBy({
@@ -136,16 +136,16 @@ export async function getUserReport(params: UserReportParams): Promise<UserRepor
     }),
   ]);
 
-  const vmCountMap = new Map(vmCounts.map(v => [v.ownerId!, v._count]));
-  const requestCountMap = new Map(requestCounts.map(r => [r.requesterId!, r._count]));
-  const pendingApprovalMap = new Map(pendingApprovalCounts.map(p => [p.approverId!, p._count]));
+  const vmCountMap = new Map(vmCounts.map((v: any) => [v.ownerId!, v._count]));
+  const requestCountMap = new Map(requestCounts.map((r: any) => [r.requesterId!, r._count]));
+  const pendingApprovalMap = new Map(pendingApprovalCounts.map((p: any) => [p.approverId!, p._count]));
 
-  const data: UserReportRow[] = users.map(user => ({
+  const data: UserReportRow[] = users.map((user: any) => ({
     id: user.id,
     name: user.name || "Unknown",
     email: user.email,
     organization: user.organization,
-    roles: user.roles.map(r => r.role.name),
+    roles: user.roles.map((r: any) => r.role.name),
     vmCount: vmCountMap.get(user.id) || 0,
     requestCount: requestCountMap.get(user.id) || 0,
     pendingApprovals: pendingApprovalMap.get(user.id) || 0,
@@ -199,12 +199,12 @@ async function getUserReportAnalytics() {
     take: 10,
   });
 
-  const requesterIds = topRequesters.map(r => r.requesterId);
+  const requesterIds = topRequesters.map((r: any) => r.requesterId);
   const requesterUsers = await prisma.user.findMany({
     where: { id: { in: requesterIds } },
     select: { id: true, name: true },
   });
-  const requesterMap = new Map(requesterUsers.map(u => [u.id, u.name || "Unknown"]));
+  const requesterMap = new Map(requesterUsers.map((u: any) => [u.id, u.name || "Unknown"]));
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const activeUsersCount = await prisma.user.count({
@@ -213,9 +213,9 @@ async function getUserReportAnalytics() {
 
   return {
     totalUsers: allUsers.length,
-    byRole: Array.from(roleCountMap.entries()).map(([role, count]) => ({ role, count })),
-    byDepartment: Array.from(deptCountMap.entries()).map(([department, count]) => ({ department, count })),
-    topRequesters: topRequesters.map(r => ({
+    byRole: Array.from(roleCountMap.entries()).map(([role, count]: any) => ({ role, count })),
+    byDepartment: Array.from(deptCountMap.entries()).map(([department, count]: any) => ({ department, count })),
+    topRequesters: topRequesters.map((r: any) => ({
       userId: r.requesterId,
       name: requesterMap.get(r.requesterId) || "Unknown",
       count: r._count,

@@ -46,7 +46,7 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        const roles = user.roles.map(ur => ur.role.name);
+        const roles = user.roles.map((ur: any) => ur.role.name);
 
         return {
           id: user.id,

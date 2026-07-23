@@ -57,7 +57,6 @@ model Request {
   systemName                    String
   purpose                       String
   environment                   Environment
-  expectedEndDate               DateTime?
   requesterId                   String
   alternativePersonName         String?
   alternativePersonDesignation  String?
@@ -92,8 +91,8 @@ model Request {
   serverArchitecture            String?
   additionalTechNotes           String?
   dataBase                      String?
-  raid                          Raid?
   vpnRequired                   Boolean                @default(false)
+  vpnDetails                    String?                @db.Text
   targetVmId                    String?
   developerDesignation          String?
   developerId                   String?
@@ -150,6 +149,7 @@ model Request {
   // Common new fields
   expectedDeliveryDate          DateTime?
   tags                          RequestTag[]
+  vmSpecifications              VmSpecification[]
 
   @@index([targetVmId])
   @@index([sourceVmId])
@@ -167,33 +167,65 @@ model Request {
 }
 
 model AdditionalDisk {
-  id        String  @id @default(uuid())
-  requestId String
-  sizeGb    Int
-  purpose   String?
-  sequence  Int
-  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id                String           @id @default(uuid())
+  requestId         String
+  sizeGb            Int
+  purpose           String?
+  sequence          Int
+  request           Request          @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  vmSpecificationId String?
+  vmSpecification   VmSpecification? @relation(fields: [vmSpecificationId], references: [id], onDelete: Cascade)
 
   @@index([requestId])
+  @@index([vmSpecificationId])
 }
 
 model FirewallPort {
-  id        String   @id @default(uuid())
-  requestId String
-  port      Int
-  protocol  Protocol
-  purpose   String
-  source    String?
-  request   Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id                String           @id @default(uuid())
+  requestId         String
+  port              Int
+  protocol          Protocol
+  purpose           String
+  source            String?
+  request           Request          @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  vmSpecificationId String?
+  vmSpecification   VmSpecification? @relation(fields: [vmSpecificationId], references: [id], onDelete: Cascade)
 
   @@index([requestId])
+  @@index([vmSpecificationId])
 }
 
 model NetworkAccessEntry {
-  id         String        @id @default(uuid())
-  requestId  String
-  accessType NetworkAccess
-  request    Request       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id                String           @id @default(uuid())
+  requestId         String
+  accessType        NetworkAccess
+  request           Request          @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  vmSpecificationId String?
+  vmSpecification   VmSpecification? @relation(fields: [vmSpecificationId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([vmSpecificationId])
+}
+
+model VmSpecification {
+  id                String                 @id @default(uuid())
+  requestId         String
+  request           Request                @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  stack             String?
+  environment       Environment
+  vcpu              Int
+  ramGb             Int
+  storageGb         Int
+  gpuEnabled        Boolean                @default(false)
+  gpuVramGb         Int?
+  gpuStorageGb      Int?
+  osVersion         String?
+  subdomain         String?
+  vpnDetails        String?                @db.Text
+
+  connectivity      NetworkAccessEntry[]
+  firewallRules     FirewallPort[]
+  additionalStorage AdditionalDisk[]
 
   @@index([requestId])
 }
@@ -277,7 +309,6 @@ model VmSpec {
   storageGb              Int
   osName                 String?
   osVersion              String?
-  raid                   Raid?
   effectiveFrom          DateTime               @default(now())
   createdAt              DateTime               @default(now())
   appliedById            String?
@@ -520,6 +551,7 @@ enum RequestType {
   DECOMMISSION
   VPN_ACCESS
   HORIZON_ACCESS
+  SYSTEM_UPGRADE
 }
 
 enum RequestStatus {
@@ -583,14 +615,7 @@ enum NetworkAccess {
   LOCAL
   INTERNET
   REMOTE
-}
-
-enum Raid {
-  RAID0
-  RAID1
-  RAID5
-  RAID10
-  NONE
+  VPN
 }
 
 enum ApprovalDecision {

@@ -121,7 +121,7 @@ export async function getSystemSummary(): Promise<SystemSummary[]> {
     entry.envs[env] = (entry.envs[env] || 0) + 1;
   }
 
-  return Array.from(systemMap.entries()).map(([systemName, data]) => ({
+  return Array.from(systemMap.entries()).map(([systemName, data]: any) => ({
     systemName,
     totalVms: data.count,
     environments: data.envs,
@@ -147,7 +147,7 @@ export async function getSubdomainSummary(): Promise<SubdomainSummary[]> {
   }
 
   return Array.from(subdomainMap.entries())
-    .map(([subdomain, vmCount]) => ({ subdomain, vmCount }))
+    .map(([subdomain, vmCount]: any) => ({ subdomain, vmCount }))
     .sort((a, b) => b.vmCount - a.vmCount);
 }
 
@@ -194,7 +194,7 @@ export async function getUserVms(
     prisma.vmInstance.count({ where }),
   ]);
 
-  const mappedVms: UserVmData[] = vms.map((vm) => ({
+  const mappedVms: UserVmData[] = vms.map((vm: any) => ({
     id: vm.id,
     hostname: vm.hostname,
     ipAddress: vm.ipAddress,
@@ -314,27 +314,27 @@ export async function getVmDetails(vmId: string): Promise<VmDetailsData | null> 
           storageGb: vm.currentSpec.storageGb,
           osName: vm.currentSpec.osName,
           osVersion: vm.currentSpec.osVersion,
-          additionalDisks: vm.currentSpec.additionalDisks.map((d) => ({
+          additionalDisks: vm.currentSpec.additionalDisks.map((d: any) => ({
             id: d.id,
             sizeGb: d.sizeGb,
             purpose: d.purpose,
             sequence: d.sequence,
           })),
-          firewallPorts: vm.currentSpec.firewallPorts.map((f) => ({
+          firewallPorts: vm.currentSpec.firewallPorts.map((f: any) => ({
             id: f.id,
             port: f.port,
             protocol: f.protocol,
             purpose: f.purpose,
             source: f.source,
           })),
-          networkAccess: vm.currentSpec.networkAccess.map((n) => ({
+          networkAccess: vm.currentSpec.networkAccess.map((n: any) => ({
             id: n.id,
             accessType: n.accessType,
           })),
         }
       : null,
     request: vm.request,
-    customizationHistory: vm.customizationHistory.map((h) => ({
+    customizationHistory: vm.customizationHistory.map((h: any) => ({
       id: h.id,
       createdAt: h.createdAt,
       reason: h.reason,
@@ -367,7 +367,7 @@ export async function updateVmSystemName(vmId: string, newName: string) {
       throw new Error("You do not have permission to rename this VM");
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx: any) => {
       const res = await tx.vmInstance.update({
         where: { id: vmId },
         data: { systemName: newName },

@@ -20,7 +20,10 @@ import {
   MessageSquare,
   ArrowUpDown,
   ArrowUpRight,
-  Undo2
+  Undo2,
+  Copy,
+  Code,
+  Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +49,16 @@ const REQUEST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: 
     color: "bg-blue-50 text-blue-700 border-blue-200", 
     icon: <HardDrive className="h-3 w-3 mr-1" /> 
   },
+  CLONE_VM: { 
+    label: "Clone VM", 
+    color: "bg-sky-50 text-sky-700 border-sky-200", 
+    icon: <Copy className="h-3 w-3 mr-1" /> 
+  },
+  K8S_NAMESPACE: { 
+    label: "K8s Namespace", 
+    color: "bg-cyan-50 text-cyan-700 border-cyan-200", 
+    icon: <Code className="h-3 w-3 mr-1" /> 
+  },
   CUSTOMIZED: { 
     label: "Customization", 
     color: "bg-purple-50 text-purple-700 border-purple-200", 
@@ -60,6 +73,21 @@ const REQUEST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: 
     label: "Renewal", 
     color: "bg-green-50 text-green-700 border-green-200", 
     icon: <ArrowUpDown className="h-3 w-3 mr-1" /> 
+  },
+  VPN_ACCESS: { 
+    label: "VPN Access", 
+    color: "bg-teal-50 text-teal-700 border-teal-200", 
+    icon: <Shield className="h-3 w-3 mr-1" /> 
+  },
+  HORIZON_ACCESS: { 
+    label: "Horizon Access", 
+    color: "bg-emerald-50 text-emerald-700 border-emerald-200", 
+    icon: <Shield className="h-3 w-3 mr-1" /> 
+  },
+  SYSTEM_UPGRADE: { 
+    label: "System Upgrade", 
+    color: "bg-indigo-50 text-indigo-700 border-indigo-200", 
+    icon: <Zap className="h-3 w-3 mr-1" /> 
   },
   UNKNOWN: {
     label: "Unknown Type", 

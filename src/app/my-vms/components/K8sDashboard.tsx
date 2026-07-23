@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, startTransition } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,10 +15,8 @@ import {
   Globe, 
   Settings2, 
   Loader2, 
-  Activity, 
   ChevronDown, 
   ChevronUp, 
-  ShieldCheck, 
   Info,
   Server
 } from "lucide-react";

@@ -84,13 +84,13 @@ export async function getUserAllocationReport(params: {
     prisma.user.count({ where: whereClause })
   ]);
 
-  const data: UserAllocationSummary[] = users.map(user => {
-    const activeVms = user.ownedVms.filter(vm => vm.status === 'ACTIVE');
-    const suspendedVms = user.ownedVms.filter(vm => vm.status === 'SUSPENDED');
+  const data: UserAllocationSummary[] = users.map((user: any) => {
+    const activeVms = user.ownedVms.filter((vm: any) => vm.status === 'ACTIVE');
+    const suspendedVms = user.ownedVms.filter((vm: any) => vm.status === 'SUSPENDED');
     
-    const vcpu = user.ownedVms.reduce((sum, vm) => sum + (vm.currentSpec?.vcpu || 0), 0);
-    const ram = user.ownedVms.reduce((sum, vm) => sum + (vm.currentSpec?.ramGb || 0), 0);
-    const storage = user.ownedVms.reduce((sum, vm) => sum + (vm.currentSpec?.storageGb || 0), 0);
+    const vcpu = user.ownedVms.reduce((sum: number, vm: any) => sum + (vm.currentSpec?.vcpu || 0), 0);
+    const ram = user.ownedVms.reduce((sum: number, vm: any) => sum + (vm.currentSpec?.ramGb || 0), 0);
+    const storage = user.ownedVms.reduce((sum: number, vm: any) => sum + (vm.currentSpec?.storageGb || 0), 0);
 
     return {
       userId: user.id,
@@ -130,7 +130,7 @@ export async function getUserVmDetails(userId: string) {
     orderBy: { createdAt: 'desc' }
   });
 
-  const data: UserVmDetail[] = vms.map(vm => ({
+  const data: UserVmDetail[] = vms.map((vm: any) => ({
     id: vm.id,
     hostname: vm.hostname || "UNNAMED",
     ipAddress: vm.ipAddress || "PENDING",
@@ -206,7 +206,7 @@ export async function getVmInventoryReport(params: {
     prisma.vmInstance.count({ where: whereClause })
   ]);
 
-  const data: VmInventoryItem[] = vms.map(vm => ({
+  const data: VmInventoryItem[] = vms.map((vm: any) => ({
     id: vm.id,
     hostname: vm.hostname || "UNNAMED",
     owner: vm.owner?.name || "Unknown",
@@ -243,10 +243,10 @@ export async function getDcCapacityReport() {
     }
   });
 
-  const data: DcCapacityItem[] = assets.map(asset => {
-    const usedVcpu = asset.vms.reduce((sum, vm) => sum + (vm.currentSpec?.vcpu || 0), 0);
-    const usedRam = asset.vms.reduce((sum, vm) => sum + (vm.currentSpec?.ramGb || 0), 0);
-    const usedStorage = asset.vms.reduce((sum, vm) => sum + (vm.currentSpec?.storageGb || 0), 0);
+  const data: DcCapacityItem[] = assets.map((asset: any) => {
+    const usedVcpu = asset.vms.reduce((sum: number, vm: any) => sum + (vm.currentSpec?.vcpu || 0), 0);
+    const usedRam = asset.vms.reduce((sum: number, vm: any) => sum + (vm.currentSpec?.ramGb || 0), 0);
+    const usedStorage = asset.vms.reduce((sum: number, vm: any) => sum + (vm.currentSpec?.storageGb || 0), 0);
 
     return {
       assetId: asset.id,
@@ -322,7 +322,7 @@ export async function getRequestsReport(params: {
     prisma.request.count({ where: whereClause })
   ]);
 
-  const data: RequestDashboardItem[] = requests.map(req => ({
+  const data: RequestDashboardItem[] = requests.map((req: any) => ({
     id: req.id,
     requestId: req.requestId || req.id.slice(0, 8).toUpperCase(),
     type: req.requestType,
@@ -391,7 +391,7 @@ export async function getRenewalsReport(params: {
     prisma.vmInstance.count({ where: whereClause })
   ]);
 
-  const data: RenewalItem[] = vms.map(vm => ({
+  const data: RenewalItem[] = vms.map((vm: any) => ({
     id: vm.id,
     vmName: vm.hostname || "UNNAMED",
     ownerName: vm.owner?.name || "Unknown",
@@ -446,11 +446,11 @@ export async function getAuditTrailReport(params: {
     prisma.auditLog.count({ where: whereClause })
   ]);
 
-  const data: AuditTrailItem[] = logs.map(log => ({
+  const data: AuditTrailItem[] = logs.map((log: any) => ({
     id: log.id,
     timestamp: log.timestamp.toISOString(),
     actor: log.actor?.name || "System",
-    role: log.actor?.roles.map(r => r.role.name) || [],
+    role: log.actor?.roles.map((r: any) => r.role.name) || [],
     action: log.action,
     entityType: log.entityType || "N/A",
     entityId: log.entityId || "N/A",

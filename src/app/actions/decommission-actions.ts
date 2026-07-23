@@ -89,7 +89,7 @@ export async function executeDecommission(requestId: string) {
     throw new Error("Only DCOPS can execute decommissions");
   }
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: any) => {
     const req = await tx.request.findUnique({
       where: { 
         id: requestId,
@@ -119,7 +119,7 @@ export async function executeDecommission(requestId: string) {
 
     // Update VM statuses to RETIRED
     await tx.vmInstance.updateMany({
-      where: { id: { in: vmsToRetire.map(v => v.id) } },
+      where: { id: { in: vmsToRetire.map((v: any) => v.id) } },
       data: { 
         status: "RETIRED", 
         decommissionedAt: new Date() 
@@ -140,7 +140,7 @@ export async function executeDecommission(requestId: string) {
         entityType: "REQUEST",
         entityId: requestId,
         details: {
-          vmIds: vmsToRetire.map(v => v.id),
+          vmIds: vmsToRetire.map((v: any) => v.id),
           vmCount: vmsToRetire.length,
           executedBy: session.user.name,
         },
@@ -230,7 +230,7 @@ export async function editDecommissionRequest(formData: FormData) {
     throw new Error("Only drafts or rejected requests can be edited");
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx: any) => {
     const res = await tx.request.update({
       where: { id: requestId },
       data: {
@@ -277,7 +277,7 @@ export async function submitDecommissionRequest(requestId: string) {
     throw new Error("Invalid status for submission");
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx: any) => {
     const res = await tx.request.update({
       where: { id: requestId },
       data: { status: RequestStatus.PENDING_L1, submittedAt: new Date() },
@@ -319,7 +319,7 @@ export async function deleteDecommissionRequest(requestId: string) {
     throw new Error("Invalid status for deletion");
   }
 
-  const deleted = await prisma.$transaction(async (tx) => {
+  const deleted = await prisma.$transaction(async (tx: any) => {
     const res = await tx.request.delete({
       where: { id: requestId },
     });

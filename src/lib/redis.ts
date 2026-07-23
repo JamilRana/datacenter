@@ -2,23 +2,42 @@ import Redis from 'ioredis';
 import { logger } from './utils/logger';
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const enableRedis = process.env.ENABLE_REDIS !== 'false';
+
+let isRedisConnected = false;
 
 const getRedisClient = () => {
+  if (!enableRedis) {
+    logger.info('Redis is explicitly disabled via ENABLE_REDIS environment variable');
+    return null;
+  }
+
   try {
     const client = new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: 1, // fail fast
+      enableOfflineQueue: false, // do not queue when offline
       retryStrategy: (times) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
+        if (times > 3) {
+          logger.warn('Redis reconnection attempts exceeded. Cache is in fallback mode.');
+          return null; // stop retrying
+        }
+        return Math.min(times * 1000, 3000);
       },
     });
 
     client.on('connect', () => {
+      isRedisConnected = true;
       logger.info('Successfully connected to Redis');
     });
 
-    client.on('error', (err: unknown) => {
-      logger.error('Redis connection error:', err as Error);
+    client.on('close', () => {
+      isRedisConnected = false;
+    });
+
+    client.on('error', (err: any) => {
+      isRedisConnected = false;
+      // Log connection warnings concisely to prevent stack trace spam
+      logger.warn(`Redis client offline: ${err.message || err}`);
     });
 
     return client;
@@ -40,7 +59,7 @@ export async function getCachedData<T>(
   fetchFn: () => Promise<T>,
   ttlSeconds = 3600
 ): Promise<T> {
-  if (!redis) return fetchFn();
+  if (!redis || !isRedisConnected) return fetchFn();
 
   try {
     const cached = await redis.get(key);
@@ -70,7 +89,7 @@ export async function getCachedData<T>(
  * Cache invalidation utility
  */
 export async function invalidateCache(key: string | string[]): Promise<void> {
-  if (!redis) return;
+  if (!redis || !isRedisConnected) return;
 
   try {
     if (Array.isArray(key)) {
@@ -95,7 +114,7 @@ export async function setCachedData<T>(
     data: T,
     ttlSeconds = 3600
 ): Promise<void> {
-    if (!redis) return;
+    if (!redis || !isRedisConnected) return;
 
     try {
         await redis.set(key, JSON.stringify(data), 'EX', ttlSeconds);

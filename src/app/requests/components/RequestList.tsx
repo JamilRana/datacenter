@@ -11,11 +11,13 @@ import {
   Eye, 
   Edit2, 
   Copy, 
-  AlertCircle
+  AlertCircle,
+  Play,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { detailsRequest } from "@/types/requests";
-import { deleteRequest } from "@/app/actions/request-actions";
+import { deleteRequest, submitRequest } from "@/app/actions/request-actions";
 
 // ✅ MINIMAL, PRECISE INTERFACES (matches EXACT data shape used)
 interface RequestListProps {
@@ -24,10 +26,24 @@ interface RequestListProps {
 
 export function RequestList({ requests: initialRequests }: RequestListProps) {
   const [requests, setRequests] = useState<detailsRequest[]>(initialRequests);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
 
   useEffect(() => {
     setRequests(initialRequests);
   }, [initialRequests]);
+
+  const handleSubmitRequest = async (requestId: string) => {
+    setSubmittingId(requestId);
+    try {
+      await submitRequest(requestId);
+      toast.success("Request submitted successfully!");
+      window.location.reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to submit request");
+    } finally {
+      setSubmittingId(null);
+    }
+  };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this draft?")) return;
@@ -147,26 +163,41 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
                           </Button>
                         </Link>
                         {req.status.toString() === "DRAFT" && (
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-slate-400 hover:text-red-600"
-                            onClick={() => handleDelete(req.id)}
-                            title="Delete Draft"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <>
+                            {submittingId === req.id ? (
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400" disabled>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              </Button>
+                            ) : (
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 text-slate-400 hover:text-emerald-600"
+                                onClick={() => handleSubmitRequest(req.id)}
+                                title="Submit Request"
+                              >
+                                <Play className="w-4 h-4" />
+                              </Button>
+                            )}
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-slate-400 hover:text-red-600"
+                              onClick={() => handleDelete(req.id)}
+                              title="Delete Draft"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
                         )}
                       </>
                     )}
 
-                    {["APPROVED", "REJECTED", "PROVISIONED"].includes(req.status.toString()) && (
-                      <Link href={`/requests/new?copyFrom=${req.id}`}>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-green-600" title="Copy Request">
-                          <Copy className="w-4 h-4" />
-                        </Button>
-                      </Link>
-                    )}
+                    <Link href={`/requests/new?copyFrom=${req.id}`}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600" title="Clone Request">
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </Link>
                   </div>
                 </td>
               </tr>

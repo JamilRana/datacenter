@@ -77,7 +77,7 @@ export async function GET() {
 
     return NextResponse.json({
       ...user,
-      roles: user.roles.map(r => r.role.name)
+      roles: user.roles.map((r: any) => r.role.name)
     });
   } catch (error) {
     console.error("Profile fetch error:", error);

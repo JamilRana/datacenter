@@ -58,7 +58,7 @@ export async function getApprovalReport(params: ApprovalReportParams): Promise<A
   } = params;
 
   const skip = (page - 1) * pageSize;
-  const isAdmin = userRoles?.some(r => ["ADMIN", "DC_OPS", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3", "APPROVER_L4"].includes(r.toUpperCase()));
+  const isAdmin = userRoles?.some((r: any) => ["ADMIN", "DC_OPS", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3", "APPROVER_L4"].includes(r.toUpperCase()));
 
   const where: Prisma.RequestWhereInput = {};
 
@@ -102,9 +102,9 @@ export async function getApprovalReport(params: ApprovalReportParams): Promise<A
 
   const analytics = await getApprovalReportAnalytics(where);
 
-  const data: ApprovalReportRow[] = requests.map(req => {
+  const data: ApprovalReportRow[] = requests.map((req: any) => {
     const approvals = req.approvals;
-    const approvedAt = approvals.find(a => a.decidedAt && a.decision === "APPROVED")?.decidedAt;
+    const approvedAt = approvals.find((a: any) => a.decidedAt && a.decision === "APPROVED")?.decidedAt;
     const currentLevel = approvals.length > 0 ? approvals[approvals.length - 1].level : 1;
     
     let totalApprovalTime: string | null = null;
@@ -158,8 +158,8 @@ async function getApprovalReportAnalytics(where: Prisma.RequestWhereInput) {
     }),
   ]);
 
-  const approved = allRequests.filter(r => r.status === "APPROVED" || r.status === "PROVISIONED").length;
-  const rejected = allRequests.filter(r => r.status === "REJECTED").length;
+  const approved = allRequests.filter((r: any) => r.status === "APPROVED" || r.status === "PROVISIONED").length;
+  const rejected = allRequests.filter((r: any) => r.status === "REJECTED").length;
   const successRate = (approved + rejected) > 0 ? (approved / (approved + rejected)) * 100 : 0;
 
   const levelApprovalTimes: Record<number, number[]> = {};
@@ -173,15 +173,15 @@ async function getApprovalReportAnalytics(where: Prisma.RequestWhereInput) {
     }
   }
 
-  const avgApprovalTimeByLevel = Object.entries(levelApprovalTimes).map(([level, times]) => ({
+  const avgApprovalTimeByLevel = Object.entries(levelApprovalTimes).map(([level, times]: any) => ({
     level: parseInt(level),
-    avgDays: times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : 0,
+    avgDays: times.length > 0 ? times.reduce((a: number, b: number) => a + b, 0) / times.length : 0,
   }));
 
   return {
     totalCount: allRequests.length,
-    byStatus: byStatus.map(r => ({ status: r.status, count: r._count })),
-    byLevel: byLevel.map(r => ({ level: r.level, count: r._count })),
+    byStatus: byStatus.map((r: any) => ({ status: r.status, count: r._count })),
+    byLevel: byLevel.map((r: any) => ({ level: r.level, count: r._count })),
     avgApprovalTimeByLevel,
     successRate,
   };

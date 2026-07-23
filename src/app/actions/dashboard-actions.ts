@@ -47,8 +47,8 @@ export async function getOpsDashboardData() {
       diskIo: 42
     },
     provisioningQueue: [
-      ...provisioningInProgress.map(r => ({ id: r.id, name: r.systemName, status: "PROVISIONING", progress: 85 })),
-      ...provisioningRequests.map(r => ({ id: r.id, name: r.systemName, status: "QUEUED", progress: 0 }))
+      ...provisioningInProgress.map((r: any) => ({ id: r.id, name: r.systemName, status: "PROVISIONING", progress: 85 })),
+      ...provisioningRequests.map((r: any) => ({ id: r.id, name: r.systemName, status: "QUEUED", progress: 0 }))
     ],
     alerts: [
       { id: "1", severity: "critical", message: "High CPU on node-03", source: "compute", timestamp: new Date().toISOString() },

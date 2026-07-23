@@ -23,3 +23,12 @@ export function isAdmin(roles: string[] | undefined): boolean {
     r === "APPROVER_L4"
   );
 }
+
+export function getAppUrl(): string {
+  const url = process.env.APP_URL || process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  let cleaned = url.trim().replace(/\/$/, "");
+  if (cleaned.endsWith(":80")) {
+    cleaned = cleaned.substring(0, cleaned.length - 3);
+  }
+  return cleaned;
+}

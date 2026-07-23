@@ -73,7 +73,7 @@ export async function getHardwareReport(params: HardwareReportParams): Promise<H
   } = params;
 
   const skip = (page - 1) * pageSize;
-  const isAdmin = userRoles?.some(r => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
+  const isAdmin = userRoles?.some((r: any) => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
 
   if (!isAdmin) {
     return { data: [], analytics: { totalCount: 0, byType: [], byLocation: [], utilizationDistribution: [], overloadedCount: 0, underutilizedCount: 0, totalCapacity: { cpu: 0, ram: 0, storage: 0 }, usedCapacity: { cpu: 0, ram: 0, storage: 0 } }, total: 0, page: 1, totalPages: 0 };
@@ -112,10 +112,10 @@ export async function getHardwareReport(params: HardwareReportParams): Promise<H
 
   const analytics = await getHardwareReportAnalytics(where);
 
-  const data: HardwareReportRow[] = assets.map(asset => {
-    const allocatedCpu = asset.vms.reduce((sum, vm) => sum + (vm.currentSpec?.vcpu || 0), 0);
-    const allocatedRam = asset.vms.reduce((sum, vm) => sum + (vm.currentSpec?.ramGb || 0), 0);
-    const allocatedStorage = asset.vms.reduce((sum, vm) => sum + (vm.currentSpec?.storageGb || 0), 0);
+  const data: HardwareReportRow[] = assets.map((asset: any) => {
+    const allocatedCpu = asset.vms.reduce((sum: number, vm: any) => sum + (vm.currentSpec?.vcpu || 0), 0);
+    const allocatedRam = asset.vms.reduce((sum: number, vm: any) => sum + (vm.currentSpec?.ramGb || 0), 0);
+    const allocatedStorage = asset.vms.reduce((sum: number, vm: any) => sum + (vm.currentSpec?.storageGb || 0), 0);
     
     const cpuPercent = asset.cpuCores ? (allocatedCpu / asset.cpuCores) * 100 : 0;
     const ramPercent = asset.ramGb ? (allocatedRam / asset.ramGb) * 100 : 0;
@@ -193,9 +193,9 @@ async function getHardwareReportAnalytics(where: Prisma.AssetWhereInput) {
   ];
 
   for (const asset of allAssets) {
-    const cpuPercent = asset.cpuCores ? (asset.vms.reduce((s, v) => s + (v.currentSpec?.vcpu || 0), 0) / asset.cpuCores) * 100 : 0;
-    const ramPercent = asset.ramGb ? (asset.vms.reduce((s, v) => s + (v.currentSpec?.ramGb || 0), 0) / asset.ramGb) * 100 : 0;
-    const storagePercent = asset.storageGb ? (asset.vms.reduce((s, v) => s + (v.currentSpec?.storageGb || 0), 0) / asset.storageGb) * 100 : 0;
+    const cpuPercent = asset.cpuCores ? (asset.vms.reduce((s: number, v: any) => s + (v.currentSpec?.vcpu || 0), 0) / asset.cpuCores) * 100 : 0;
+    const ramPercent = asset.ramGb ? (asset.vms.reduce((s: number, v: any) => s + (v.currentSpec?.ramGb || 0), 0) / asset.ramGb) * 100 : 0;
+    const storagePercent = asset.storageGb ? (asset.vms.reduce((s: number, v: any) => s + (v.currentSpec?.storageGb || 0), 0) / asset.storageGb) * 100 : 0;
     
     const utilizationPercent = Math.max(cpuPercent, ramPercent, storagePercent);
     
@@ -212,16 +212,16 @@ async function getHardwareReportAnalytics(where: Prisma.AssetWhereInput) {
     totalCapacity.cpu += asset.cpuCores || 0;
     totalCapacity.ram += asset.ramGb || 0;
     totalCapacity.storage += asset.storageGb || 0;
-    usedCapacity.cpu += asset.vms.reduce((s, v) => s + (v.currentSpec?.vcpu || 0), 0);
-    usedCapacity.ram += asset.vms.reduce((s, v) => s + (v.currentSpec?.ramGb || 0), 0);
-    usedCapacity.storage += asset.vms.reduce((s, v) => s + (v.currentSpec?.storageGb || 0), 0);
+    usedCapacity.cpu += asset.vms.reduce((s: number, v: any) => s + (v.currentSpec?.vcpu || 0), 0);
+    usedCapacity.ram += asset.vms.reduce((s: number, v: any) => s + (v.currentSpec?.ramGb || 0), 0);
+    usedCapacity.storage += asset.vms.reduce((s: number, v: any) => s + (v.currentSpec?.storageGb || 0), 0);
   }
 
   return {
     totalCount: allAssets.length,
-    byType: byType.map(r => ({ type: r.type, count: r._count })),
-    byLocation: byLocation.map(r => ({ location: r.location || "Unknown", count: r._count })),
-    utilizationDistribution: utilizationRanges.map(r => ({ range: r.range, count: r.count })),
+    byType: byType.map((r: any) => ({ type: r.type, count: r._count })),
+    byLocation: byLocation.map((r: any) => ({ location: r.location || "Unknown", count: r._count })),
+    utilizationDistribution: utilizationRanges.map((r: any) => ({ range: r.range, count: r.count })),
     overloadedCount,
     underutilizedCount,
     totalCapacity,

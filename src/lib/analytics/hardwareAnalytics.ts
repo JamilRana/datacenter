@@ -78,8 +78,8 @@ async function getHardwareByCategory(): Promise<HardwareByCategory[]> {
   }
   
   return Object.entries(categoryCount)
-    .map(([category, count]) => ({ category, count }))
-    .sort((a, b) => b.count - a.count);
+    .map(([category, count]: any) => ({ category, count }))
+    .sort((a: any, b: any) => b.count - a.count);
 }
 
 async function getHardwareByType(): Promise<HardwareByType[]> {
@@ -93,8 +93,8 @@ async function getHardwareByType(): Promise<HardwareByType[]> {
   }
   
   return Object.entries(typeCount)
-    .map(([type, count]) => ({ type, count }))
-    .sort((a, b) => b.count - a.count);
+    .map(([type, count]: any) => ({ type, count }))
+    .sort((a: any, b: any) => b.count - a.count);
 }
 
 async function getHardwareByLocation(): Promise<HardwareByLocation[]> {
@@ -111,8 +111,8 @@ async function getHardwareByLocation(): Promise<HardwareByLocation[]> {
   }
   
   return Object.entries(locationCount)
-    .map(([location, count]) => ({ location, count }))
-    .sort((a, b) => b.count - a.count)
+    .map(([location, count]: any) => ({ location, count }))
+    .sort((a: any, b: any) => b.count - a.count)
     .slice(0, 10);
 }
 
@@ -130,7 +130,7 @@ async function getRecentHardwareActivity(): Promise<HardwareActivity[]> {
     },
   });
 
-  return logs.map((log) => ({
+  return logs.map((log: any) => ({
     id: log.id,
     action: log.action,
     entityType: log.entityType || "ASSET",

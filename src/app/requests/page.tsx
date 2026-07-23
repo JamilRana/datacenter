@@ -10,10 +10,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Search, Loader2, Plus, Zap, Trash2, Server, ArrowRight, Clock, CheckCircle2, XCircle, FileText, ChevronRight, Code, Shield, Monitor } from "lucide-react";
+import { Search, Loader2, Plus, Zap, Trash2, Server, Clock, CheckCircle2, XCircle, FileText, ChevronRight, Code, Shield, Monitor } from "lucide-react";
 import { Pagination } from "@/components/Pagination";
 import { detailsRequest } from "@/types/requests";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -21,9 +21,11 @@ type RequestType = "NEW_VM" | "CUSTOMIZED" | "DECOMMISSION" | "K8S_NAMESPACE" | 
 
 interface RequestStats {
   total: number;
+  draft: number;
   pending: number;
   approved: number;
   rejected: number;
+  deployed: number;
   byType: Record<string, number>;
 }
 
@@ -34,7 +36,7 @@ function getStoredState() {
   try {
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) return JSON.parse(stored);
-  } catch {}
+  } catch { }
   return { tab: "ALL" as RequestType | "ALL", page: 1, filters: { status: "ALL", search: "" } };
 }
 
@@ -42,7 +44,7 @@ function saveState(tab: RequestType | "ALL", page: number, filters: Record<strin
   if (typeof window === "undefined") return;
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ tab, page, filters }));
-  } catch {}
+  } catch { }
 }
 
 export default function MyRequestsPage() {
@@ -57,7 +59,7 @@ export default function MyRequestsPage() {
     currentPage: number;
   } | null>(null);
   const [stats, setStats] = useState<RequestStats>({
-    total: 0, pending: 0, approved: 0, rejected: 0, byType: {}
+    total: 0, draft: 0, pending: 0, approved: 0, rejected: 0, deployed: 0, byType: {}
   });
   const [activeTab, setActiveTab] = useState<RequestType | "ALL">("ALL");
   const [filters, setFilters] = useState({
@@ -74,7 +76,7 @@ export default function MyRequestsPage() {
   useEffect(() => {
     if (initializedRef.current) return;
     initializedRef.current = true;
-    
+
     const stored = getStoredState();
     setActiveTab(stored.tab);
     setCurrentPage(stored.page);
@@ -92,7 +94,7 @@ export default function MyRequestsPage() {
 
   const fetchData = useCallback(async () => {
     if (!session?.user?.id || !initializedRef.current || fetchingRef.current) return;
-    
+
     fetchingRef.current = true;
     setListLoading(true);
     try {
@@ -259,14 +261,14 @@ export default function MyRequestsPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="border-none shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total</CardTitle>
-            <FileText className="h-4 w-4 text-blue-600" />
+            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Drafts</CardTitle>
+            <FileText className="h-4 w-4 text-slate-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            <div className="text-2xl font-bold">{stats.draft}</div>
           </CardContent>
         </Card>
         <Card className="border-none shadow-sm">
@@ -296,9 +298,18 @@ export default function MyRequestsPage() {
             <div className="text-2xl font-bold">{stats.rejected}</div>
           </CardContent>
         </Card>
+        <Card className="border-none shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Deployed</CardTitle>
+            <Server className="h-4 w-4 text-indigo-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.deployed}</div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Request Type Cards */}
+      {/* Request Type Cards 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {requestTypeCards.map((card) => (
           <Link key={card.type} href={card.href} className="group">
@@ -326,16 +337,15 @@ export default function MyRequestsPage() {
           </Link>
         ))}
       </div>
-
+*/}
       {/* Request Type Tabs */}
       <div className="flex gap-2 border-b border-slate-200 pb-1">
         <button
           onClick={() => handleTabChange("ALL")}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === "ALL"
+          className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "ALL"
               ? "text-indigo-600 border-b-2 border-indigo-600"
               : "text-slate-500 hover:text-slate-700"
-          }`}
+            }`}
         >
           All Requests
         </button>
@@ -343,19 +353,18 @@ export default function MyRequestsPage() {
           <button
             key={card.type}
             onClick={() => handleTabChange(card.type)}
-            className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2 ${
-              activeTab === card.type
+            className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === card.type
                 ? "text-indigo-600 border-b-2 border-indigo-600"
                 : "text-slate-500 hover:text-slate-700"
-            }`}
+              }`}
           >
             <card.icon className="h-4 w-4" />
-            {card.type === "NEW_VM" ? "New VM" : 
-             card.type === "CUSTOMIZED" ? "Customize" : 
-             card.type === "DECOMMISSION" ? "Decommission" : 
-             card.type === "K8S_NAMESPACE" ? "K8s Namespace" : 
-             card.type === "VPN_ACCESS" ? "VPN Access" : 
-             card.type === "HORIZON_ACCESS" ? "Horizon Access" : card.type}
+            {card.type === "NEW_VM" ? "New VM" :
+              card.type === "CUSTOMIZED" ? "Customize" :
+                card.type === "DECOMMISSION" ? "Decommission" :
+                  card.type === "K8S_NAMESPACE" ? "K8s Namespace" :
+                    card.type === "VPN_ACCESS" ? "VPN Access" :
+                      card.type === "HORIZON_ACCESS" ? "Horizon Access" : card.type}
             <Badge variant="secondary" className="text-xs">{stats.byType[card.type] || 0}</Badge>
           </button>
         ))}
@@ -407,9 +416,9 @@ export default function MyRequestsPage() {
           <RequestList requests={requestsData?.requests || []} />
           {requestsData && requestsData.totalPages > 1 && (
             <div className="mt-6 flex justify-center">
-              <Pagination 
-                currentPage={currentPage} 
-                totalPages={requestsData.totalPages} 
+              <Pagination
+                currentPage={currentPage}
+                totalPages={requestsData.totalPages}
                 onPageChange={handlePageChange}
               />
             </div>

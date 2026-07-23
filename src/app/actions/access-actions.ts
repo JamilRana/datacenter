@@ -96,7 +96,7 @@ export async function createAccessRequest(formData: FormData) {
 
     const systemName = targetVm.request?.systemName || targetVm.hostname || "VM";
 
-    const newCreatedRequest = await prisma.$transaction(async (tx) => {
+    const newCreatedRequest = await prisma.$transaction(async (tx: any) => {
       const created = await tx.request.create({
         data: {
           requestType,
@@ -106,9 +106,6 @@ export async function createAccessRequest(formData: FormData) {
           projectName: targetVm.request?.projectName || "Access Request",
           purpose: accessJustification,
           environment: targetVm.environment || Environment.PRODUCTION,
-          expectedEndDate: formData.get("expectedEndDate")
-            ? new Date(formData.get("expectedEndDate") as string)
-            : null,
           expectedDeliveryDate: formData.get("expectedDeliveryDate")
             ? new Date(formData.get("expectedDeliveryDate") as string)
             : null,

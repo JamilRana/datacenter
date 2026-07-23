@@ -103,7 +103,7 @@ export async function assignTagsToRequest(requestId: string, tagIds: string[]) {
     const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
     if (!isAdmin) throw new Error("Only Administrators can assign compliance tags");
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       // Delete existing assignments
       await tx.requestTag.deleteMany({
         where: { requestId },
@@ -146,7 +146,7 @@ export async function assignTagsToVm(vmInstanceId: string, tagIds: string[]) {
     const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
     if (!isAdmin) throw new Error("Only Administrators can assign compliance tags");
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       // Delete existing assignments
       await tx.vmTag.deleteMany({
         where: { vmInstanceId },

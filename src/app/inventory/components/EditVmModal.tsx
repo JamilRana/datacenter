@@ -188,21 +188,6 @@ export function EditVmModal({ vm }: EditVmModalProps) {
                 <Input id="osVersion" name="osVersion" defaultValue={vm.currentSpec?.osVersion || ""} placeholder="22.04 LTS" />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="raid">RAID Configuration</Label>
-              <Select name="raid" defaultValue={vm.currentSpec?.raid || "NONE"}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select RAID" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="NONE">None / Single Disk</SelectItem>
-                  <SelectItem value="RAID0">RAID 0 (Striping)</SelectItem>
-                  <SelectItem value="RAID1">RAID 1 (Mirroring)</SelectItem>
-                  <SelectItem value="RAID5">RAID 5 (Distributed)</SelectItem>
-                  <SelectItem value="RAID10">RAID 10 (Combined)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           <hr className="border-slate-100" />

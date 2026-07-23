@@ -1,4 +1,4 @@
-import { Environment, Raid, VmStatus } from "@prisma/client";
+import { Environment, VmStatus } from "@prisma/client";
 import { CustomizationRequest } from "./customization";
 //import { VmStatus, Environment, Raid } from "./enums";
 
@@ -46,7 +46,6 @@ export interface VmSpec {
   storageGb: number;
   osName?: string | null;
   osVersion?: string | null;
-  raid?: "RAID0" | "RAID1" | "RAID5" | "RAID10" | "NONE" | null;
   effectiveFrom: Date;
   createdAt: Date;
   sourceRequestId?: string | null;
@@ -76,7 +75,6 @@ export interface SerializedVmInstance {
     storageGb: number;
     osName: string | null;
     osVersion: string | null;
-    raid: Raid | null;
   } | null;
   owner: { id: string | null; name: string | null; email: string | null } | null;
   request: { 
@@ -97,7 +95,6 @@ export interface SerializedVmSpecHistory {
   storageGb: number;
   osName: string | null;
   osVersion: string | null;
-  raid: Raid | null;
   effectiveFrom: string; // ISO string
   sourceRequestId: string | null;
   customizationRequestId: string | null;

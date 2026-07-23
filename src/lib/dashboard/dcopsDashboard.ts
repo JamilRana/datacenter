@@ -83,8 +83,8 @@ async function getDcopsStats(): Promise<DcopsDashboardStats> {
     }),
   ]);
 
-  const totalVcpuAllocated = vmSpecs.reduce((sum, spec) => sum + spec.vcpu, 0);
-  const totalRamAllocated = vmSpecs.reduce((sum, spec) => sum + spec.ramGb, 0);
+  const totalVcpuAllocated = vmSpecs.reduce((sum: number, spec: any) => sum + spec.vcpu, 0);
+  const totalRamAllocated = vmSpecs.reduce((sum: number, spec: any) => sum + spec.ramGb, 0);
 
   return {
     totalVcpuAllocated,
@@ -125,8 +125,8 @@ async function getEnvironmentDistribution(): Promise<EnvironmentDistribution[]> 
   }
 
   return Object.entries(envCount)
-    .map(([environment, count]) => ({ environment, count }))
-    .sort((a, b) => b.count - a.count);
+    .map(([environment, count]: any) => ({ environment, count }))
+    .sort((a: any, b: any) => b.count - a.count);
 }
 
 async function getProvisioningQueue(): Promise<ProvisioningQueueItem[]> {
@@ -143,7 +143,7 @@ async function getProvisioningQueue(): Promise<ProvisioningQueueItem[]> {
     },
   });
 
-  return requests.map(req => ({
+  return requests.map((req: any) => ({
     id: req.id,
     requestId: req.requestId,
     systemName: req.systemName,

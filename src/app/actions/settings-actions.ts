@@ -48,7 +48,7 @@ export async function saveSettings(settings: { key: string; value: string }[]) {
     // ✅ FIX: Add timeout and maxWait options to transaction
     // timeout: 30 seconds, maxWait: 10 seconds to acquire connection
     await prisma.$transaction(
-      async (tx) => {
+      async (tx: any) => {
         // Batch upserts for better performance
         const upsertPromises = settings.map((s) =>
           tx.systemSetting.upsert({

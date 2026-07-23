@@ -6,7 +6,6 @@ import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { 
-  Prisma,
   AttachmentType, 
   Environment, 
   RequestStatus, 
@@ -18,7 +17,6 @@ import {
   NetworkAccess
 } from "@prisma/client";
 import { generateApprovals } from "./approval-actions";
-import { notifyApprovers } from "@/lib/notifications";
 import { AdditionalDisk, FirewallPort } from "@/types/requests";
 import { ROLES, hasRole } from "@/lib/roles";
 
@@ -55,7 +53,7 @@ export async function createK8sNamespaceRequest(formData: FormData) {
         include: { roles: { include: { role: true } } }
       });
 
-      if (!assignedUser || !assignedUser.roles.some(r => r.role.name === ROLES.REQUESTER)) {
+      if (!assignedUser || !assignedUser.roles.some((r: any) => r.role.name === ROLES.REQUESTER)) {
         throw new Error("Assigned user must have REQUESTER role");
       }
 
@@ -125,9 +123,6 @@ export async function createK8sNamespaceRequest(formData: FormData) {
           projectName: formData.get("projectName")?.toString() || null,
           purpose: formData.get("purpose")?.toString() || "",
           environment: env as Environment,
-          expectedEndDate: formData.get("expectedEndDate")
-            ? new Date(formData.get("expectedEndDate") as string)
-            : null,
           expectedDeliveryDate: formData.get("expectedDeliveryDate")
             ? new Date(formData.get("expectedDeliveryDate") as string)
             : null,
@@ -154,7 +149,8 @@ export async function createK8sNamespaceRequest(formData: FormData) {
           osVersion: null,
           subdomain: formData.get("subdomain")?.toString() || null,
           sslProvider: SSLProvider.MIS,
-          vpnRequired: false,
+          vpnRequired: networkAccess.includes("VPN"),
+          vpnDetails: formData.get("vpnDetails")?.toString() || null,
 
           // K8s specific
           kubernetesOption: true,
@@ -219,19 +215,6 @@ export async function createK8sNamespaceRequest(formData: FormData) {
         },
       });
 
-      // Attachments
-      if (attachments.length > 0) {
-        await tx.attachment.createMany({
-          data: attachments.map((att) => ({
-            requestId: created.id,
-            fileName: att.fileName,
-            filePath: att.filePath,
-            attachmentType: att.attachmentType,
-            uploadedBy: att.uploadedBy,
-          })),
-        });
-      }
-
       return created;
     }, { timeout: 15000 });
 
@@ -243,7 +226,6 @@ export async function createK8sNamespaceRequest(formData: FormData) {
         "REQUEST",
         RequestType.K8S_NAMESPACE
       );
-      await notifyApprovers(newCreatedRequest.id, newCreatedRequest.systemName);
     }
 
     // Audit log
@@ -529,6 +511,9 @@ export async function provisionK8sNamespace(
       });
     });
 
+    const { NotificationService } = await import("@/lib/services/notification.service");
+    await NotificationService.notifyDeployment(requestId, "PROVISIONED");
+
     revalidatePath("/requests");
     revalidatePath("/inventory/assets");
     return { success: true, message: `Kubernetes namespace ${namespaceName} provisioned successfully` };
@@ -790,7 +775,7 @@ export async function approveSubdomain(nodeId: string, decision: "ACTIVE" | "REJ
       throw new Error("You do not have permission to approve subdomains");
     }
 
-    const updatedNode = await prisma.k8sNode.update({
+    await prisma.k8sNode.update({
       where: { id: nodeId },
       data: {
         subdomainStatus: decision

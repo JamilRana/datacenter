@@ -63,11 +63,11 @@ if (searchTerm) {
       by: ["action"],
       _count: true,
       orderBy: { action: "asc" }
-    }).then(groups => groups.map(g => g.action)),
+    }).then((groups: any) => groups.map((g: any) => g.action)),
   ]);
 
   // Safely parse details
-  const processedLogs = logs.map(log => ({
+  const processedLogs = logs.map((log: any) => ({
     ...log,
     details: log.details 
       ? (() => {

@@ -6,8 +6,6 @@ import { Input } from "@/components/ui/input";
 import { 
   Search, 
   Loader2, 
-  ShieldCheck, 
-  Globe, 
   User, 
   Calendar,
   AlertCircle,

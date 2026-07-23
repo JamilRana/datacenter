@@ -8,6 +8,7 @@ export enum RequestType {
   DECOMMISSION = "DECOMMISSION",
   VPN_ACCESS = "VPN_ACCESS",
   HORIZON_ACCESS = "HORIZON_ACCESS",
+  SYSTEM_UPGRADE = "SYSTEM_UPGRADE",
 }
 
 export enum RequestStatus {
@@ -62,13 +63,7 @@ export enum ApprovalEntityType {
   CUSTOMIZATION = "CUSTOMIZATION",
 }
 
-export enum Raid {
-  RAID0 = "RAID0",
-  RAID1 = "RAID1",
-  RAID5 = "RAID5",
-  RAID10 = "RAID10",
-  NONE = "NONE",
-}
+
 
 export enum Protocol {
   TCP = "TCP",
@@ -99,6 +94,7 @@ export enum NetworkAccess {
   LOCAL = "LOCAL",
   INTERNET = "INTERNET",
   REMOTE = "REMOTE",
+  VPN = "VPN",
 }
 
 export enum AssetType {

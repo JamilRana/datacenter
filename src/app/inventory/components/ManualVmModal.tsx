@@ -24,7 +24,7 @@ import {
 import { toast } from "sonner";
 import { createManualVm } from "@/app/actions/vm-actions";
 import { getAllActiveUsers } from "@/app/actions/user-actions";
-import { VmStatus, Raid } from "@/types/enums";
+import { VmStatus } from "@/types/enums";
 import { Combobox } from "@/components/ui/combobox";
 
 interface UserOption {
@@ -154,21 +154,6 @@ export function ManualVmModal({ actorId }: { actorId: string }) {
                 <Label htmlFor="osVersion">OS Version</Label>
                 <Input id="osVersion" name="osVersion" placeholder="7.9 / 22.04 / 2022" />
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="raid">Storage RAID</Label>
-              <Select name="raid" defaultValue={Raid.NONE}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select RAID level" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.values(Raid).map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {r}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
           </div>
 

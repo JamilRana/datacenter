@@ -86,7 +86,7 @@ export async function getUsers(params: UserListParams): Promise<PaginatedUsers> 
   ]);
 
   return {
-    users: users.map((u) => ({
+    users: users.map((u: any) => ({
       id: u.id,
       name: u.name,
       email: u.email,
@@ -94,7 +94,7 @@ export async function getUsers(params: UserListParams): Promise<PaginatedUsers> 
       organization: u.organization,
       contact: u.contact,
       isActive: u.isActive,
-      roles: u.roles.map((r) => r.role.name),
+      roles: u.roles.map((r: any) => r.role.name),
       createdAt: u.createdAt,
       updatedAt: u.updatedAt,
     })),
@@ -126,7 +126,7 @@ export async function getUserById(id: string) {
     organization: user.organization,
     contact: user.contact,
     isActive: user.isActive,
-    roles: user.roles.map((r) => r.role.name),
+    roles: user.roles.map((r: any) => r.role.name),
     createdAt: user.createdAt,
   };
 }
@@ -175,7 +175,7 @@ export async function createUser(input: CreateUserInput) {
     id: user.id,
     name: user.name,
     email: user.email,
-    roles: user.roles.map((r) => r.role.name),
+    roles: user.roles.map((r: any) => r.role.name),
   };
 }
 
@@ -229,7 +229,7 @@ export async function updateUser(id: string, input: UpdateUserInput) {
     name: user.name,
     email: user.email,
     isActive: user.isActive,
-    roles: user.roles.map((r) => r.role.name),
+    roles: user.roles.map((r: any) => r.role.name),
   };
 }
 

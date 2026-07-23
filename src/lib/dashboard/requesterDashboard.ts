@@ -75,9 +75,9 @@ async function getRequesterStats(userId: string): Promise<RequesterDashboardStat
     }),
   ]);
 
-  const myCpuUsed = vmSpecs.reduce((sum, spec) => sum + spec.vcpu, 0);
-  const myRamUsedGb = vmSpecs.reduce((sum, spec) => sum + spec.ramGb, 0);
-  const myStorageUsedGb = vmSpecs.reduce((sum, spec) => sum + spec.storageGb, 0);
+  const myCpuUsed = vmSpecs.reduce((sum: number, spec: any) => sum + spec.vcpu, 0);
+  const myRamUsedGb = vmSpecs.reduce((sum: number, spec: any) => sum + spec.ramGb, 0);
+  const myStorageUsedGb = vmSpecs.reduce((sum: number, spec: any) => sum + spec.storageGb, 0);
 
   return {
     myActiveVms,
@@ -101,9 +101,9 @@ async function getResourceAllocation(userId: string): Promise<MyResourceAllocati
   }
 
   return {
-    vcpu: vmSpecs.reduce((sum, spec) => sum + spec.vcpu, 0),
-    ramGb: vmSpecs.reduce((sum, spec) => sum + spec.ramGb, 0),
-    storageGb: vmSpecs.reduce((sum, spec) => sum + spec.storageGb, 0),
+    vcpu: vmSpecs.reduce((sum: number, spec: any) => sum + spec.vcpu, 0),
+    ramGb: vmSpecs.reduce((sum: number, spec: any) => sum + spec.ramGb, 0),
+    storageGb: vmSpecs.reduce((sum: number, spec: any) => sum + spec.storageGb, 0),
     vmCount: vmSpecs.length,
   };
 }
@@ -125,7 +125,7 @@ async function getRecentActivity(userId: string): Promise<MyRecentActivity[]> {
   ]);
 
   const activities: MyRecentActivity[] = [
-    ...vms.map(vm => ({
+    ...vms.map((vm: any) => ({
       id: vm.id,
       type: "VM" as const,
       action: "Created VM",
@@ -133,7 +133,7 @@ async function getRecentActivity(userId: string): Promise<MyRecentActivity[]> {
       timestamp: vm.createdAt,
       status: vm.status,
     })),
-    ...requests.map(req => ({
+    ...requests.map((req: any) => ({
       id: req.id,
       type: "REQUEST" as const,
       action: "Submitted Request",
@@ -144,6 +144,6 @@ async function getRecentActivity(userId: string): Promise<MyRecentActivity[]> {
   ];
 
   return activities
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 10);
 }

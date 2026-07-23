@@ -26,7 +26,7 @@ export class NotificationService {
   /**
    * Notify all approvers for a new request or step change
    */
-  static async notifyApprovers(requestId: string, systemName: string, level: number) {
+  static async notifyApprovers(requestId: string, systemName: string, level: number, entityType: "REQUEST" | "CUSTOMIZATION" = "REQUEST") {
     const roleMap: Record<number, string> = {
       1: UserRole.L1_APPROVER,
       2: UserRole.L2_APPROVER,
@@ -34,29 +34,52 @@ export class NotificationService {
       4: UserRole.L4_APPROVER,
     };
 
-    const targetRole = roleMap[level];
-    if (!targetRole) return;
-
-    const approvers = await prisma.user.findMany({
+    // Find the specific approval record that is pending for this request/customization and level
+    const approvals = await prisma.approval.findMany({
       where: {
-        isActive: true,
-        roles: {
-          some: {
-            role: {
-              name: targetRole,
-            },
-          },
-        },
+        OR: [
+          { requestId },
+          { customizationRequestId: requestId }
+        ],
+        level,
+        decision: "PENDING",
       },
-      select: { id: true, email: true, name: true },
+      include: {
+        approver: {
+          select: { id: true, email: true, name: true }
+        }
+      }
     });
 
+    let approvers = approvals.map((a: any) => a.approver).filter(Boolean);
+
+    // Fallback to role-based if no approvals found (should not normally happen)
+    if (approvers.length === 0) {
+      const targetRole = roleMap[level];
+      if (targetRole) {
+        approvers = await prisma.user.findMany({
+          where: {
+            isActive: true,
+            roles: {
+              some: {
+                role: {
+                  name: targetRole,
+                },
+              },
+            },
+          },
+          select: { id: true, email: true, name: true },
+        });
+      }
+    }
+
     for (const approver of approvers) {
+      const typeParam = entityType === "CUSTOMIZATION" ? "customization" : "request";
       await this.createNotification(
         approver.id,
         NotificationType.APPROVAL_REQUIRED,
         `Request "${systemName}" requires your Level ${level} approval`,
-        `/approvals/${requestId}`
+        `/approvals/${requestId}?type=${typeParam}`
       );
 
       if (approver.email) {
@@ -72,19 +95,93 @@ export class NotificationService {
   }
 
   /**
+   * Notify requester and developer(s) about deployment/provisioning
+   */
+  static async notifyDeployment(requestId: string, status: string) {
+    try {
+      const request = await prisma.request.findUnique({
+        where: { id: requestId },
+        include: {
+          requester: { select: { id: true, email: true, name: true } },
+          developer: { select: { id: true, email: true, name: true } },
+        },
+      });
+
+      if (!request) return;
+
+      const systemName = request.systemName;
+      const requester = request.requester;
+      const developer = request.developer;
+
+      const displayStatus = status.replace(/_/g, " ");
+      const message = `Your request "${systemName}" has been deployed/provisioned (Status: ${displayStatus}).`;
+
+      // 1. Notify requester
+      if (requester) {
+        await this.createNotification(
+          requester.id,
+          NotificationType.STATUS_UPDATE,
+          message,
+          `/requests/${request.id}/view`
+        );
+
+        if (requester.email) {
+          await sendStatusUpdateNotification(
+            requester.email,
+            requester.name || "Requester",
+            systemName,
+            status
+          );
+        }
+      }
+
+      // 2. Notify developer if associated
+      if (developer) {
+        await this.createNotification(
+          developer.id,
+          NotificationType.STATUS_UPDATE,
+          `Request "${systemName}" you are associated with has been deployed/provisioned (Status: ${displayStatus}).`,
+          `/requests/${request.id}/view`
+        );
+
+        if (developer.email) {
+          await sendStatusUpdateNotification(
+            developer.email,
+            developer.name || "Developer",
+            systemName,
+            status
+          );
+        }
+      } else if (request.developerEmail) {
+        // Fallback for guest/external developer
+        await sendStatusUpdateNotification(
+          request.developerEmail,
+          request.developerName || "Developer",
+          systemName,
+          status
+        );
+      }
+    } catch (error) {
+      console.error("[NotificationService] Failed to send deployment notifications:", error);
+    }
+  }
+
+  /**
    * Notify the requester about status changes
    */
-  static async notifyRequester(userId: string, systemName: string, status: string, comments?: string) {
+  static async notifyRequester(userId: string, systemName: string, status: string, requestId?: string, comments?: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { email: true, name: true },
     });
 
+    const link = requestId ? `/requests/${requestId}/view` : "/requests";
+
     await this.createNotification(
       userId,
       NotificationType.STATUS_UPDATE,
       `Your request "${systemName}" status updated to: ${status.replace(/_/g, " ")}`,
-      `/requests/${systemName.toLowerCase().replace(/\s+/g, "-")}`
+      link
     );
 
     if (user?.email) {

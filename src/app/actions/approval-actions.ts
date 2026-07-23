@@ -72,7 +72,7 @@ export async function generateApprovals(
       ? (await tx.request.findUnique({ where: { id: entityId }, select: { systemName: true } }))?.systemName || "New Request"
       : "Customization Request";
       
-    await NotificationService.notifyApprovers(entityId, systemName, 1);
+    await NotificationService.notifyApprovers(entityId, systemName, 1, entityType);
   }
 }
 
@@ -144,7 +144,7 @@ export async function handleApprovalDecision(
 
   const resolvedApprovalId = approvalRecord.id;
 
-  return await prisma.$transaction(async (tx) => {
+  return await prisma.$transaction(async (tx: any) => {
     const approval = await tx.approval.findUnique({
       where: { id: resolvedApprovalId },
       include: { 
@@ -172,7 +172,7 @@ export async function handleApprovalDecision(
       });
       
       const allPreviousApproved = previousLevelApprovals.every(
-        (a) => a.decision === ApprovalDecision.APPROVED
+        (a: any) => a.decision === ApprovalDecision.APPROVED
       );
       
       if (!allPreviousApproved) {
@@ -410,7 +410,7 @@ export async function handleApprovalDecision(
                 ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
               },
             });
-            await NotificationService.notifyApprovers(entityId, systemName, nextLevel.level);
+             await NotificationService.notifyApprovers(entityId, systemName, nextLevel.level, entityType);
             nextStatus = getStatusForLevel(nextLevel.level);
           } else {
             // No approver found - finalize the request
@@ -527,7 +527,7 @@ export async function executeRequest(requestId: string, notes?: string): Promise
     return { success: false, error: `Customization must be APPROVED to execute (current: ${customization.status})` };
   }
 
-  return await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx: any) => {
     if (request) {
       // DECOMMISSION: Retire VMs immediately
       if (request.requestType === RequestType.DECOMMISSION) {
@@ -542,7 +542,7 @@ export async function executeRequest(requestId: string, notes?: string): Promise
         }
 
         await tx.vmInstance.updateMany({
-          where: { id: { in: vms.map(v => v.id) } },
+          where: { id: { in: vms.map((v: any) => v.id) } },
           data: {
             status: VmStatus.RETIRED,
             decommissionedAt: new Date(),
@@ -553,14 +553,6 @@ export async function executeRequest(requestId: string, notes?: string): Promise
           where: { id: requestId },
           data: { status: RequestStatus.CLOSED },
         });
-
-        if (request.requesterId) {
-          await NotificationService.notifyRequester(
-            request.requesterId,
-            request.systemName || "Decommissioned VM",
-            "DECOMMISSIONED"
-          );
-        }
       }
       // VPN_ACCESS/HORIZON_ACCESS: Confirm externally and mark as provisioned
       else if (request.requestType === RequestType.VPN_ACCESS || request.requestType === RequestType.HORIZON_ACCESS) {
@@ -571,14 +563,6 @@ export async function executeRequest(requestId: string, notes?: string): Promise
             provisionedAt: new Date(),
           },
         });
-
-        if (request.requesterId) {
-          await NotificationService.notifyRequester(
-            request.requesterId,
-            request.systemName || "Access Request",
-            "PROVISIONED"
-          );
-        }
       }
       // K8S_NAMESPACE: Provision namespace
       else if (request.requestType === RequestType.K8S_NAMESPACE) {
@@ -601,14 +585,82 @@ export async function executeRequest(requestId: string, notes?: string): Promise
             existingNamespaceId: namespaceId,
           },
         });
-
-        if (request.requesterId) {
-          await NotificationService.notifyRequester(
-            request.requesterId,
-            request.systemName || "K8s Namespace",
-            "PROVISIONED"
-          );
+      }
+      // SYSTEM_UPGRADE: Apply upgraded spec changes to target VM
+      else if (request.requestType === RequestType.SYSTEM_UPGRADE) {
+        if (!request.targetVmId) {
+          return { success: false, error: "Target VM not specified for upgrade" };
         }
+
+        const latestSpec = await tx.vmSpec.findFirst({
+          where: { vmInstanceId: request.targetVmId },
+          orderBy: { createdAt: "desc" },
+        });
+
+        // Resolve new specifications
+        const vcpu = request.upgradeCpu ?? latestSpec?.vcpu ?? 2;
+        const ramGb = request.upgradeRamGb ?? latestSpec?.ramGb ?? 4;
+        
+        // Storage is additive
+        const currentStorage = latestSpec?.storageGb ?? 50;
+        const storageGb = currentStorage + (request.upgradeStorageGb ?? 0);
+
+        const newSpec = await tx.vmSpec.create({
+          data: {
+            vmInstanceId: request.targetVmId,
+            vcpu,
+            ramGb,
+            storageGb,
+            osName: latestSpec?.osName || null,
+            osVersion: latestSpec?.osVersion || null,
+            effectiveFrom: new Date(),
+            appliedById: userId,
+            sourceRequestId: request.id,
+            // Copy existing disks, firewalls, and network access entries from latestSpec
+            additionalDisks: latestSpec ? {
+              create: await tx.vmSpecDisk.findMany({
+                where: { specId: latestSpec.id }
+              }).then((disks: any[]) => disks.map(d => ({
+                sizeGb: d.sizeGb,
+                purpose: d.purpose,
+                sequence: d.sequence
+              })))
+            } : undefined,
+            firewallPorts: latestSpec ? {
+              create: await tx.vmSpecFirewallPort.findMany({
+                where: { specId: latestSpec.id }
+              }).then((rules: any[]) => rules.map(r => ({
+                port: r.port,
+                protocol: r.protocol,
+                purpose: r.purpose,
+                source: r.source
+              })))
+            } : undefined,
+            networkAccess: latestSpec ? {
+              create: await tx.vmSpecNetworkAccess.findMany({
+                where: { specId: latestSpec.id }
+              }).then((entries: any[]) => entries.map(e => ({
+                accessType: e.accessType
+              })))
+            } : undefined
+          },
+        });
+
+        await tx.vmInstance.update({
+          where: { id: request.targetVmId },
+          data: { 
+            currentSpecId: newSpec.id,
+            status: VmStatus.ACTIVE,
+          },
+        });
+
+        await tx.request.update({
+          where: { id: requestId },
+          data: {
+            status: RequestStatus.PROVISIONED,
+            provisionedAt: new Date(),
+          },
+        });
       }
       // NEW_VM/RENEWAL: Mark as provisioned (VMs created via executeRequestWithVmInputs)
       else {
@@ -619,14 +671,6 @@ export async function executeRequest(requestId: string, notes?: string): Promise
             provisionedAt: new Date(),
           },
         });
-
-        if (request.requesterId) {
-          await NotificationService.notifyRequester(
-            request.requesterId,
-            request.systemName || "Provisioned VM",
-            "PROVISIONED"
-          );
-        }
       }
     }
 
@@ -649,19 +693,18 @@ export async function executeRequest(requestId: string, notes?: string): Promise
           storageGb,
           osName: latestSpec?.osName || null,
           osVersion: latestSpec?.osVersion || null,
-          raid: latestSpec?.raid || null,
           effectiveFrom: new Date(),
           appliedById: userId,
           customizationRequestId: customization.id,
           additionalDisks: {
-            create: customization.additionalDisks.map(d => ({
+            create: customization.additionalDisks.map((d: any) => ({
               sizeGb: d.sizeGb,
               purpose: d.purpose,
               sequence: d.sequence
             }))
           },
           firewallPorts: {
-            create: customization.firewallPorts.map(p => ({
+            create: customization.firewallPorts.map((p: any) => ({
               port: p.port,
               protocol: p.protocol,
               purpose: p.purpose,
@@ -669,7 +712,7 @@ export async function executeRequest(requestId: string, notes?: string): Promise
             }))
           },
           networkAccess: {
-            create: customization.networkAccess.map(a => ({
+            create: customization.networkAccess.map((a: any) => ({
               accessType: a.accessType
             }))
           }
@@ -688,15 +731,6 @@ export async function executeRequest(requestId: string, notes?: string): Promise
         where: { id: requestId },
         data: { status: CustomizationStatus.APPLIED },
       });
-
-      const vmHostname = customization.targetVm?.hostname || "VM";
-      if (customization.requesterId) {
-        await NotificationService.notifyRequester(
-          customization.requesterId,
-          vmHostname,
-          "CUSTOMIZATION_APPLIED"
-        );
-      }
     }
 
     await tx.auditLog.create({
@@ -713,6 +747,24 @@ export async function executeRequest(requestId: string, notes?: string): Promise
     await invalidateCache('admin_dashboard_data');
     return { success: true };
   }, { timeout: 15000 });
+
+  if (result.success) {
+    if (request) {
+      const isDecom = request.requestType === RequestType.DECOMMISSION;
+      await NotificationService.notifyDeployment(requestId, isDecom ? "DECOMMISSIONED" : "PROVISIONED");
+    } else if (customization) {
+      const vmHostname = customization.targetVm?.hostname || "VM";
+      if (customization.requesterId) {
+        await NotificationService.notifyRequester(
+          customization.requesterId,
+          vmHostname,
+          "CUSTOMIZATION_APPLIED"
+        );
+      }
+    }
+  }
+
+  return result;
 }
 
 // VM input interface
@@ -778,7 +830,7 @@ export async function executeRequestWithVmInputs(
     }
   }
 
-  return await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx: any) => {
     // Create VM instances with provided details
     for (const vmInput of vmInputs) {
       const createdVm = await tx.vmInstance.create({
@@ -792,6 +844,7 @@ export async function executeRequestWithVmInputs(
           subdomain: vmInput.subdomain || request.subdomain || null,
           status: VmStatus.ACTIVE,
           provisionedAt: new Date(),
+          renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 6)),
           environment: request.environment,
           systemName: request.systemName,
           cloneOfRequestId: request.requestType === RequestType.CLONE_VM ? request.id : null,
@@ -806,18 +859,17 @@ export async function executeRequestWithVmInputs(
           storageGb: request.storageGb || 50,
           osName: request.osName,
           osVersion: request.osVersion,
-          raid: request.raid,
           effectiveFrom: new Date(),
           sourceRequestId: request.id,
           additionalDisks: {
-            create: request.additionalDisks.map(d => ({
+            create: request.additionalDisks.map((d: any) => ({
               sizeGb: d.sizeGb,
               purpose: d.purpose,
               sequence: d.sequence
             }))
           },
           firewallPorts: {
-            create: request.firewallPorts.map(p => ({
+            create: request.firewallPorts.map((p: any) => ({
               port: p.port,
               protocol: p.protocol,
               purpose: p.purpose,
@@ -825,7 +877,7 @@ export async function executeRequestWithVmInputs(
             }))
           },
           networkAccess: {
-            create: request.networkAccess.map(a => ({
+            create: request.networkAccess.map((a: any) => ({
               accessType: a.accessType
             }))
           }
@@ -866,18 +918,15 @@ export async function executeRequestWithVmInputs(
       },
     });
 
-    // Notify requester
-    if (request.requesterId) {
-      await NotificationService.notifyRequester(
-        request.requesterId,
-        request.systemName || "Provisioned VM",
-        "PROVISIONED"
-      );
-    }
-
     revalidatePath("/inventory/vms");
     return { success: true, data: { vmCount: vmInputs.length } };
   }, { timeout: 30000 });
+
+  if (result.success) {
+    await NotificationService.notifyDeployment(requestId, "PROVISIONED");
+  }
+
+  return result;
 }
 
 export async function getDashboardData(): Promise<ApiResponse<unknown>> {
@@ -926,8 +975,8 @@ export async function provisionVMs(
 
   try {
     // Increase timeout for VM provisioning (30 seconds)
-    return await prisma.$transaction(
-      async (tx) => {
+    const result = await prisma.$transaction(
+      async (tx: any) => {
       // Fetch the request
       const request = await tx.request.findUnique({
         where: { id: requestId },
@@ -1044,6 +1093,7 @@ export async function provisionVMs(
             ownerId: requesterId,
             status: VmStatus.ACTIVE,
             provisionedAt: new Date(),
+            renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 6)),
             environment: request.environment,
             systemName: request.systemName,
             cloneOfRequestId: request.requestType === RequestType.CLONE_VM ? requestId : null,
@@ -1059,18 +1109,17 @@ export async function provisionVMs(
             storageGb: request.storageGb || 50,
             osName: request.osName,
             osVersion: request.osVersion,
-            raid: request.raid,
             effectiveFrom: new Date(),
             sourceRequestId: request.id,
             additionalDisks: {
-              create: request.additionalDisks.map(d => ({
+              create: request.additionalDisks.map((d: any) => ({
                 sizeGb: d.sizeGb,
                 purpose: d.purpose,
                 sequence: d.sequence
               }))
             },
             firewallPorts: {
-              create: request.firewallPorts.map(p => ({
+              create: request.firewallPorts.map((p: any) => ({
                 port: p.port,
                 protocol: p.protocol,
                 purpose: p.purpose,
@@ -1078,7 +1127,7 @@ export async function provisionVMs(
               }))
             },
             networkAccess: {
-              create: request.networkAccess.map(a => ({
+              create: request.networkAccess.map((a: any) => ({
                 accessType: a.accessType
               }))
             }
@@ -1153,10 +1202,17 @@ export async function provisionVMs(
         success: true,
         message: `Successfully provisioned ${provisionedVms.length} VM${provisionedVms.length !== 1 ? "s" : ""}`,
         provisionedCount: provisionedVms.length,
+        newStatus,
       };
     },
     { timeout: 30000 }
   );
+
+  if (result.success && result.newStatus) {
+    await NotificationService.notifyDeployment(requestId, result.newStatus);
+  }
+
+  return result;
   } catch (error) {
     console.error("Error provisioning VMs:", error);
     return { success: false, message: "Failed to provision VMs" };

@@ -27,14 +27,9 @@ import {
   ShieldCheck,
   Monitor,
   Layers,
-  Cpu,
-  Network,
-  Sun,
-  Moon,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/app/providers/ThemeProvider";
 
 interface NavItem {
   title: string;
@@ -45,8 +40,9 @@ interface NavItem {
 }
 
 export function Sidebar({ children }: { children: React.ReactNode }) {
-  const { data: session, status } = useSession();
-  const { theme, setTheme } = useTheme();
+  const data = useSession();
+  const session = data.data;
+  const status = data.status;
   const pathname = usePathname();
   const [expandedItems, setExpandedItems] = useState<string[]>(["inventory"]);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -254,57 +250,16 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
                 Profile
               </Button>
             </Link>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => signOut()}
-              className="text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400"
-            >
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* Theme Toggler */}
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">Theme</span>
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
-              <button
-                onClick={() => setTheme("light")}
-                className={cn(
-                  "p-1 rounded-md transition-all",
-                  theme === "light"
-                    ? "bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400"
-                    : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-                )}
-                title="Light Mode"
+            {!(pathname === "/requests/new" || (/^\/requests\/[a-zA-Z0-9-]+\/edit$/).test(pathname)) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => signOut()}
+                className="text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400"
               >
-                <Sun className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => setTheme("dark")}
-                className={cn(
-                  "p-1 rounded-md transition-all",
-                  theme === "dark"
-                    ? "bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400"
-                    : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-                )}
-                title="Dark Mode"
-              >
-                <Moon className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => setTheme("system")}
-                className={cn(
-                  "p-1 rounded-md transition-all",
-                  theme === "system"
-                    ? "bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400"
-                    : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-                )}
-                title="System Default"
-              >
-                <Monitor className="h-3.5 w-3.5" />
-              </button>
-            </div>
+                <LogOut className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
       )}

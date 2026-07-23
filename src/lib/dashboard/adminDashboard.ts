@@ -42,8 +42,8 @@ async function getAdminStats(): Promise<AdminDashboardStats> {
     }),
   ]);
 
-  const totalCpuCores = vmSpecs.reduce((sum, spec) => sum + spec.vcpu, 0);
-  const totalRamGb = vmSpecs.reduce((sum, spec) => sum + spec.ramGb, 0);
+  const totalCpuCores = vmSpecs.reduce((sum: number, spec: any) => sum + spec.vcpu, 0);
+  const totalRamGb = vmSpecs.reduce((sum: number, spec: any) => sum + spec.ramGb, 0);
 
   return {
     totalVms,
@@ -86,7 +86,7 @@ async function getMonthlyRequestTrends(): Promise<MonthlyRequestTrend[]> {
   }
 
   return Object.entries(monthlyData)
-    .map(([month, data]) => ({
+    .map(([month, data]: any) => ({
       month,
       ...data,
     }))
@@ -107,8 +107,8 @@ async function getApprovalDistribution(): Promise<ApprovalDistribution[]> {
   }
 
   return Object.entries(statusCount)
-    .map(([status, count]) => ({ status, count }))
-    .sort((a, b) => b.count - a.count);
+    .map(([status, count]: any) => ({ status, count }))
+    .sort((a: any, b: any) => b.count - a.count);
 }
 
 async function getRecentAuditLogs(): Promise<AuditLogEntry[]> {
@@ -122,7 +122,7 @@ async function getRecentAuditLogs(): Promise<AuditLogEntry[]> {
     },
   });
 
-  return logs.map(log => ({
+  return logs.map((log: any) => ({
     id: log.id,
     action: log.action,
     actorId: log.actorId,

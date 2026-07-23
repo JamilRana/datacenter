@@ -12,7 +12,7 @@ import {
   CustomizationStatus
 } from "@prisma/client";
 
-import { VmStatus as FrontendVmStatus,   Raid as FrontendRaid,
+import { VmStatus as FrontendVmStatus,
   Environment as FrontendEnvironment } from "@/types/enums";
 import { generateApprovals } from "./approval-actions";
 import { getServerSession } from "next-auth";
@@ -70,11 +70,6 @@ const vmSpecSchema = z.object({
 
   osName: z.string().optional().nullable(),
   osVersion: z.string().optional().nullable(),
-
-  raid: z
-    .enum(["RAID0", "RAID1", "RAID5", "RAID10", "NONE"])
-    .optional()
-    .nullable(),
 });
 
 const VM_LIGHT_INCLUDE = {
@@ -168,7 +163,7 @@ export async function getVmListWithRequests({
     orderBy: { provisionedAt: "desc" },
   });
 
-  const vmIds = vms.map(vm => vm.id);
+  const vmIds = vms.map((vm: any) => vm.id);
   
   const [customizations, decommissions] = await Promise.all([
     prisma.customizationRequest.findMany({
@@ -188,10 +183,10 @@ export async function getVmListWithRequests({
     }),
   ]);
 
-  const customizationVmSet = new Set(customizations.map(c => c.targetVmId));
-  const decommissionVmSet = new Set(decommissions.map(d => d.targetVmId));
+  const customizationVmSet = new Set(customizations.map((c: any) => c.targetVmId));
+  const decommissionVmSet = new Set(decommissions.map((d: any) => d.targetVmId));
 
-  return vms.map(vm => ({
+  return vms.map((vm: any) => ({
     ...vm,
     hasCustomizationRequest: customizationVmSet.has(vm.id),
     hasDecommissionRequest: decommissionVmSet.has(vm.id),
@@ -203,7 +198,7 @@ export async function createVm(formData: FormData, actorId: string) {
   const vmData = vmBaseSchema.parse(Object.fromEntries(formData));
   const specData = vmSpecSchema.parse(Object.fromEntries(formData));
 
-  const vm = await prisma.$transaction(async (tx) => {
+  const vm = await prisma.$transaction(async (tx: any) => {
     const createdVm = await tx.vmInstance.create({
       data: {
         ...vmData,
@@ -265,7 +260,7 @@ export async function updateVm(formData: FormData) {
 
   const actorId = session.user.id;
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     // 1. Update VM Instance base fields
     await tx.vmInstance.update({
       where: { id },
@@ -285,8 +280,7 @@ export async function updateVm(formData: FormData) {
       oldVm.currentSpec.ramGb !== specData.ramGb ||
       oldVm.currentSpec.storageGb !== specData.storageGb ||
       oldVm.currentSpec.osName !== specData.osName ||
-      oldVm.currentSpec.osVersion !== specData.osVersion ||
-      oldVm.currentSpec.raid !== specData.raid;
+      oldVm.currentSpec.osVersion !== specData.osVersion;
 
     if (specChanged) {
       const newSpec = await tx.vmSpec.create({
@@ -340,7 +334,7 @@ export async function updateVmResources(
   }
   const actorId = session.user.id;
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     const spec = await tx.vmSpec.create({
        data:{
         ...specData,
@@ -429,7 +423,6 @@ export async function fetchAllVms(page: number = 1, pageSize: number = 20): Prom
             storageGb: true,
             osName: true,
             osVersion: true,
-            raid: true,
           },
         },
         owner: { select: {id: true, name: true, email: true } },  
@@ -439,14 +432,13 @@ export async function fetchAllVms(page: number = 1, pageSize: number = 20): Prom
     prisma.vmInstance.count({ where })
   ]);
   return {
-    vms: vms.map(vm => {
+    vms: vms.map((vm: any) => {
       const currentSpec = vm.currentSpec ? {
         vcpu: vm.currentSpec.vcpu,
         ramGb: vm.currentSpec.ramGb,
         storageGb: vm.currentSpec.storageGb,
         osName: vm.currentSpec.osName,
         osVersion: vm.currentSpec.osVersion,
-        raid: (vm.currentSpec.raid as unknown) as FrontendRaid | null,
       } : null;
 
       const request = vm.request ? {
@@ -497,7 +489,7 @@ const requesterId = session.user.id;
 
   if (!vm) throw new Error("VM not found");
 
-  const renewalRequest = await prisma.$transaction(async (tx) => {
+  const renewalRequest = await prisma.$transaction(async (tx: any) => {
     const created = await tx.request.create({
       data: {
         requestType: RequestType.RENEWAL,
@@ -564,7 +556,6 @@ export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVm
     storageGb: vm.currentSpec.storageGb,
     osName: vm.currentSpec.osName,
     osVersion: vm.currentSpec.osVersion,
-    raid: (vm.currentSpec.raid as unknown) as FrontendRaid | null,
   } : null;
 
   const request = vm.request ? {
@@ -573,20 +564,19 @@ export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVm
     environment: (vm.request.environment as unknown) as FrontendEnvironment | null,
   } : null;
 
-  const specHistory = vm.specHistory.map(spec => ({
+  const specHistory = vm.specHistory.map((spec: any) => ({
     id: spec.id,
     vcpu: spec.vcpu,
     ramGb: spec.ramGb,
     storageGb: spec.storageGb,
     osName: spec.osName,
     osVersion: spec.osVersion,
-    raid: (spec.raid as unknown) as FrontendRaid | null,
     effectiveFrom: spec.effectiveFrom.toISOString(),
     sourceRequestId: spec.sourceRequestId,
     customizationRequestId: spec.customizationRequestId,
   }));
 
-  const auditLogs = vm.auditLogs.map(log => ({
+  const auditLogs = vm.auditLogs.map((log: any) => ({
     id: log.id,
     timestamp: log.timestamp.toISOString(),
     action: log.action,
@@ -614,7 +604,7 @@ export async function fetchVmDetailsSerialized(id: string): Promise<SerializedVm
     request,
     specHistory,
     auditLogs,
-    tags: (vm.tags || []).map((t) => ({
+    tags: (vm.tags || []).map((t: any) => ({
       tag: {
         id: t.tag.id,
         name: t.tag.name,

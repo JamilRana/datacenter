@@ -5,8 +5,9 @@ import { env } from "node:process";
 import prisma from "@/lib/prisma";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
+import { getAppUrl } from "@/lib/utils";
 
-const DEFAULT_PORTAL_URL = env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const DEFAULT_PORTAL_URL = getAppUrl();
 const DEFAULT_FROM_EMAIL = env.NEXT_PUBLIC_EMAIL || "[EMAIL_ADDRESS]";
 
 const ENCRYPTION_KEY = process.env.EMAIL_ENCRYPTION_KEY || "default-32-char-encryption-key!!";
@@ -66,10 +67,10 @@ export async function getSmtpConfig(): Promise<SmtpConfig | null> {
       where: { category: "smtp" },
     });
 
-    console.log("SMTP settings from DB:", settings.map(s => ({ key: s.key, value: s.isSecret ? "***" : s.value })));
+    console.log("SMTP settings from DB:", settings.map((s: any) => ({ key: s.key, value: s.isSecret ? "***" : s.value })));
 
     const configMap: Record<string, string> = {};
-    settings.forEach((s) => {
+    settings.forEach((s: any) => {
       configMap[s.key] = s.key === "smtp_password" ? decryptSmtpPassword(s.value) : s.value;
     });
 

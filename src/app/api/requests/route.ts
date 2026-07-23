@@ -32,6 +32,12 @@ export async function POST(req: Request) {
       return NextResponse.json(result, { status: 201 });
     }
 
+    if (requestType === "SYSTEM_UPGRADE") {
+      const { createSystemUpgradeRequest } = await import("@/app/actions/upgrade-actions");
+      const result = await createSystemUpgradeRequest(formData);
+      return NextResponse.json(result, { status: 201 });
+    }
+
     if (requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") {
       const result = await createAccessRequest(formData);
       return NextResponse.json(result, { status: 201 });

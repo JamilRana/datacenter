@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Globe, User, ShieldCheck, XCircle, CheckCircle2, Loader2, Inbox } from "lucide-react";
+import { Globe, User, XCircle, CheckCircle2, Loader2, Inbox } from "lucide-react";
 import { toast } from "sonner";
 import { getPendingSubdomains, approveSubdomain } from "@/app/actions/k8s-actions";
 

@@ -1,7 +1,7 @@
 //src/app/approvals/[id]/page.tsx
 "use client";
 import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import { useSearchParams } from "next/navigation";
 import { RequestDetails } from "@/app/requests/components/RequestDetail";
 import { ProvisionVMModal } from "../components/ProvisionVMModal";
@@ -14,12 +14,16 @@ import { getDetailedRequest } from "@/app/actions/request-actions";
 import { CustomizationRequest } from "@/types/customization";
 import { getCustomizationRequest } from "@/app/actions/customization-actions";
 import { CustomizationRequestDetails } from "@/app/requests/customize/components/CustomizationRequestDetails";
-import { Server } from "lucide-react";
+import { Server, Play } from "lucide-react";
 import { ROLES } from "@/lib/roles";
+import { executeRequest } from "@/app/actions/approval-actions";
+import { toast } from "sonner";
 
 type EntityType = "request" | "customization";
 
-export default function ApprovalDetailPage({ params }: { params: { id: string } }) {
+export default function ApprovalDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
+  const id = resolvedParams.id;
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
   const [request, setRequest] = useState<detailsRequest | null>(null);
@@ -27,6 +31,7 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showProvisionModal, setShowProvisionModal] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
   
   // ✅ GET ENTITY TYPE FROM QUERY PARAM (avoids double fetch)
   const entityType = (searchParams.get("type") as EntityType) || null;
@@ -35,9 +40,36 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
   const isDCOps = userRoles.includes(ROLES.DCOPS) || userRoles.includes(ROLES.ADMIN);
   
   const requestStatus = request?.status;
+  const isInstanceProvisioningType = request?.requestType === "NEW_VM" || request?.requestType === "CLONE_VM";
+
   const canProvision = isDCOps && 
     (requestStatus === "APPROVED" || requestStatus === "PARTIALLY_PROVISIONED") &&
-    entityType === "request";
+    entityType === "request" &&
+    isInstanceProvisioningType;
+
+  const canExecuteDirectly = isDCOps &&
+    requestStatus === "APPROVED" &&
+    entityType === "request" &&
+    !isInstanceProvisioningType;
+
+  const handleExecuteDirectly = async () => {
+    if (!confirm("Are you sure you want to execute and apply this request?")) return;
+    try {
+      setIsExecuting(true);
+      const res = await executeRequest(id);
+      if (res.success) {
+        toast.success("Request executed successfully!");
+        window.location.reload();
+      } else {
+        toast.error(res.error || "Failed to execute request");
+      }
+    } catch (err) {
+      toast.error("Failed to execute request");
+      console.error(err);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -60,7 +92,7 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
 
         // ✅ SINGLE FETCH BASED ON TYPE
         if (entityType === "request") {
-          const response = await getDetailedRequest(params.id);
+          const response = await getDetailedRequest(id);
           if (!response) throw new Error("Request not found");
           // Handle both ApiResponse and raw data for backwards compatibility
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -69,7 +101,7 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
           setRequest(data as detailsRequest);
           setCustomizationRequest(null);
         } else if (entityType === "customization") {
-          const data = await getCustomizationRequest(params.id);
+          const data = await getCustomizationRequest(id);
           if (!data) throw new Error("Customization request not found");
           setCustomizationRequest(data);
           setRequest(null);
@@ -83,7 +115,7 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
     };
 
     loadEntity();
-  }, [params.id, session, entityType]);
+  }, [id, session, entityType]);
 
   if (status === "loading" || isLoading) return <Skeleton className="h-screen w-full" />;
   if (error) return <div className="p-6 text-destructive">Error: {error}</div>;
@@ -114,14 +146,26 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
               {isCustomization ? "CUSTOMIZATION" : displayRequest?.requestType.replace(/_/g, " ")}
             </span>
           </div>
-          <p className="text-slate-500">ID: {params.id}</p>
+          <p className="text-slate-500">ID: {id}</p>
         </div>
-        {canProvision && (
-          <Button onClick={() => setShowProvisionModal(true)}>
-            <Server className="h-4 w-4 mr-2" />
-            Provision VMs
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {canProvision && (
+            <Button onClick={() => setShowProvisionModal(true)}>
+              <Server className="h-4 w-4 mr-2" />
+              Provision VMs
+            </Button>
+          )}
+          {canExecuteDirectly && (
+            <Button 
+              onClick={handleExecuteDirectly} 
+              disabled={isExecuting}
+              className="bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
+            >
+              <Play className="h-4 w-4 mr-2" />
+              {isExecuting ? "Executing..." : "Execute Upgrade"}
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">

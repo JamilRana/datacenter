@@ -242,7 +242,7 @@ export async function getCustomizationRequests({
     prisma.customizationRequest.count({ where }),
   ]);
   return {
-    requests: requests.map((r) => ({
+    requests: requests.map((r: any) => ({
       ...r,
       status: r.status as CustomizationStatus,
       createdAt: r.createdAt.toISOString(),
@@ -277,7 +277,7 @@ export async function getCustomizationRequests({
           } 
         : null,
       
-      approvals: (r.approvals ?? []).map(a => ({
+      approvals: (r.approvals ?? []).map((a: any) => ({
         id: a.id,
         level: a.level,       
         approverId: a.approverId,       
@@ -438,7 +438,7 @@ export async function submitCustomizationRequest(id: string) {
   await validateOwnership(id, session.user.id, true);
 
   // Submit within transaction
-  const submitted = await prisma.$transaction(async (tx) => {
+  const submitted = await prisma.$transaction(async (tx: any) => {
     // Update status to PENDING_L1
     const updated = await tx.customizationRequest.update({
       where: { id },
@@ -488,7 +488,7 @@ if (!isPendingStatus(customization.status)) {
   throw new Error("Only pending customization requests can be cancelled");
 }
   // Cancel within transaction
-  const cancelled = await prisma.$transaction(async (tx) => {
+  const cancelled = await prisma.$transaction(async (tx: any) => {
     // Update status to DRAFT
     const updated = await tx.customizationRequest.update({
       where: { id },

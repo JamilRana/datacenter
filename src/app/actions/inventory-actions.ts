@@ -42,9 +42,9 @@ export async function getInventoryMetrics(): Promise<InventoryMetrics | null> {
   });
 
   const physical = {
-    cpu: physicalServers.reduce((sum, s) => sum + (s.cpuCores || 0), 0),
-    ram: physicalServers.reduce((sum, s) => sum + (s.ramGb || 0), 0),
-    storage: physicalServers.reduce((sum, s) => sum + (s.storageGb || 0), 0),
+    cpu: physicalServers.reduce((sum: number, s: any) => sum + (s.cpuCores || 0), 0),
+    ram: physicalServers.reduce((sum: number, s: any) => sum + (s.ramGb || 0), 0),
+    storage: physicalServers.reduce((sum: number, s: any) => sum + (s.storageGb || 0), 0),
     serverCount: physicalServers.length
   };
 
@@ -59,9 +59,9 @@ export async function getInventoryMetrics(): Promise<InventoryMetrics | null> {
   });
 
   const allocated = {
-    cpu: activeVms.reduce((sum, v) => sum + (v.currentSpec?.vcpu || 0), 0),
-    ram: activeVms.reduce((sum, v) => sum + (v.currentSpec?.ramGb || 0), 0),
-    storage: activeVms.reduce((sum, v) => sum + (v.currentSpec?.storageGb || 0), 0),
+    cpu: activeVms.reduce((sum: number, v: any) => sum + (v.currentSpec?.vcpu || 0), 0),
+    ram: activeVms.reduce((sum: number, v: any) => sum + (v.currentSpec?.ramGb || 0), 0),
+    storage: activeVms.reduce((sum: number, v: any) => sum + (v.currentSpec?.storageGb || 0), 0),
     vmCount: activeVms.length
   };
 

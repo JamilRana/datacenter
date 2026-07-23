@@ -8,9 +8,10 @@ import prisma from "@/lib/prisma";
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: requestId } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,7 +26,6 @@ export async function PATCH(
     }
 
     const formData = await request.formData();
-    const requestId = params.id;
 
     // ✅ Verify ownership (requester OR developer) and status
     const existingRequest = await prisma.request.findUnique({
@@ -94,17 +94,18 @@ export async function PATCH(
   }
 }
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try{
-      const request = await prisma.request.findUnique({
-        where: { id: params.id },
+      const { id } = await params;
+      const requestData = await prisma.request.findUnique({
+        where: { id },
         select: { requesterId: true, developerId: true, status: true, requestType: true },
       });
-      if (request) {
-        return NextResponse.json({ ...request, type: "REQUEST" });
+      if (requestData) {
+        return NextResponse.json({ ...requestData, type: "REQUEST" });
       }
       const customization = await prisma.customizationRequest.findUnique({
-        where: { id: params.id },
+        where: { id },
         select: { requesterId: true, status: true },
       });
       if (customization) {

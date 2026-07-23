@@ -62,7 +62,7 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
   } = params;
 
   const skip = (page - 1) * pageSize;
-  const isAdmin = userRoles?.some(r => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
+  const isAdmin = userRoles?.some((r: any) => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
 
   const where: Prisma.VmInstanceWhereInput = {};
 
@@ -109,7 +109,7 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
   ]);
 
   return {
-    data: vms.map(vm => ({
+    data: vms.map((vm: any) => ({
       id: vm.id,
       vmName: vm.request?.systemName || "Manual VM",
       hostname: vm.hostname || "-",
@@ -157,12 +157,12 @@ async function getVmReportAnalytics(where: Prisma.VmInstanceWhereInput) {
     }),
   ]);
 
-  const ownerIds = byOwner.map(r => r.ownerId).filter(Boolean) as string[];
+  const ownerIds = byOwner.map((r: any) => r.ownerId).filter(Boolean) as string[];
   const owners = await prisma.user.findMany({
     where: { id: { in: ownerIds } },
     select: { id: true, name: true },
   });
-  const ownerMap = new Map(owners.map(u => [u.id, u.name]));
+  const ownerMap = new Map(owners.map((u: any) => [u.id, u.name]));
 
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
@@ -185,18 +185,18 @@ async function getVmReportAnalytics(where: Prisma.VmInstanceWhereInput) {
 
   return {
     totalCount: allVms.length,
-    byOwner: byOwner.map(r => ({
+    byOwner: byOwner.map((r: any) => ({
       ownerName: ownerMap.get(r.ownerId!) || "Unknown",
       count: r._count,
     })),
-    bySystem: bySystem.map(r => ({
+    bySystem: bySystem.map((r: any) => ({
       systemName: r.environment || "Unknown",
       count: r._count,
     })),
-    byStatus: byStatus.map(r => ({
+    byStatus: byStatus.map((r: any) => ({
       status: r.status,
       count: r._count,
     })),
-    monthlyTrend: Object.entries(monthlyMap).map(([month, count]) => ({ month, count })),
+    monthlyTrend: Object.entries(monthlyMap).map(([month, count]: any) => ({ month, count })),
   };
 }

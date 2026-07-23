@@ -1,22 +1,18 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import * as emailService from "@/lib/admin/emailService";
+import { getAppUrl } from "@/lib/utils";
 
 /**
  * Weekly cron endpoint to check for expiring licenses
  * Notifies ADMIN and DC_OPS users 30 days before license expiry
- * 
- * HOW TO RUN WEEKLY:
- * 1. External cron service (cron.org, easycron.com): GET /api/cron/license-expiry
- * 2. Windows Task Scheduler: Create weekly task calling this URL
- * 3. Linux cron: 0 9 * * 1 curl -s https://yourdomain.com/api/cron/license-expiry
  * 
  * Recommended schedule: Every Monday at 9:00 AM
  */
 
 export async function GET() {
   try {
-    // Check licenses expiring within 30 days (since we run weekly)
+    // Check licenses expiring within 30 days
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 
@@ -68,19 +64,25 @@ export async function GET() {
       (user, index, self) => index === self.findIndex((u) => u.email === user.email)
     );
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    // Check last 7 days to avoid duplicate weekly notifications
-    const sevenDaysAgo = new Date(startOfToday);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
     const processedLicenses: string[] = [];
 
     for (const license of expiringLicenses) {
       const daysUntilExpiry = Math.ceil(
         (license.expiryDate!.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
       );
+      const uniqueSignature = `License ID: ${license.id}, Expiry Date: ${license.expiryDate?.toISOString()}`;
+
+      // Check if we already processed this license for this expiry date
+      const alreadyProcessed = await prisma.notification.findFirst({
+        where: {
+          type: "LICENSE_EXPIRY_WARNING",
+          message: { contains: uniqueSignature },
+        },
+      });
+
+      if (alreadyProcessed) {
+        continue;
+      }
 
       for (const recipient of uniqueRecipients) {
         if (!recipient.email) continue;
@@ -89,8 +91,7 @@ export async function GET() {
           where: {
             userId: recipient.id,
             type: "LICENSE_EXPIRY_WARNING",
-            message: { contains: license.name },
-            createdAt: { gte: sevenDaysAgo },
+            message: { contains: uniqueSignature },
           },
         });
 
@@ -102,11 +103,12 @@ export async function GET() {
           data: {
             userId: recipient.id,
             type: "LICENSE_EXPIRY_WARNING",
-            message: `License "${license.name}" (${license.vendor}) will expire in ${daysUntilExpiry} days.`,
+            message: `License "${license.name}" (${license.vendor}) will expire in ${daysUntilExpiry} days. (${uniqueSignature})`,
             link: "/inventory/licenses",
           },
         });
 
+        const appUrl = getAppUrl();
         const subject = `License Expiry Warning - ${license.name}`;
         const html = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -132,7 +134,7 @@ export async function GET() {
               </tr>
             </table>
             <p>Please renew the license to avoid compliance issues.</p>
-            <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/inventory/licenses" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Licenses</a></p>
+            <p><a href="${appUrl}/inventory/licenses" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Licenses</a></p>
             <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
             <p style="color: #6b7280; font-size: 12px;">This is an automated notification from VM Management System.</p>
           </div>
