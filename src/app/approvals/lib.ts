@@ -3,7 +3,6 @@ import prisma from "@/lib/prisma";
 import { ROLES } from "@/lib/roles";
 import { 
   RequestStatus, 
-  RequestType,
   CustomizationStatus,
   ApprovalDecision,
   Prisma
