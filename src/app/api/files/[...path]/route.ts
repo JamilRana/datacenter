@@ -7,10 +7,10 @@ import * as path from "path";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  { params }: { params: { path: string[] } }
 ) {
   try {
-    const { path: pathSegments } = await params;
+    const pathSegments = params.path;
     
     // The path will be like: ["uploads", "daa88ad0-...", "filename.pdf"]
     const key = pathSegments.join("/");

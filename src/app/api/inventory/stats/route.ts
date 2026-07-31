@@ -27,10 +27,26 @@ export async function GET() {
       }
     });
 
-    // For non-privileged users, only return VM count
+    // Get total active namespaces count
+    const totalNamespaces = await prisma.k8sNamespace.count({
+      where: {
+        ...(!canViewAll ? {
+          clusters: {
+            some: {
+              request: {
+                requesterId: session.user.id
+              }
+            }
+          }
+        } : {})
+      }
+    });
+
+    // For non-privileged users, only return VM and namespace count
     if (!canViewAll) {
       return NextResponse.json({
         activeVms,
+        totalNamespaces,
         totalAssets: 0,
         totalLicenses: 0,
         expiringLicenses: 0
@@ -55,6 +71,7 @@ export async function GET() {
 
     return NextResponse.json({
       activeVms,
+      totalNamespaces,
       totalAssets,
       totalLicenses,
       expiringLicenses

@@ -2,7 +2,6 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
@@ -32,8 +31,10 @@ import type { ReactNode } from "react";
 
 export function RequestDetails({
   requestId,
+  hideTimeline = false,
 }: {
   requestId: string;
+  hideTimeline?: boolean;
 }) {
   const { data: session } = useSession();
   const [data, setData] = useState<detailsRequest | null>(null);
@@ -161,10 +162,6 @@ export function RequestDetails({
                 <p className="text-sm text-slate-700 leading-relaxed">{data.purpose}</p>
               </div>
               <DetailItem label="Quantity" value={data.quantity?.toString() || "1"} />
-              <DetailItem 
-                label="Expected Delivery Date" 
-                value={data.expectedDeliveryDate ? format(new Date(data.expectedDeliveryDate), "PPP") : "None"} 
-              />
               {data.requestType === "K8S_NAMESPACE" && (
                 <>
                   <DetailItem label="Namespace Source" value={data.underExistingNamespace ? "Existing Namespace" : "New Namespace"} />
@@ -523,15 +520,17 @@ export function RequestDetails({
             approvals={data.approvals || []}
             requestType={data.requestType || ""}
           />
-          <Card title="Approval Progress & Timeline" icon={Clock}>
-            <div className="p-4 bg-slate-50/30 rounded-xl">
-              <Timeline
-                requestType={data.requestType || ""}
-                currentStatus={data.status || ""}
-                approvals={data.approvals as any || []}
-              />
-            </div>
-          </Card>
+          {!hideTimeline && (
+            <Card title="Approval Progress & Timeline" icon={Clock}>
+              <div className="p-4 bg-slate-50/30 rounded-xl">
+                <Timeline
+                  requestType={data.requestType || ""}
+                  currentStatus={data.status || ""}
+                  approvals={data.approvals as any || []}
+                />
+              </div>
+            </Card>
+          )}
         </div>
       )}
       {/* Bottom Action Bar */}

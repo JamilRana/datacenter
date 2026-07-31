@@ -196,6 +196,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
                       <Link
                         key={child.href}
                         href={child.href || "#"}
+                        onClick={() => mobile && setMobileOpen(false)}
                         className={cn(
                           "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                           isActive(child.href || "")
@@ -213,6 +214,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
             ) : (
               <Link
                 href={item.href || "#"}
+                onClick={() => mobile && setMobileOpen(false)}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                   isActive(item.href || "")
@@ -245,7 +247,11 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="flex gap-2">
-            <Link href="/profile" className="flex-1">
+            <Link 
+              href="/profile" 
+              className="flex-1"
+              onClick={() => mobile && setMobileOpen(false)}
+            >
               <Button variant="outline" size="sm" className="w-full border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200">
                 Profile
               </Button>
@@ -302,10 +308,18 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
             <SidebarContent />
           </aside>
 
+          {/* Mobile Sidebar Backdrop */}
+          {mobileOpen && (
+            <div
+              className="lg:hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[90]"
+              onClick={() => setMobileOpen(false)}
+            />
+          )}
+
           {/* Mobile Sidebar */}
           <aside
             className={cn(
-              "lg:hidden fixed inset-y-0 left-0 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-50 transform transition-transform",
+              "lg:hidden fixed inset-y-0 left-0 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-[100] transform transition-transform",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
           >

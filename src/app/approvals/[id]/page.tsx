@@ -1,7 +1,7 @@
 //src/app/approvals/[id]/page.tsx
 "use client";
 import { useSession } from "next-auth/react";
-import { useEffect, useState, use } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { RequestDetails } from "@/app/requests/components/RequestDetail";
 import { ProvisionVMModal } from "../components/ProvisionVMModal";
@@ -21,10 +21,10 @@ import { toast } from "sonner";
 
 type EntityType = "request" | "customization";
 
-export default function ApprovalDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const id = resolvedParams.id;
+export default function ApprovalDetailPage({ params }: { params: { id: string } }) {
+  const id = params.id;
   const { data: session, status } = useSession();
+  const userId = session?.user?.id;
   const searchParams = useSearchParams();
   const [request, setRequest] = useState<detailsRequest | null>(null);
   const [customizationRequest, setCustomizationRequest] = useState<CustomizationRequest | null>(null);
@@ -78,7 +78,7 @@ export default function ApprovalDetailPage({ params }: { params: Promise<{ id: s
   }, [status]);
 
   useEffect(() => {
-    if (!session?.user) return;
+    if (!userId) return;
     if (!entityType) {
       setError("Entity type not specified. Please use ?type=request or ?type=customization");
       setIsLoading(false);
@@ -115,7 +115,7 @@ export default function ApprovalDetailPage({ params }: { params: Promise<{ id: s
     };
 
     loadEntity();
-  }, [id, session, entityType]);
+  }, [id, userId, entityType]);
 
   if (status === "loading" || isLoading) return <Skeleton className="h-screen w-full" />;
   if (error) return <div className="p-6 text-destructive">Error: {error}</div>;
@@ -172,7 +172,7 @@ export default function ApprovalDetailPage({ params }: { params: Promise<{ id: s
         {/* Main Content */}
         <div className="lg:col-span-3">
           {session?.user && displayRequest && (
-            <RequestDetails requestId={displayRequest.id} />
+            <RequestDetails requestId={displayRequest.id} hideTimeline={true} />
           )}
           {session?.user && displayCustomization && (
             <CustomizationRequestDetails 
@@ -225,6 +225,44 @@ export default function ApprovalDetailPage({ params }: { params: Promise<{ id: s
               </div>
             </CardContent>
           </Card>
+          
+          {displayRequest?.developer && (
+            <Card className="shadow-sm border-slate-200">
+              <CardHeader className="bg-slate-50/50 border-b">
+                <CardTitle className="text-sm font-bold uppercase tracking-wider text-slate-600">
+                  Developer Profile
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-3">
+                <div>
+                  <p className="text-xs text-slate-400 font-bold uppercase">Name</p>
+                  <p className="text-sm font-bold text-slate-800">
+                    {displayRequest.developer.name}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 font-bold uppercase">Email</p>
+                  <p className="text-sm text-slate-600">
+                    {displayRequest.developer.email}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 font-bold uppercase">Designation</p>
+                  <p className="text-sm text-slate-600">
+                    {displayRequest.developer.designation || "N/A"}
+                  </p>
+                </div>
+                {displayRequest.developer.organization && (
+                  <div>
+                    <p className="text-xs text-slate-400 font-bold uppercase">Organization</p>
+                    <p className="text-sm text-slate-600">
+                      {displayRequest.developer.organization}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 

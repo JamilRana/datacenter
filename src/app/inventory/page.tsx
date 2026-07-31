@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 
 interface InventoryStats {
   activeVms: number;
+  totalNamespaces: number;
   totalAssets: number;
   totalLicenses: number;
   expiringLicenses: number;
@@ -27,6 +28,7 @@ export default function InventoryHubPage() {
   const router = useRouter();
   const [stats, setStats] = useState<InventoryStats>({
     activeVms: 0,
+    totalNamespaces: 0,
     totalAssets: 0,
     totalLicenses: 0,
     expiringLicenses: 0
@@ -94,7 +96,7 @@ export default function InventoryHubPage() {
       </nav>
 
       {/* Main Navigation Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* VM Instances */}
         <Link href="/inventory/vms" className="group">
           <Card className="h-full transition-all duration-300 border-2 border-blue-200 hover:border-blue-400 hover:shadow-lg cursor-pointer">
@@ -114,6 +116,30 @@ export default function InventoryHubPage() {
               <div className="mt-6 pt-4 border-t border-slate-100">
                 <span className="text-3xl font-bold text-slate-900">{stats.activeVms}</span>
                 <span className="text-sm text-slate-500 ml-2">Active VMs</span>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+
+        {/* K8s Namespaces */}
+        <Link href="/inventory/namespaces" className="group">
+          <Card className="h-full transition-all duration-300 border-2 border-indigo-200 hover:border-indigo-400 hover:shadow-lg cursor-pointer">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="p-3 rounded-xl bg-indigo-100">
+                  <Box className="h-7 w-7 text-indigo-600" />
+                </div>
+                <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <CardTitle className="text-xl text-slate-900">K8s Namespaces</CardTitle>
+              <CardDescription className="mt-2 text-slate-600">
+                Kubernetes namespace clusters and node allocations
+              </CardDescription>
+              <div className="mt-6 pt-4 border-t border-slate-100">
+                <span className="text-3xl font-bold text-slate-900">{stats.totalNamespaces}</span>
+                <span className="text-sm text-slate-500 ml-2">Namespaces</span>
               </div>
             </CardContent>
           </Card>

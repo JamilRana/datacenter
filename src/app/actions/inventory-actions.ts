@@ -77,3 +77,73 @@ export async function getInventoryMetrics(): Promise<InventoryMetrics | null> {
   };
 }
 
+export async function getK8sNamespacesInventory(params: {
+  page?: number;
+  pageSize?: number;
+  searchTerm?: string;
+}) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const { page = 1, pageSize = 10, searchTerm = "" } = params;
+  const skip = (page - 1) * pageSize;
+
+  const userRoles = session.user.roles || [];
+  const isAdminOrDCOps = userRoles.includes("ADMIN") || userRoles.includes("DC_OPS");
+
+  const whereClause: any = {
+    AND: [
+      !isAdminOrDCOps ? {
+        clusters: {
+          some: {
+            request: {
+              requesterId: session.user.id
+            }
+          }
+        }
+      } : {},
+      searchTerm ? {
+        OR: [
+          { name: { contains: searchTerm, mode: "insensitive" } },
+          { supervisorIp: { contains: searchTerm, mode: "insensitive" } }
+        ]
+      } : {}
+    ]
+  };
+
+  const [namespaces, total] = await Promise.all([
+    prisma.k8sNamespace.findMany({
+      where: whereClause,
+      include: {
+        clusters: {
+          include: {
+            request: {
+              select: {
+                projectName: true,
+                systemName: true,
+                requester: {
+                  select: {
+                    name: true,
+                    email: true
+                  }
+                }
+              }
+            },
+            nodeGroups: {
+              include: {
+                nodes: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: pageSize
+    }),
+    prisma.k8sNamespace.count({ where: whereClause })
+  ]);
+
+  return { namespaces, total, page, pageSize };
+}
+

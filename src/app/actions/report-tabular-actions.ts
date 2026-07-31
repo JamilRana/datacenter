@@ -12,7 +12,8 @@ import {
   DcCapacityItem, 
   RequestDashboardItem, 
   RenewalItem, 
-  AuditTrailItem 
+  AuditTrailItem,
+  K8sNamespaceReportItem
 } from "@/types/reports";
 import { 
   Environment, 
@@ -457,6 +458,138 @@ export async function getAuditTrailReport(params: {
     ipAddress: "N/A", // Hidden or not tracked in schema yet
     details: log.details as unknown as AuditTrailItem['details']
   }));
+
+  return { data, total, page, pageSize };
+}
+
+// ==========================================
+// 8. K8s Namespace Report
+// ==========================================
+export async function getK8sNamespaceReport(params: {
+  page?: number;
+  pageSize?: number;
+  searchTerm?: string;
+  environment?: Environment;
+  from?: Date;
+  to?: Date;
+}) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const isAdminOrDCOps = canManageInventory(session.user.roles);
+  const { page = 1, pageSize = 10, searchTerm = "", environment, from, to } = params;
+  const skip = (page - 1) * pageSize;
+
+  const whereClause: Prisma.K8sNamespaceWhereInput = {
+    AND: [
+      !isAdminOrDCOps ? {
+        clusters: {
+          some: {
+            request: {
+              requesterId: session.user.id
+            }
+          }
+        }
+      } : {},
+      environment ? {
+        clusters: {
+          some: {
+            request: {
+              environment: environment
+            }
+          }
+        }
+      } : {},
+      searchTerm ? {
+        OR: [
+          { name: { contains: searchTerm, mode: "insensitive" } },
+          { supervisorIp: { contains: searchTerm, mode: "insensitive" } },
+          {
+            clusters: {
+              some: {
+                request: {
+                  OR: [
+                    { systemName: { contains: searchTerm, mode: "insensitive" } },
+                    { projectName: { contains: searchTerm, mode: "insensitive" } },
+                    { requester: { name: { contains: searchTerm, mode: "insensitive" } } }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      } : {},
+      from || to ? {
+        createdAt: {
+          ...(from ? { gte: from } : {}),
+          ...(to ? { lte: to } : {})
+        }
+      } : {}
+    ]
+  };
+
+  const [namespaces, total] = await Promise.all([
+    prisma.k8sNamespace.findMany({
+      where: whereClause,
+      include: {
+        clusters: {
+          include: {
+            request: {
+              include: {
+                requester: {
+                  select: {
+                    name: true
+                  }
+                }
+              }
+            },
+            nodeGroups: {
+              include: {
+                nodes: true
+              }
+            }
+          }
+        }
+      },
+      skip,
+      take: pageSize,
+      orderBy: { createdAt: "desc" }
+    }),
+    prisma.k8sNamespace.count({ where: whereClause })
+  ]);
+
+  const data: K8sNamespaceReportItem[] = namespaces.map((ns: any) => {
+    // Collect clusters details
+    const activeCluster = ns.clusters[0]; // Usually one cluster per namespace
+    const request = activeCluster?.request;
+    
+    let totalNodes = 0;
+    let totalVcpu = 0;
+    let totalRamGb = 0;
+
+    if (activeCluster?.nodeGroups) {
+      for (const group of activeCluster.nodeGroups) {
+        totalNodes += group.nodes.length;
+        totalVcpu += (group.vcpu || 0) * group.nodes.length;
+        totalRamGb += (group.ramGb || 0) * group.nodes.length;
+      }
+    }
+
+    return {
+      id: ns.id,
+      name: ns.name,
+      supervisorIp: ns.supervisorIp || "N/A",
+      clusterName: activeCluster?.clusterName || "N/A",
+      project: request?.systemName || request?.projectName || "N/A",
+      owner: request?.requester?.name || "System",
+      environment: request?.environment || "N/A",
+      totalNodes,
+      totalVcpu,
+      totalRamGb,
+      status: activeCluster?.status || "ACTIVE",
+      createdAt: ns.createdAt.toISOString()
+    };
+  });
 
   return { data, total, page, pageSize };
 }

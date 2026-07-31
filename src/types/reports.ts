@@ -102,10 +102,26 @@ export interface AuditTrailItem {
   } | null;
 }
 
+export interface K8sNamespaceReportItem {
+  id: string;
+  name: string;
+  supervisorIp: string;
+  clusterName: string;
+  project: string;
+  owner: string;
+  environment: string;
+  totalNodes: number;
+  totalVcpu: number;
+  totalRamGb: number;
+  status: string;
+  createdAt: string;
+}
+
 export type ReportType = 
   | 'user-allocation' 
   | 'vm-inventory' 
   | 'dc-capacity' 
   | 'requests' 
   | 'renewals' 
-  | 'audit-trail';
+  | 'audit-trail'
+  | 'k8s-namespaces';

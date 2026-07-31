@@ -15,7 +15,8 @@ import {
   ListChecks, 
   AlertCircle, 
   ShieldAlert,
-  BarChart4
+  BarChart4,
+  Box
 } from "lucide-react";
 import { UserAllocationTable } from "./tables/UserAllocationTable";
 import { VmInventoryTable } from "./tables/VmInventoryTable";
@@ -25,6 +26,7 @@ import { RenewalsTable } from "./tables/RenewalsTable";
 import { AuditTrailTable } from "./tables/AuditTrailTable";
 import { UserVmModal } from "./UserVmModal";
 import { VpnHorizonTable } from "./tables/VpnHorizonTable";
+import { K8sNamespaceTable } from "@/app/reports/components/tables/K8sNamespaceTable";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 
@@ -92,6 +94,7 @@ export function ReportsDashboardClient({ user, permissions }: ReportsDashboardCl
   const tabs = [
     { id: "allocation", label: "User Allocation", icon: Users, show: permissions.canViewAllocation },
     { id: "inventory", label: "VM Inventory", icon: HardDrive, show: permissions.canViewInventory },
+    { id: "k8snamespaces", label: "K8s Namespaces", icon: Box, show: true },
     { id: "capacity", label: "Cluster Capacity", icon: Activity, show: permissions.canViewCapacity },
     { id: "requests", label: "Requests", icon: ListChecks, show: permissions.canViewRequests },
     { id: "vpnhorizon", label: "VPN & Horizon Access", icon: ShieldAlert, show: true },
@@ -189,6 +192,10 @@ export function ReportsDashboardClient({ user, permissions }: ReportsDashboardCl
 
           <TabsContent value="inventory" className="m-0 focus-visible:outline-none">
             <VmInventoryTable dateRange={dateRange} />
+          </TabsContent>
+
+          <TabsContent value="k8snamespaces" className="m-0 focus-visible:outline-none">
+            <K8sNamespaceTable dateRange={dateRange} />
           </TabsContent>
 
           <TabsContent value="capacity" className="m-0 focus-visible:outline-none">

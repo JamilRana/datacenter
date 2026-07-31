@@ -8,10 +8,10 @@ import prisma from "@/lib/prisma";
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id: requestId } = await params;
+    const requestId = params.id;
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -94,9 +94,9 @@ export async function PATCH(
   }
 }
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try{
-      const { id } = await params;
+      const id = params.id;
       const requestData = await prisma.request.findUnique({
         where: { id },
         select: { requesterId: true, developerId: true, status: true, requestType: true },
