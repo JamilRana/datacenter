@@ -51,10 +51,21 @@ async function seedUsers() {
 
   // 2. Users from UserList.json
   const userData = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'UserList.json'), 'utf8'));
-  const hashedPassword = await bcrypt.hash(DEFAULT_PASSWORD, 12);
+  const passwordHashes: Record<string, string> = {};
 
   for (const user of userData) {
-    const email = user.email || `user_${Math.random().toString(36).substr(2, 9)}@dghs.gov.bd`;
+    let email = user.email;
+    if (!email) {
+      const normalized = normalizeName(user.name).replace(/\s+/g, '.');
+      email = `${normalized}@dghs.gov.bd`;
+    }
+
+    const rawPassword = user.password || DEFAULT_PASSWORD;
+    if (!passwordHashes[rawPassword]) {
+      passwordHashes[rawPassword] = await bcrypt.hash(rawPassword, 12);
+    }
+    const hashedPassword = passwordHashes[rawPassword];
+
     const dbUser = await prisma.user.upsert({
       where: { email },
       update: {
@@ -75,8 +86,17 @@ async function seedUsers() {
       }
     });
 
-    const userRoles = user.roles || ["REQUESTER"];
-    for (const rName of userRoles) {
+    const userRoles = user.roles || [{ role: { name: "REQUESTER" } }];
+    for (const roleEntry of userRoles) {
+      let rName: string | undefined;
+      if (typeof roleEntry === 'string') {
+        rName = roleEntry;
+      } else if (roleEntry && typeof roleEntry === 'object' && roleEntry.role && typeof roleEntry.role === 'object') {
+        rName = roleEntry.role.name;
+      }
+
+      if (!rName) continue;
+
       const roleId = rolesMap[rName.toUpperCase()];
       if (roleId) {
         await prisma.userRole.upsert({
