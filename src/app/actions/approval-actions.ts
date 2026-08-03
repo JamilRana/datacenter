@@ -32,7 +32,8 @@ export async function generateApprovals(
   tx: Prisma.TransactionClient,
   entityId: string,
   entityType: "REQUEST" | "CUSTOMIZATION",
-  requestType: RequestType
+  requestType: RequestType,
+  skipNotification: boolean = false
 ) {
   const workflow = await getWorkflowConfig(requestType);
   
@@ -64,15 +65,14 @@ export async function generateApprovals(
       },
     });
 
-    // Notify Level 1 approvers (actually just the one assigned, or all of that role?)
-    // The current implementation assigns to ONE.
-    // Let's stick to the current logic of choosing one but notifying all if needed.
-    // The NotificationService handles notifying ALL of that role.
-    const systemName = entityType === "REQUEST" 
-      ? (await tx.request.findUnique({ where: { id: entityId }, select: { systemName: true } }))?.systemName || "New Request"
-      : "Customization Request";
-      
-    await NotificationService.notifyApprovers(entityId, systemName, 1, entityType);
+    if (!skipNotification) {
+      // Notify Level 1 approvers
+      const systemName = entityType === "REQUEST" 
+        ? (await tx.request.findUnique({ where: { id: entityId }, select: { systemName: true } }))?.systemName || "New Request"
+        : "Customization Request";
+        
+      await NotificationService.notifyApprovers(entityId, systemName, 1, entityType);
+    }
   }
 }
 
@@ -112,7 +112,7 @@ export async function handleApprovalDecision(
   decision: ApprovalDecision,
   comments?: string,
   forwardToLevel?: number
-): Promise<ApiResponse<{ status: string; action: string; forwardedToLevel?: number }>> {
+): Promise<ApiResponse<{ status: string; action: string; forwardedToLevel?: number; nextLevel?: number }>> {
   const session = await getServerSession(authOptions);
   if (!session?.user) return { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
 
@@ -144,7 +144,7 @@ export async function handleApprovalDecision(
 
   const resolvedApprovalId = approvalRecord.id;
 
-  return await prisma.$transaction(async (tx: any) => {
+  const result = await prisma.$transaction(async (tx: any) => {
     const approval = await tx.approval.findUnique({
       where: { id: resolvedApprovalId },
       include: { 
@@ -326,6 +326,7 @@ export async function handleApprovalDecision(
 
     // 6. Handle APPROVED - check if there's a next level in workflow
     let nextStatus: string;
+    let nextLevelToNotify: number | undefined;
     
     if (decision === ApprovalDecision.REJECTED) {
       // Per USER request: After rejection, status should be DRAFT so requester can resubmit after editing
@@ -390,6 +391,7 @@ export async function handleApprovalDecision(
               },
             });
           }
+          nextLevelToNotify = nextLevel.level;
         } else {
           // Next is another approver level - create pending approval for them
           const nextApprover = await tx.user.findFirst({
@@ -410,7 +412,7 @@ export async function handleApprovalDecision(
                 ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
               },
             });
-             await NotificationService.notifyApprovers(entityId, systemName, nextLevel.level, entityType);
+            nextLevelToNotify = nextLevel.level;
             nextStatus = getStatusForLevel(nextLevel.level);
           } else {
             // No approver found - finalize the request
@@ -460,8 +462,44 @@ export async function handleApprovalDecision(
     }
 
     await invalidateCache('admin_dashboard_data');
-    return { success: true, data: { status: nextStatus, action: decision } };
+    return { success: true, data: { status: nextStatus, action: decision, nextLevel: nextLevelToNotify, forwardedToLevel: forwardToLevel } };
   }, { timeout: 30000 });
+
+  // Post-commit: Notify target approver
+  if (result.success && result.data) {
+    const data = result.data;
+    const action = data.action;
+
+    const entityType = approvalRecord.entityType;
+    const entityId = approvalRecord.requestId || approvalRecord.customizationRequestId;
+    
+    if (entityId) {
+      let systemName = "Request";
+      if (entityType === "REQUEST") {
+        const req = await prisma.request.findUnique({
+          where: { id: entityId },
+          select: { systemName: true }
+        });
+        if (req) systemName = req.systemName;
+      } else {
+        const cust = await prisma.customizationRequest.findUnique({
+          where: { id: entityId },
+          include: { targetVm: { select: { hostname: true } } }
+        });
+        if (cust) systemName = cust.targetVm?.hostname || "Resource Customization";
+      }
+
+      if (action === "FORWARDED" || action === "FORWARDED_TO_DCOPS") {
+        if (data.forwardedToLevel) {
+          await NotificationService.notifyApprovers(entityId, systemName, data.forwardedToLevel, entityType);
+        }
+      } else if (action === "APPROVED" && data.nextLevel) {
+        await NotificationService.notifyApprovers(entityId, systemName, data.nextLevel, entityType);
+      }
+    }
+  }
+
+  return result;
 }
 
 // ✅ FORWARD TO HIGHER LEVEL - Uses dynamic workflow

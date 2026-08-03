@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { NotificationType, UserRole } from "@/lib/types/enums";
 import { sendApprovalNotification, sendStatusUpdateNotification } from "@/lib/email";
+import { getWorkflowConfig } from "@/lib/workflow";
 
 export class NotificationService {
   /**
@@ -27,12 +28,34 @@ export class NotificationService {
    * Notify all approvers for a new request or step change
    */
   static async notifyApprovers(requestId: string, systemName: string, level: number, entityType: "REQUEST" | "CUSTOMIZATION" = "REQUEST") {
-    const roleMap: Record<number, string> = {
-      1: UserRole.L1_APPROVER,
-      2: UserRole.L2_APPROVER,
-      3: UserRole.L3_APPROVER,
-      4: UserRole.L4_APPROVER,
-    };
+    let requestType = "NEW_VM";
+    if (entityType === "REQUEST") {
+      const req = await prisma.request.findUnique({
+        where: { id: requestId },
+        select: { requestType: true }
+      });
+      if (req?.requestType) requestType = req.requestType;
+    } else {
+      requestType = "CUSTOMIZED";
+    }
+
+    let targetRole: string | undefined;
+    try {
+      const workflow = await getWorkflowConfig(requestType);
+      targetRole = workflow.levels.find(l => l.level === level)?.role;
+    } catch (e) {
+      console.error("[NotificationService] Failed to get workflow config:", e);
+    }
+    
+    if (!targetRole) {
+      const roleMap: Record<number, string> = {
+        1: UserRole.L1_APPROVER,
+        2: UserRole.L2_APPROVER,
+        3: UserRole.L3_APPROVER,
+        4: UserRole.L4_APPROVER,
+      };
+      targetRole = roleMap[level];
+    }
 
     // Find the specific approval record that is pending for this request/customization and level
     const approvals = await prisma.approval.findMany({
@@ -55,7 +78,6 @@ export class NotificationService {
 
     // Fallback to role-based if no approvals found (should not normally happen)
     if (approvers.length === 0) {
-      const targetRole = roleMap[level];
       if (targetRole) {
         approvers = await prisma.user.findMany({
           where: {

@@ -28,6 +28,7 @@ import { User } from "@/types/users";
 
 import { Approval } from "@/types/approvals";
 import { generateApprovals } from "./approval-actions";
+import { NotificationService } from "@/lib/services/notification.service";
 
 type RequestWithRelations = Prisma.RequestGetPayload<{
   include: {
@@ -360,6 +361,17 @@ export async function createRequest(formData: FormData) {
         }),
       },
     });
+
+    // Notify assigned requester if created by developer
+    if (isDeveloper && assignedRequesterId) {
+      await NotificationService.notifyRequester(
+        assignedRequesterId,
+        newCreatedRequest.systemName,
+        "ASSIGNED_BY_DEV",
+        newCreatedRequest.id,
+        `Developer "${session.user.name}" created a request draft for "${newCreatedRequest.systemName}" and assigned it to you.`
+      );
+    }
 
     return newCreatedRequest;
   } catch (error) {
@@ -872,7 +884,8 @@ export async function submitRequest(requestId: string) {
       tx, 
       requestId, 
       "REQUEST", 
-      request.requestType as RequestType
+      request.requestType as RequestType,
+      true
     );
 
     // ✅ AUDIT LOG WITH CORRECT ACTION NAME
@@ -895,6 +908,16 @@ export async function submitRequest(requestId: string) {
 
     return updatedReq;
   }, { timeout: 15000 });
+
+  // Post-commit: Notify Level 1 approvers
+  if (updated && updated.status === RequestStatus.PENDING_L1) {
+    await NotificationService.notifyApprovers(
+      requestId,
+      updated.systemName,
+      1,
+      "REQUEST"
+    );
+  }
 
   revalidatePath(`/requests/${requestId}`);
 
