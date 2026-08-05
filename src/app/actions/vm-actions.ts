@@ -389,14 +389,18 @@ export async function fetchVmDetails(id: string) {
   return vm;
 }
 
-export async function fetchAllVms(page: number = 1, pageSize: number = 20): Promise<{ vms: SerializedVmInstance[], total: number }> {
+export async function fetchAllVms(page: number = 1, pageSize: number = 20, statusParam?: string): Promise<{ vms: SerializedVmInstance[], total: number }> {
   const skip = (page - 1) * pageSize;
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
 
-  const where = isAdmin(session.user.roles) 
+  const where: any = isAdmin(session.user.roles) 
     ? {} 
     : { ownerId: session.user.id };
+
+  if (statusParam && ["ACTIVE", "SUSPENDED", "RETIRED"].includes(statusParam.toUpperCase())) {
+    where.status = statusParam.toUpperCase() as any;
+  }
 
   const [vms, total] = await Promise.all([
     prisma.vmInstance.findMany({

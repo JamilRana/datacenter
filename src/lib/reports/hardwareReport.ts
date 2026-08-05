@@ -24,6 +24,7 @@ export interface HardwareReportParams {
   type?: string;
   location?: string;
   search?: string;
+  clusterId?: string;
   userRoles?: string[];
 }
 
@@ -32,6 +33,7 @@ export interface HardwareReportRow {
   assetName: string;
   type: string;
   location: string;
+  clusterName?: string;
   totalCpu: number;
   totalRam: number;
   totalStorage: number;
@@ -69,6 +71,7 @@ export async function getHardwareReport(params: HardwareReportParams): Promise<H
     type, 
     location, 
     search,
+    clusterId,
     userRoles 
   } = params;
 
@@ -83,6 +86,13 @@ export async function getHardwareReport(params: HardwareReportParams): Promise<H
 
   if (type) where.type = type as AssetType;
   if (location) where.location = location;
+  if (clusterId && clusterId !== "all") {
+    if (clusterId === "none") {
+      where.clusterId = null;
+    } else {
+      where.clusterId = clusterId;
+    }
+  }
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" } },
@@ -99,6 +109,7 @@ export async function getHardwareReport(params: HardwareReportParams): Promise<H
       take: pageSize,
       orderBy: { createdAt: "desc" },
       include: {
+        cluster: { select: { name: true } },
         vms: {
           where: { status: { not: "RETIRED" } },
           include: {
@@ -133,6 +144,7 @@ export async function getHardwareReport(params: HardwareReportParams): Promise<H
       assetName: asset.name,
       type: asset.type,
       location: asset.location || "-",
+      clusterName: asset.cluster?.name || "-",
       totalCpu: asset.cpuCores || 0,
       totalRam: asset.ramGb || 0,
       totalStorage: asset.storageGb || 0,

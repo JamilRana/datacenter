@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { RequestDetails } from "@/app/requests/components/RequestDetail";
 import { ProvisionVMModal } from "../components/ProvisionVMModal";
+import { ProvisionAccessModal } from "../components/ProvisionAccessModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Timeline } from "../components/Timeline";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +32,7 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showProvisionModal, setShowProvisionModal] = useState(false);
+  const [showProvisionAccessModal, setShowProvisionAccessModal] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   
   // ✅ GET ENTITY TYPE FROM QUERY PARAM (avoids double fetch)
@@ -41,16 +43,23 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
   
   const requestStatus = request?.status;
   const isInstanceProvisioningType = request?.requestType === "NEW_VM" || request?.requestType === "CLONE_VM";
+  const isAccessProvisioningType = request?.requestType === "VPN_ACCESS" || request?.requestType === "HORIZON_ACCESS";
 
   const canProvision = isDCOps && 
     (requestStatus === "APPROVED" || requestStatus === "PARTIALLY_PROVISIONED") &&
     entityType === "request" &&
     isInstanceProvisioningType;
 
+  const canProvisionAccess = isDCOps && 
+    (requestStatus === "APPROVED" || requestStatus === "PARTIALLY_PROVISIONED") &&
+    entityType === "request" &&
+    isAccessProvisioningType;
+
   const canExecuteDirectly = isDCOps &&
     requestStatus === "APPROVED" &&
     entityType === "request" &&
-    !isInstanceProvisioningType;
+    !isInstanceProvisioningType &&
+    !isAccessProvisioningType;
 
   const handleExecuteDirectly = async () => {
     if (!confirm("Are you sure you want to execute and apply this request?")) return;
@@ -153,6 +162,12 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
             <Button onClick={() => setShowProvisionModal(true)}>
               <Server className="h-4 w-4 mr-2" />
               Provision VMs
+            </Button>
+          )}
+          {canProvisionAccess && (
+            <Button onClick={() => setShowProvisionAccessModal(true)}>
+              <Server className="h-4 w-4 mr-2" />
+              Provision Access
             </Button>
           )}
           {canExecuteDirectly && (
@@ -279,6 +294,16 @@ export default function ApprovalDetailPage({ params }: { params: { id: string } 
           requesterId={request.requesterId}
           onSuccess={() => {
             // Refresh the page to show updated data
+            window.location.reload();
+          }}
+        />
+      )}
+      {showProvisionAccessModal && request && (
+        <ProvisionAccessModal
+          open={showProvisionAccessModal}
+          onOpenChange={setShowProvisionAccessModal}
+          request={request}
+          onSuccess={() => {
             window.location.reload();
           }}
         />

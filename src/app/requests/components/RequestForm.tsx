@@ -148,6 +148,12 @@ export function RequestForm({
   const [accessTargetVmId, setAccessTargetVmId] = useState<string>("");
   const [accessType, setAccessType] = useState<string>("");
 
+  const [selectedVmIds, setSelectedVmIds] = useState<string[]>([]);
+  const [selectedNamespaceIds, setSelectedNamespaceIds] = useState<string[]>([]);
+  const [namespaces, setNamespaces] = useState<any[]>([]);
+  const [vmSearchQuery, setVmSearchQuery] = useState<string>("");
+  const [nsSearchQuery, setNsSearchQuery] = useState<string>("");
+
   const [k8sNodeGroups, setK8sNodeGroups] = useState<any[]>([
     { role: "MASTER", nodeCount: 3, vcpu: 2, ramGb: 4, storageGb: 50 },
     { role: "WORKER", nodeCount: 5, vcpu: 4, ramGb: 8, storageGb: 100 }
@@ -175,10 +181,14 @@ export function RequestForm({
     } else if (requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") {
       const fetchAccessable = async () => {
         try {
-          const vms = await getAccessableVms();
+          const [vms, ns] = await Promise.all([
+            getAccessableVms(),
+            getNamespaceOptions()
+          ]);
           setAccessableVms(vms);
+          setNamespaces(ns);
         } catch (error) {
-          toast.error(`Failed to load active VMs : ${error}`);
+          toast.error(`Failed to load active resources: ${error}`);
         }
       };
       fetchAccessable();
@@ -236,6 +246,11 @@ export function RequestForm({
     setVmSpecifications(updated);
   };
 
+  const hasDuplicateSubdomains = () => {
+    const cleanList = subdomainList.filter(s => s.trim() !== "");
+    return new Set(cleanList).size !== cleanList.length;
+  };
+
   const checkFormValidity = useCallback(() => {
     const form = formRef.current;
     if (!form) return;
@@ -271,12 +286,13 @@ export function RequestForm({
   const [projectName, setProjectName] = useState<string>("");
   const [purpose, setPurpose] = useState<string>("");
   const [vpnDetails, setVpnDetails] = useState<string>("");
-  const [subdomain, setSubdomain] = useState<string>("");
+  const [subdomain, setSubdomain] = useState<string>(" ");
+  const [subdomainList, setSubdomainList] = useState<string[]>([""]);
   const [quantity, setQuantity] = useState<number>(1);
-  const [frontendTech, setFrontendTech] = useState<string>("");
-  const [backendTech, setBackendTech] = useState<string>("");
-  const [dataBase, setDataBase] = useState<string>("");
-  const [serverArchitecture, setServerArchitecture] = useState<string>("");
+  const [frontendTech, setFrontendTech] = useState<string>(" ");
+  const [backendTech, setBackendTech] = useState<string>(" ");
+  const [dataBase, setDataBase] = useState<string>(" ");
+  const [serverArchitecture, setServerArchitecture] = useState<string>(" ");
   const [isAutoSaving, setIsAutoSaving] = useState<boolean>(false);
   const [draftRequestId, setDraftRequestId] = useState<string | null>(null);
   const [vmSpecifications, setVmSpecifications] = useState<any[]>([
@@ -331,7 +347,12 @@ export function RequestForm({
       if (prefillData.projectName) setProjectName(prefillData.projectName);
       if (prefillData.purpose) setPurpose(prefillData.purpose);
       if (prefillData.vpnDetails) setVpnDetails(prefillData.vpnDetails);
-      if (prefillData.subdomain) setSubdomain(prefillData.subdomain);
+      if (prefillData.subdomain) {
+        setSubdomain(prefillData.subdomain);
+        if (prefillData.requestType === "K8S_NAMESPACE") {
+          setSubdomainList(prefillData.subdomain.split(",").map(s => s.trim()));
+        }
+      }
       if (prefillData.quantity) setQuantity(prefillData.quantity);
       if (prefillData.frontendTech) setFrontendTech(prefillData.frontendTech);
       if (prefillData.backendTech) setBackendTech(prefillData.backendTech);
@@ -387,6 +408,19 @@ export function RequestForm({
         }
       }
       
+      if ((prefillData as any).requestResources && (prefillData as any).requestResources.length > 0) {
+        const vms = (prefillData as any).requestResources.map((r: any) => r.vmId).filter(Boolean);
+        const ns = (prefillData as any).requestResources.map((r: any) => r.namespaceId).filter(Boolean);
+        setSelectedVmIds(vms);
+        setSelectedNamespaceIds(ns);
+      } else if (prefillData.accessTargetVmId) {
+        setSelectedVmIds([prefillData.accessTargetVmId]);
+        setSelectedNamespaceIds([]);
+      } else {
+        setSelectedVmIds([]);
+        setSelectedNamespaceIds([]);
+      }
+
       if (isDeveloper && prefillData.requesterId && prefillData.requesterId !== userId) {
         setAssignedRequesterId(prefillData.requesterId);
       }
@@ -525,6 +559,13 @@ export function RequestForm({
       if (upgradeStorageInput?.value) formData.set("upgradeStorageGb", upgradeStorageInput.value);
     }
     
+    if (requestType === "K8S_NAMESPACE" && hasDuplicateSubdomains()) {
+      toast.error("Duplicate subdomains are not allowed!");
+      setIsSubmitting(false);
+      setIsAutoSaving(false);
+      return false;
+    }
+
     // Explicitly set all state-controlled fields to ensure they are captured regardless of current step
     formData.set("systemName", systemName);
     formData.set("projectName", projectName);
@@ -533,7 +574,12 @@ export function RequestForm({
     formData.set("quantity", quantity.toString());
     formData.set("osName", osName);
     formData.set("osVersion", osVersion);
-    formData.set("subdomain", subdomain);
+    if (requestType === "K8S_NAMESPACE") {
+      const cleanSubdomains = subdomainList.filter(s => s.trim() !== "");
+      formData.set("subdomain", cleanSubdomains.join(","));
+    } else {
+      formData.set("subdomain", subdomain);
+    }
     const hasVpn = requestType === "NEW_VM" 
       ? vmSpecifications.some(spec => spec.connectivity?.includes("VPN"))
       : networkAccess.includes("VPN");
@@ -676,13 +722,18 @@ export function RequestForm({
     }
 
     if (requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") {
-      if (!accessTargetVmId) {
-        toast.error("Please select a target VM for access request");
+      if (selectedVmIds.length === 0 && selectedNamespaceIds.length === 0) {
+        toast.error("Please select at least one target VM or Kubernetes Namespace");
         return false;
       }
-      formData.set("accessTargetVmId", accessTargetVmId);
+      formData.set("selectedResources", JSON.stringify({ vmIds: selectedVmIds, namespaceIds: selectedNamespaceIds }));
       formData.set("accessType", requestType === "VPN_ACCESS" ? "VPN" : "HORIZON");
       formData.set("accessJustification", purpose);
+      
+      // Fallback for legacy columns constraint
+      if (selectedVmIds.length > 0) {
+        formData.set("accessTargetVmId", selectedVmIds[0]);
+      }
     }
 
     if (securityReport) formData.append("securityReport", securityReport);
@@ -847,6 +898,10 @@ export function RequestForm({
   };
 
   const nextStep = async () => {
+    if (requestType === "K8S_NAMESPACE" && hasDuplicateSubdomains()) {
+      toast.error("Please resolve duplicate subdomains before continuing");
+      return;
+    }
     // Auto-save progress as we move to the next step
     if (currentStep < totalSteps) {
       const success = await handleSubmit("draft", true);
@@ -942,28 +997,154 @@ export function RequestForm({
               <CardHeader className="bg-emerald-50/50 border-b border-slate-100">
                 <div className="flex items-center gap-2 text-emerald-600">
                   <ShieldCheck className="w-5 h-5" />
-                  <CardTitle className="text-lg">Select Target VM for Access</CardTitle>
+                  <CardTitle className="text-lg">Select Target Resources for Access</CardTitle>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4 pt-6">
-                <div className="space-y-2">
-                  <Label className="text-emerald-855 font-semibold">Target VM *</Label>
-                  <Select value={accessTargetVmId} onValueChange={handleAccessVmChange} required>
-                    <SelectTrigger className="border-emerald-300">
-                      <SelectValue placeholder="Select one of your active VMs to request access" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accessableVms.length === 0 ? (
-                        <SelectItem value="none" disabled>No active VMs available</SelectItem>
-                      ) : (
-                        accessableVms.map((vm) => (
-                          <SelectItem key={vm.id} value={vm.id}>
-                            {vm.hostname || vm.request?.systemName || "Unnamed VM"} — {vm.ipAddress} ({vm.environment || "N/A"})
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-4">
+                  {/* Selected items badges */}
+                  {(selectedVmIds.length > 0 || selectedNamespaceIds.length > 0) && (
+                    <div className="flex flex-wrap gap-2 p-3 bg-white border border-slate-200 rounded-lg min-h-[50px] items-center">
+                      {selectedVmIds.map(vmId => {
+                        const vm = accessableVms.find(v => v.id === vmId);
+                        if (!vm) return null;
+                        return (
+                          <div key={vmId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold shadow-sm">
+                            <span>VM: {vm.hostname || vm.request?.systemName || "Unnamed VM"} ({vm.ipAddress})</span>
+                            <button 
+                              type="button" 
+                              onClick={() => setSelectedVmIds(prev => prev.filter(id => id !== vmId))}
+                              className="hover:bg-emerald-100 p-0.5 rounded-full font-bold text-emerald-500 hover:text-emerald-700"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {selectedNamespaceIds.map(nsId => {
+                        const ns = namespaces.find(n => n.id === nsId);
+                        if (!ns) return null;
+                        return (
+                          <div key={nsId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-xs font-semibold shadow-sm">
+                            <span>Namespace: {ns.name}</span>
+                            <button 
+                              type="button" 
+                              onClick={() => setSelectedNamespaceIds(prev => prev.filter(id => id !== nsId))}
+                              className="hover:bg-indigo-100 p-0.5 rounded-full font-bold text-indigo-500 hover:text-indigo-700"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Search Inputs and Lists */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* VM Search and Select */}
+                    <div className="space-y-2">
+                      <Label className="text-slate-700 font-medium text-sm">Select Virtual Machines</Label>
+                      <Input 
+                        type="text" 
+                        placeholder="Search VMs by name or system..." 
+                        value={vmSearchQuery}
+                        onChange={(e) => setVmSearchQuery(e.target.value)}
+                        className="border-slate-200 bg-white"
+                      />
+                      <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100 shadow-inner min-h-[120px]">
+                        {accessableVms
+                          .filter(vm => {
+                            const label = `${vm.hostname || ""} ${vm.request?.systemName || ""} ${vm.ipAddress || ""}`.toLowerCase();
+                            return label.includes(vmSearchQuery.toLowerCase());
+                          })
+                          .map(vm => {
+                            const isSelected = selectedVmIds.includes(vm.id);
+                            return (
+                              <button
+                                key={vm.id}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setSelectedVmIds(prev => prev.filter(id => id !== vm.id));
+                                  } else {
+                                    setSelectedVmIds(prev => [...prev, vm.id]);
+                                  }
+                                }}
+                                className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${
+                                  isSelected ? 'bg-emerald-50/50 hover:bg-emerald-50' : 'hover:bg-slate-50'
+                                }`}
+                              >
+                                <div>
+                                  <p className="font-semibold text-slate-800">{vm.hostname || "Unnamed VM"}</p>
+                                  <p className="text-xs text-slate-500">
+                                    System: {vm.request?.systemName || "N/A"} • IP: {vm.ipAddress || "N/A"}
+                                  </p>
+                                </div>
+                                <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${
+                                  isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'
+                                }`}>
+                                  {isSelected && "✓"}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        {accessableVms.length === 0 && (
+                          <p className="text-xs text-slate-400 p-3 text-center">No active VMs available</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Namespace Search and Select */}
+                    <div className="space-y-2">
+                      <Label className="text-slate-700 font-medium text-sm">Select Kubernetes Namespaces</Label>
+                      <Input 
+                        type="text" 
+                        placeholder="Search Namespaces by name..." 
+                        value={nsSearchQuery}
+                        onChange={(e) => setNsSearchQuery(e.target.value)}
+                        className="border-slate-200 bg-white"
+                      />
+                      <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100 shadow-inner min-h-[120px]">
+                        {namespaces
+                          .filter(ns => ns.name.toLowerCase().includes(nsSearchQuery.toLowerCase()))
+                          .map(ns => {
+                            const isSelected = selectedNamespaceIds.includes(ns.id);
+                            return (
+                              <button
+                                key={ns.id}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setSelectedNamespaceIds(prev => prev.filter(id => id !== ns.id));
+                                  } else {
+                                    setSelectedNamespaceIds(prev => [...prev, ns.id]);
+                                  }
+                                }}
+                                className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${
+                                  isSelected ? 'bg-indigo-50/50 hover:bg-indigo-50' : 'hover:bg-slate-50'
+                                }`}
+                              >
+                                <div>
+                                  <p className="font-semibold text-slate-800">{ns.name}</p>
+                                  <p className="text-xs text-slate-500">
+                                    Supervisor: {ns.supervisorIp || "N/A"}
+                                  </p>
+                                </div>
+                                <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${
+                                  isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'
+                                }`}>
+                                  {isSelected && "✓"}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        {namespaces.length === 0 && (
+                          <p className="text-xs text-slate-400 p-3 text-center">No namespaces available</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -1124,12 +1305,12 @@ export function RequestForm({
                   termsAccepted && (
                     (requestType === "CLONE_VM" && sourceVmId) || 
                     (requestType === "SYSTEM_UPGRADE" && upgradeVmId) || 
-                    (requestType !== "CLONE_VM" && requestType !== "SYSTEM_UPGRADE" && accessTargetVmId)
+                    (requestType !== "CLONE_VM" && requestType !== "SYSTEM_UPGRADE" && (selectedVmIds.length > 0 || selectedNamespaceIds.length > 0))
                   ) && purpose.trim()
                     ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" 
                     : "bg-slate-400 cursor-not-allowed opacity-50"
                 )}
-                disabled={isSubmitting || !termsAccepted || (requestType === "CLONE_VM" ? !sourceVmId : requestType === "SYSTEM_UPGRADE" ? !upgradeVmId : !accessTargetVmId) || !purpose.trim()}
+                disabled={isSubmitting || !termsAccepted || (requestType === "CLONE_VM" ? !sourceVmId : requestType === "SYSTEM_UPGRADE" ? !upgradeVmId : (selectedVmIds.length === 0 && selectedNamespaceIds.length === 0)) || !purpose.trim()}
                 type="button"
                 onClick={() => handleSubmit("submit")}
               >
@@ -1284,28 +1465,154 @@ export function RequestForm({
                   <CardHeader className="bg-emerald-50/50 border-b border-slate-100">
                     <div className="flex items-center gap-2 text-emerald-600">
                       <ShieldCheck className="w-5 h-5" />
-                      <CardTitle className="text-lg">Select Target VM for Access</CardTitle>
+                      <CardTitle className="text-lg">Select Target Resources for Access</CardTitle>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4 pt-6">
-                    <div className="space-y-2">
-                      <Label className="text-emerald-855 font-semibold">Target VM *</Label>
-                      <Select value={accessTargetVmId} onValueChange={handleAccessVmChange} required>
-                        <SelectTrigger className="border-emerald-300">
-                          <SelectValue placeholder="Select one of your active VMs to request access" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {accessableVms.length === 0 ? (
-                            <SelectItem value="none" disabled>No active VMs available</SelectItem>
-                          ) : (
-                            accessableVms.map((vm) => (
-                              <SelectItem key={vm.id} value={vm.id}>
-                                {vm.hostname || vm.request?.systemName || "Unnamed VM"} — {vm.ipAddress} ({vm.environment || "N/A"})
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
+                    <div className="space-y-4">
+                      {/* Selected items badges */}
+                      {(selectedVmIds.length > 0 || selectedNamespaceIds.length > 0) && (
+                        <div className="flex flex-wrap gap-2 p-3 bg-white border border-slate-200 rounded-lg min-h-[50px] items-center">
+                          {selectedVmIds.map(vmId => {
+                            const vm = accessableVms.find(v => v.id === vmId);
+                            if (!vm) return null;
+                            return (
+                              <div key={vmId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold shadow-sm">
+                                <span>VM: {vm.hostname || vm.request?.systemName || "Unnamed VM"} ({vm.ipAddress})</span>
+                                <button 
+                                  type="button" 
+                                  onClick={() => setSelectedVmIds(prev => prev.filter(id => id !== vmId))}
+                                  className="hover:bg-emerald-100 p-0.5 rounded-full font-bold text-emerald-500 hover:text-emerald-700"
+                                >
+                                  &times;
+                                </button>
+                              </div>
+                            );
+                          })}
+                          {selectedNamespaceIds.map(nsId => {
+                            const ns = namespaces.find(n => n.id === nsId);
+                            if (!ns) return null;
+                            return (
+                              <div key={nsId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-xs font-semibold shadow-sm">
+                                <span>Namespace: {ns.name}</span>
+                                <button 
+                                  type="button" 
+                                  onClick={() => setSelectedNamespaceIds(prev => prev.filter(id => id !== nsId))}
+                                  className="hover:bg-indigo-100 p-0.5 rounded-full font-bold text-indigo-500 hover:text-indigo-700"
+                                >
+                                  &times;
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Search Inputs and Lists */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* VM Search and Select */}
+                        <div className="space-y-2">
+                          <Label className="text-slate-700 font-medium text-sm">Select Virtual Machines</Label>
+                          <Input 
+                            type="text" 
+                            placeholder="Search VMs by name or system..." 
+                            value={vmSearchQuery}
+                            onChange={(e) => setVmSearchQuery(e.target.value)}
+                            className="border-slate-200 bg-white"
+                          />
+                          <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100 shadow-inner min-h-[120px]">
+                            {accessableVms
+                              .filter(vm => {
+                                const label = `${vm.hostname || ""} ${vm.request?.systemName || ""} ${vm.ipAddress || ""}`.toLowerCase();
+                                return label.includes(vmSearchQuery.toLowerCase());
+                              })
+                              .map(vm => {
+                                const isSelected = selectedVmIds.includes(vm.id);
+                                return (
+                                  <button
+                                    key={vm.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setSelectedVmIds(prev => prev.filter(id => id !== vm.id));
+                                      } else {
+                                        setSelectedVmIds(prev => [...prev, vm.id]);
+                                      }
+                                    }}
+                                    className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${
+                                      isSelected ? 'bg-emerald-50/50 hover:bg-emerald-50' : 'hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <div>
+                                      <p className="font-semibold text-slate-800">{vm.hostname || "Unnamed VM"}</p>
+                                      <p className="text-xs text-slate-500">
+                                        System: {vm.request?.systemName || "N/A"} • IP: {vm.ipAddress || "N/A"}
+                                      </p>
+                                    </div>
+                                    <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${
+                                      isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'
+                                    }`}>
+                                      {isSelected && "✓"}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            {accessableVms.length === 0 && (
+                              <p className="text-xs text-slate-400 p-3 text-center">No active VMs available</p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Namespace Search and Select */}
+                        <div className="space-y-2">
+                          <Label className="text-slate-700 font-medium text-sm">Select Kubernetes Namespaces</Label>
+                          <Input 
+                            type="text" 
+                            placeholder="Search Namespaces by name..." 
+                            value={nsSearchQuery}
+                            onChange={(e) => setNsSearchQuery(e.target.value)}
+                            className="border-slate-200 bg-white"
+                          />
+                          <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100 shadow-inner min-h-[120px]">
+                            {namespaces
+                              .filter(ns => ns.name.toLowerCase().includes(nsSearchQuery.toLowerCase()))
+                              .map(ns => {
+                                const isSelected = selectedNamespaceIds.includes(ns.id);
+                                return (
+                                  <button
+                                    key={ns.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setSelectedNamespaceIds(prev => prev.filter(id => id !== ns.id));
+                                      } else {
+                                        setSelectedNamespaceIds(prev => [...prev, ns.id]);
+                                      }
+                                    }}
+                                    className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${
+                                      isSelected ? 'bg-indigo-50/50 hover:bg-indigo-50' : 'hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <div>
+                                      <p className="font-semibold text-slate-800">{ns.name}</p>
+                                      <p className="text-xs text-slate-500">
+                                        Supervisor: {ns.supervisorIp || "N/A"}
+                                      </p>
+                                    </div>
+                                    <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${
+                                      isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'
+                                    }`}>
+                                      {isSelected && "✓"}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            {namespaces.length === 0 && (
+                              <p className="text-xs text-slate-400 p-3 text-center">No namespaces available</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -1379,7 +1686,7 @@ export function RequestForm({
                       required 
                     />
                   </div>
-                  {requestType !== "NEW_VM" && requestType !== "K8S_NAMESPACE" && (
+                  {requestType !== "NEW_VM" && (
                     <>
                       <div className="space-y-2">
                         <Label>Target Environment</Label>
@@ -1392,17 +1699,13 @@ export function RequestForm({
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Expected Delivery Date</Label>
-                        <Input name="expectedDeliveryDate" type="date" defaultValue={prefillData?.expectedDeliveryDate ? new Date(prefillData.expectedDeliveryDate).toISOString().split('T')[0] : ""} />
-                      </div>
                     </>
                   )}
                 </CardContent>
               </Card>
 
               {/* Tech Stack */}
-              {requestType !== "NEW_VM" && requestType !== "K8S_NAMESPACE" && (
+              {requestType !== "NEW_VM" && (
                 <Card className="shadow-md border-slate-200">
                   <CardHeader className="bg-slate-50/50 border-b border-slate-100">
                     <div className="flex items-center gap-2 text-purple-600">
@@ -1696,32 +1999,48 @@ export function RequestForm({
 
                               <div className="space-y-3 pt-4 border-t border-slate-100">
                                 <Label className="text-sm font-bold text-slate-700">Connectivity</Label>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-1">
-                                  {[
-                                    { label: "Local", value: "LOCAL" },
-                                    { label: "Internet", value: "INTERNET" },
-                                    { label: "Remote", value: "REMOTE" },
-                                    { label: "VPN", value: "VPN" },
-                                  ].map((option) => {
-                                    const isChecked = spec.connectivity.includes(option.value);
-                                    return (
-                                      <div key={option.value} className="flex items-center space-x-2">
-                                        <Checkbox 
-                                          id={`connectivity-${index}-${option.value}`} 
-                                          checked={isChecked}
-                                          onCheckedChange={(checked) => {
-                                            handleConnectivityChange(option.value, !!checked, index);
-                                          }}
-                                        />
-                                        <Label 
-                                          htmlFor={`connectivity-${index}-${option.value}`} 
-                                          className="text-sm font-semibold text-slate-700 cursor-pointer"
-                                        >
-                                          {option.label}
-                                        </Label>
-                                      </div>
-                                    );
-                                  })}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-1">
+                                  <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                    <div className="space-y-0.5">
+                                      <Label className="text-sm font-bold text-slate-700">VPN Required</Label>
+                                      <p className="text-[10px] text-slate-400">Secure external VPN connectivity</p>
+                                    </div>
+                                    <Switch 
+                                      checked={spec.connectivity?.includes("VPN")}
+                                      onCheckedChange={(checked) => {
+                                        const updated = [...vmSpecifications];
+                                        let currentConn = [...(updated[index].connectivity || [])];
+                                        if (checked) {
+                                          if (!currentConn.includes("VPN")) currentConn.push("VPN");
+                                        } else {
+                                          currentConn = currentConn.filter(c => c !== "VPN");
+                                        }
+                                        updated[index].connectivity = currentConn;
+                                        setVmSpecifications(updated);
+                                      }}
+                                    />
+                                  </div>
+
+                                  <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                    <div className="space-y-0.5">
+                                      <Label className="text-sm font-bold text-slate-700">Public IP Required</Label>
+                                      <p className="text-[10px] text-slate-400">Direct internet exposure</p>
+                                    </div>
+                                    <Switch 
+                                      checked={spec.connectivity?.includes("INTERNET")}
+                                      onCheckedChange={(checked) => {
+                                        const updated = [...vmSpecifications];
+                                        let currentConn = [...(updated[index].connectivity || [])];
+                                        if (checked) {
+                                          if (!currentConn.includes("INTERNET")) currentConn.push("INTERNET");
+                                        } else {
+                                          currentConn = currentConn.filter(c => c !== "INTERNET");
+                                        }
+                                        updated[index].connectivity = currentConn;
+                                        setVmSpecifications(updated);
+                                      }}
+                                    />
+                                  </div>
                                 </div>
                                 {spec.connectivity.includes("VPN") && (
                                   <div className="mt-3 space-y-2">
@@ -1891,7 +2210,7 @@ export function RequestForm({
                     })}
                   </CardContent>
                 </Card>
-              ) : requestType === "K8S_NAMESPACE" ? (
+              ) : requestType === "K8S_NAMESPACE" ? (<>
                 <Card className="shadow-md border-indigo-200 bg-indigo-50/20">
                   <CardHeader className="bg-indigo-50/50 border-b border-indigo-100 flex flex-row items-center justify-between">
                     <div className="flex items-center gap-2 text-indigo-600">
@@ -2015,7 +2334,38 @@ export function RequestForm({
                     )}
                   </CardContent>
                 </Card>
-              ) : (
+
+                <Card className="shadow-md border-slate-200 mt-6">
+                  <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                    <div className="flex items-center gap-2 text-indigo-600">
+                      <Layers className="w-5 h-5" />
+                      <CardTitle className="text-lg">Operating System Details</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
+                    <div className="space-y-2">
+                      <Label>Operating System Name *</Label>
+                      <Input 
+                        name="osName" 
+                        placeholder="e.g. Ubuntu, Rocky Linux" 
+                        value={osName}
+                        onChange={(e) => setOsName(e.target.value)}
+                        required 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>OS Version *</Label>
+                      <Input 
+                        name="osVersion" 
+                        placeholder="e.g. 22.04 LTS, 9.0" 
+                        value={osVersion}
+                        onChange={(e) => setOsVersion(e.target.value)}
+                        required 
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </>) : (
                 <Card className="shadow-md border-slate-200">
                 <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-row items-center justify-between">
                   <div className="flex items-center gap-2 text-indigo-600">
@@ -2183,36 +2533,42 @@ export function RequestForm({
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-8 pt-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
+                    <div className="space-y-4 col-span-2">
                       <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Connectivity</Label>
-                      <div className="grid grid-cols-2 gap-4 mt-2">
-                        {[
-                          { label: "Local", value: "LOCAL" },
-                          { label: "Internet", value: "INTERNET" },
-                          { label: "Remote", value: "REMOTE" },
-                          { label: "VPN", value: "VPN" },
-                        ].map((option) => {
-                          const isChecked = networkAccess.includes(option.value);
-                          return (
-                            <div key={option.value} className="flex items-center space-x-2">
-                              <Checkbox 
-                                id={`net-conn-${option.value}`} 
-                                checked={isChecked}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setNetworkAccess([...networkAccess, option.value]);
-                                  } else {
-                                    setNetworkAccess(networkAccess.filter((n) => n !== option.value));
-                                  }
-                                }}
-                              />
-                              <Label htmlFor={`net-conn-${option.value}`} className="text-sm font-semibold text-slate-700 cursor-pointer">
-                                {option.label}
-                              </Label>
-                            </div>
-                          );
-                        })}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
+                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <div className="space-y-0.5">
+                            <Label className="text-sm font-bold text-slate-700">VPN Required</Label>
+                            <p className="text-[10px] text-slate-400">Secure external VPN connectivity</p>
+                          </div>
+                          <Switch 
+                            checked={networkAccess.includes("VPN")}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setNetworkAccess([...networkAccess.filter(n => n !== "VPN"), "VPN"]);
+                              } else {
+                                setNetworkAccess(networkAccess.filter(n => n !== "VPN"));
+                              }
+                            }}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <div className="space-y-0.5">
+                            <Label className="text-sm font-bold text-slate-700">Public IP Required</Label>
+                            <p className="text-[10px] text-slate-400">Direct internet exposure</p>
+                          </div>
+                          <Switch 
+                            checked={networkAccess.includes("INTERNET")}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setNetworkAccess([...networkAccess.filter(n => n !== "INTERNET"), "INTERNET"]);
+                              } else {
+                                setNetworkAccess(networkAccess.filter(n => n !== "INTERNET"));
+                              }
+                            }}
+                          />
+                        </div>
                       </div>
                       {networkAccess.includes("VPN") && (
                         <div className="mt-4 space-y-2">
@@ -2227,7 +2583,6 @@ export function RequestForm({
                         </div>
                       )}
                     </div>
-                  </div>
 
                   <div className="space-y-4">
                     <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Firewall Rules</Label>
@@ -2280,20 +2635,76 @@ export function RequestForm({
 
                   <div className="space-y-4 pt-6 border-t border-slate-100">
                     <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Host Details</Label>
-                    <div className="space-y-2">
-                      <Label>Proposed Subdomain *</Label>
-                      <div className="flex items-center gap-2">
-                        <div className="bg-slate-100 px-3 py-2 rounded-lg text-slate-500 text-sm font-medium border border-slate-200">https://</div>
-                        <Input 
-                          name="subdomain" 
-                          placeholder="app-name.dghs.gov.bd" 
-                          value={subdomain}
-                          onChange={(e) => setSubdomain(e.target.value)}
-                          required 
-                          className="flex-1" 
-                        />
+                    {requestType === "K8S_NAMESPACE" ? (
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <Label>Proposed Subdomains *</Label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSubdomainList([...subdomainList, ""])}
+                            className="h-8 border-dashed hover:bg-slate-50"
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1" /> Add Subdomain
+                          </Button>
+                        </div>
+                        <div className="space-y-3">
+                          {subdomainList.map((sub, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <div className="bg-slate-100 px-3 py-2 rounded-lg text-slate-500 text-sm font-medium border border-slate-200">https://</div>
+                              <Input
+                                value={sub}
+                                onChange={(e) => {
+                                  const newList = [...subdomainList];
+                                  newList[idx] = e.target.value;
+                                  setSubdomainList(newList);
+                                  setSubdomain(newList.filter(s => s.trim() !== "").join(","));
+                                }}
+                                placeholder="app-name.dghs.gov.bd"
+                                required={idx === 0}
+                                className="flex-1"
+                              />
+                              {idx > 0 && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    const newList = subdomainList.filter((_, i) => i !== idx);
+                                    setSubdomainList(newList);
+                                    setSubdomain(newList.filter(s => s.trim() !== "").join(","));
+                                  }}
+                                  className="text-red-500 hover:bg-red-50"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {hasDuplicateSubdomains() && (
+                          <p className="text-xs text-red-500 font-bold flex items-center gap-1 mt-1">
+                            <Trash2 className="w-3.5 h-3.5 text-red-500" /> Warning: Duplicate subdomains are entered!
+                          </p>
+                        )}
                       </div>
-                    </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label>Proposed Subdomain *</Label>
+                        <div className="flex items-center gap-2">
+                          <div className="bg-slate-100 px-3 py-2 rounded-lg text-slate-500 text-sm font-medium border border-slate-200">https://</div>
+                          <Input 
+                            name="subdomain" 
+                            placeholder="app-name.dghs.gov.bd" 
+                            value={subdomain}
+                            onChange={(e) => setSubdomain(e.target.value)}
+                            required 
+                            className="flex-1" 
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

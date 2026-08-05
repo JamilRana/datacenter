@@ -339,13 +339,35 @@ export async function fetchDashboardData(
       where: listRequestWhere,
       include: { 
         requester: { select: { id: true, name: true, email: true, designation: true } },
-        targetVm: { select: { hostname: true, id: true } },
+        targetVm: { 
+          select: { 
+            hostname: true, 
+            id: true,
+            environment: true,
+            currentSpec: {
+              select: {
+                vcpu: true,
+                ramGb: true,
+                storageGb: true,
+                osName: true,
+                osVersion: true
+              }
+            }
+          } 
+        },
         approvals: {
           include: {
             approver: { select: { id: true, name: true, email: true, designation: true } }
           }
         },
         vmInstances: { select: { id: true } },
+        vmSpecifications: {
+          include: {
+            additionalStorage: true
+          }
+        },
+        k8sRequestNodeGroups: true,
+        requestResources: true,
       },
       orderBy: { createdAt: "desc" },
       skip,
@@ -373,6 +395,81 @@ export async function fetchDashboardData(
     })
   ]);
 
+  // Helper function to calculate resource totals for each request
+  function computeRequestSummary(req: any) {
+    let vmCount = 0;
+    let namespaceCount = 0;
+    let cpu = 0;
+    let ram = 0;
+    let storage = 0;
+
+    const requestType = req.requestType;
+
+    if (requestType === "NEW_VM") {
+      vmCount = req.vmSpecifications?.length || req.quantity || 1;
+      if (req.vmSpecifications && req.vmSpecifications.length > 0) {
+        req.vmSpecifications.forEach((spec: any) => {
+          cpu += spec.vcpu || 0;
+          ram += spec.ramGb || 0;
+          storage += spec.storageGb || 0;
+          if (spec.additionalStorage) {
+            spec.additionalStorage.forEach((disk: any) => {
+              storage += disk.sizeGb || 0;
+            });
+          }
+        });
+      } else {
+        cpu = (req.vcpu || 1) * vmCount;
+        ram = (req.ramGb || 2) * vmCount;
+        storage = (req.storageGb || 50) * vmCount;
+      }
+    } else if (requestType === "CLONE_VM") {
+      vmCount = 1;
+      cpu = req.vcpu || req.targetVm?.currentSpec?.vcpu || 1;
+      ram = req.ramGb || req.targetVm?.currentSpec?.ramGb || 2;
+      storage = req.storageGb || req.targetVm?.currentSpec?.storageGb || 50;
+    } else if (requestType === "K8S_NAMESPACE") {
+      namespaceCount = 1;
+      if (req.k8sRequestNodeGroups && req.k8sRequestNodeGroups.length > 0) {
+        req.k8sRequestNodeGroups.forEach((group: any) => {
+          const count = group.nodeCount || 1;
+          cpu += (group.vcpu || 0) * count;
+          ram += (group.ramGb || 0) * count;
+          storage += (group.storageGb || 0) * count;
+        });
+      }
+    } else if (requestType === "SYSTEM_UPGRADE") {
+      vmCount = 1;
+      const currentCpu = req.targetVm?.currentSpec?.vcpu || 0;
+      const currentRam = req.targetVm?.currentSpec?.ramGb || 0;
+      const currentStorage = req.targetVm?.currentSpec?.storageGb || 0;
+      
+      cpu = req.upgradeCpu ? req.upgradeCpu : currentCpu;
+      ram = req.upgradeRamGb ? req.upgradeRamGb : currentRam;
+      storage = req.upgradeStorageGb ? (currentStorage + req.upgradeStorageGb) : currentStorage;
+      
+      const resources = req.requestResources || [];
+      resources.forEach((r: any) => {
+        if (r.vm) {
+          vmCount++;
+        } else if (r.namespace) {
+          namespaceCount++;
+        }
+      });
+      if (vmCount === 0 && req.targetVm) {
+        vmCount = 1;
+      }
+    } else if (requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") {
+      const resources = req.requestResources || [];
+      resources.forEach((r: any) => {
+        if (r.vmId) vmCount++;
+        if (r.namespaceId) namespaceCount++;
+      });
+    }
+
+    return { vmCount, namespaceCount, cpu, ram, storage };
+  }
+
   // ✅ TRANSFORM WITH STRING VALUES (no enum conflicts)
   const dashboardRequests: DashboardRequest[] = [
     // Standard requests (NEW_VM, RENEWAL, DECOMMISSION)
@@ -396,6 +493,7 @@ export async function fetchDashboardData(
       quantity: req.quantity,
       vmInstances: { length: req.vmInstances.length },
       subdomain: req.subdomain,
+      summary: computeRequestSummary(req),
     })),
     
     // Customization requests
@@ -417,7 +515,14 @@ export async function fetchDashboardData(
       targetVm: cust.targetVm 
         ? { hostname: cust.targetVm.hostname } 
         : null,
-      approvals: cust.approvals
+      approvals: cust.approvals,
+      summary: {
+        vmCount: 1,
+        namespaceCount: 0,
+        cpu: cust.vcpu || 0,
+        ram: cust.ramGb || 0,
+        storage: cust.storageGb || 0,
+      },
     }))
   ]
   .sort((a: any, b: any) => b.createdAt.getTime() - a.createdAt.getTime())

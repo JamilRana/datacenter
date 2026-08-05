@@ -36,7 +36,8 @@ type RequestWithRelations = Prisma.RequestGetPayload<{
     approvals: { 
       include: { approver: { select: { id: true, name: true } } } 
     },
-    targetVm: { select: { id: true, hostname: true, status: true } }
+    targetVm: { select: { id: true, hostname: true, status: true } },
+    vmSpecifications: { select: { subdomain: true } }
   }
 }>
 
@@ -164,9 +165,6 @@ export async function createRequest(formData: FormData) {
           projectName: formData.get("projectName")?.toString() || null,
           purpose: formData.get("purpose")?.toString() || "",
           environment: env as Environment,
-          expectedDeliveryDate: formData.get("expectedDeliveryDate")
-            ? new Date(formData.get("expectedDeliveryDate") as string)
-            : null,
 
           // ✅ CORRECT requesterId BASED ON ROLE
           requesterId: isDeveloper && assignedRequesterId 
@@ -555,9 +553,6 @@ export async function editRequest(formData: FormData) {
         projectName: formData.get("projectName")?.toString() || null,
         purpose: formData.get("purpose")?.toString() || "",
         environment: formData.get("environment") as Environment,
-        expectedDeliveryDate: formData.get("expectedDeliveryDate")
-          ? new Date(formData.get("expectedDeliveryDate") as string)
-          : null,
 
         // VM Spec (only editable fields)
         vcpu: finalVcpu,
@@ -1024,6 +1019,12 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
           firewallRules: true,
           additionalStorage: true
         }
+      },
+      requestResources: {
+        include: {
+          vm: true,
+          namespace: true
+        }
       }
     },
   });
@@ -1110,7 +1111,6 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
     systemName: request.systemName,
     purpose: request.purpose,
     environment: request.environment,
-    expectedDeliveryDate: request.expectedDeliveryDate || null,
 
     requesterId: request.requesterId,
     // ✅ Transform User relation → Person interface
@@ -1338,6 +1338,7 @@ export async function getRequests(
           orderBy: { level: "asc" },
         },
         targetVm: { select: { id: true, hostname: true, status: true } },
+        vmSpecifications: { select: { subdomain: true } },
       },
     }),
     prisma.request.count({ where: whereClause })
@@ -1355,6 +1356,21 @@ export async function getRequests(
 }
 
 function transformRequestListItem(r: RequestWithRelations) {
+  const subdomains: string[] = [];
+  if (r.subdomain?.trim()) {
+    subdomains.push(...r.subdomain.split(",").map(s => s.trim()).filter(Boolean));
+  }
+  if (r.vmSpecifications && r.vmSpecifications.length > 0) {
+    r.vmSpecifications.forEach((spec: any) => {
+      if (spec.subdomain?.trim()) {
+        const sub = spec.subdomain.trim();
+        const suffix = sub.includes(".") ? "" : ".dghs.gov.bd";
+        subdomains.push(`${sub}${suffix}`);
+      }
+    });
+  }
+  const subdomainString = Array.from(new Set(subdomains)).join(", ");
+
   return {
     id: r.id,
     requestType: r.requestType,
@@ -1362,6 +1378,7 @@ function transformRequestListItem(r: RequestWithRelations) {
     systemName: r.systemName,
     environment: r.environment,
     purpose: r.purpose,
+    subdomain: subdomainString || null,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     submittedAt: r.submittedAt ?? undefined,
@@ -1382,7 +1399,6 @@ function transformRequestListItem(r: RequestWithRelations) {
           status: r.targetVm.status 
         }
       : undefined,
-    expectedDeliveryDate: r.expectedDeliveryDate ?? undefined,
   };
 }
 

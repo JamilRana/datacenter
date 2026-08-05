@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { 
   Dialog, 
   DialogContent, 
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { createAsset, updateAsset } from "@/app/actions/asset-actions";
+import { fetchClusters } from "@/app/actions/cluster-actions";
 import { AssetType } from "@/types/enums";
 import { PhysicalAsset } from "@/types/inventory";
 
@@ -35,6 +36,17 @@ export function AssetModal({ asset, mode = "create" }: AssetModalProps) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [selectedType, setSelectedType] = useState<string>(asset?.type || "SERVER");
+  const [clusters, setClusters] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (open) {
+      const loadClusters = async () => {
+        const data = await fetchClusters();
+        setClusters(data);
+      };
+      loadClusters();
+    }
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -113,6 +125,28 @@ export function AssetModal({ asset, mode = "create" }: AssetModalProps) {
               </Select>
             </div>
           </div>
+
+          {selectedType === "SERVER" && (
+            <div className="space-y-2">
+              <Label htmlFor="clusterId">Physical Cluster</Label>
+              <Select 
+                name="clusterId" 
+                defaultValue={asset?.clusterId || "none"}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Cluster (Optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No Cluster (Standalone)</SelectItem>
+                  {clusters.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

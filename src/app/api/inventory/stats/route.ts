@@ -49,7 +49,10 @@ export async function GET() {
         totalNamespaces,
         totalAssets: 0,
         totalLicenses: 0,
-        expiringLicenses: 0
+        expiringLicenses: 0,
+        totalClusters: 0,
+        totalHorizon: 0,
+        totalVpn: 0
       });
     }
 
@@ -58,6 +61,15 @@ export async function GET() {
 
     // Get total licenses count
     const totalLicenses = await prisma.softwareLicense.count();
+
+    // Get total clusters count
+    const totalClusters = await prisma.physicalCluster.count();
+
+    // Get total horizon assignments count
+    const totalHorizon = await prisma.horizonAssignment.count();
+
+    // Get total vpn assignments count
+    const totalVpn = await prisma.vpnAssignment.count();
 
     // Get expiring licenses (within 30 days)
     const expiringLicenses = await prisma.softwareLicense.count({
@@ -74,7 +86,10 @@ export async function GET() {
       totalNamespaces,
       totalAssets,
       totalLicenses,
-      expiringLicenses
+      expiringLicenses,
+      totalClusters,
+      totalHorizon,
+      totalVpn
     });
   } catch (error) {
     console.error("Error fetching inventory stats:", error);

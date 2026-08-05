@@ -28,6 +28,7 @@ interface HardwareReportRow {
   assetName: string;
   type: string;
   location: string;
+  clusterName?: string;
   totalCpu: number;
   totalRam: number;
   totalStorage: number;
@@ -76,8 +77,23 @@ export default function HardwareReportPage() {
     search: "",
     type: "all",
     location: "all",
+    clusterId: "all",
     page: 1,
   });
+  const [clusters, setClusters] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadClusters = async () => {
+      try {
+        const { fetchClusters } = await import("@/app/actions/cluster-actions");
+        const data = await fetchClusters();
+        setClusters(data);
+      } catch (err) {
+        console.error("Failed to fetch clusters for reports:", err);
+      }
+    };
+    loadClusters();
+  }, []);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -96,6 +112,7 @@ export default function HardwareReportPage() {
         if (filters.search) params.search = filters.search;
         if (filters.type && filters.type !== "all") params.type = filters.type;
         if (filters.location && filters.location !== "all") params.location = filters.location;
+        if (filters.clusterId && filters.clusterId !== "all") params.clusterId = filters.clusterId;
 
         const result = await fetchHardwareReport(params);
         
@@ -128,6 +145,7 @@ export default function HardwareReportPage() {
     return reportData.data.map(asset => ({
       Name: asset.assetName,
       Type: asset.type,
+      Cluster: asset.clusterName || "-",
       Location: asset.location,
       Total_CPU: asset.totalCpu,
       Total_RAM: asset.totalRam,
@@ -153,7 +171,7 @@ export default function HardwareReportPage() {
     exportToPdf(
       `hardware-report-${new Date().toISOString().split("T")[0]}.html`,
       "Hardware Report",
-      ["Name", "Type", "Location", "Total CPU", "Total RAM", "Total Storage", "Alloc CPU", "Alloc RAM", "Alloc Storage", "Utilization", "VMs", "Status"],
+      ["Name", "Type", "Cluster", "Location", "Total CPU", "Total RAM", "Total Storage", "Alloc CPU", "Alloc RAM", "Alloc Storage", "Utilization", "VMs", "Status"],
       getExportData()
     );
   };
@@ -307,7 +325,7 @@ export default function HardwareReportPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
@@ -343,6 +361,20 @@ export default function HardwareReportPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={filters.clusterId} onValueChange={(v) => handleFilterChange("clusterId", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Cluster" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Clusters</SelectItem>
+                <SelectItem value="none">Standalone (No Cluster)</SelectItem>
+                {clusters.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -355,6 +387,7 @@ export default function HardwareReportPage() {
               <TableRow>
                 <TableHead>Asset</TableHead>
                 <TableHead>Type</TableHead>
+                <TableHead>Cluster</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Total CPU</TableHead>
                 <TableHead>Total RAM</TableHead>
@@ -367,7 +400,7 @@ export default function HardwareReportPage() {
             <TableBody>
               {reportData.data.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-slate-500">
+                  <TableCell colSpan={10} className="text-center py-8 text-slate-500">
                     No assets found matching your criteria
                   </TableCell>
                 </TableRow>
@@ -376,6 +409,15 @@ export default function HardwareReportPage() {
                   <TableRow key={asset.id}>
                     <TableCell className="font-medium">{asset.assetName}</TableCell>
                     <TableCell>{asset.type}</TableCell>
+                    <TableCell>
+                      {asset.clusterName ? (
+                        <Badge variant="outline" className="font-bold text-[9px] px-2 py-0.5 border border-amber-300 text-amber-700 bg-amber-50">
+                           {asset.clusterName}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium">-</span>
+                      )}
+                    </TableCell>
                     <TableCell>{asset.location}</TableCell>
                     <TableCell>{asset.totalCpu}</TableCell>
                     <TableCell>{asset.totalRam} GB</TableCell>

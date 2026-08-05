@@ -38,6 +38,7 @@ const assetBaseSchema = z.object({
   ramGb: z.union([z.number(), z.string()]).optional().transform(optionalNumber),
   storageGb: z.union([z.number(), z.string()]).optional().transform(optionalNumber),
   details: z.string().optional().transform(optionalJson),
+  clusterId: z.string().optional().nullable().transform((val) => (val === "" || val === "none") ? null : val),
 });
 
 export async function createAsset(formData: FormData) {
@@ -62,6 +63,7 @@ export async function createAsset(formData: FormData) {
       cpuCores: validated.cpuCores,
       ramGb: validated.ramGb,
       storageGb: validated.storageGb,
+      clusterId: validated.clusterId,
     };
 
     await prisma.asset.create({ data: anyData });
@@ -102,6 +104,7 @@ export async function updateAsset(formData: FormData) {
       cpuCores: validated.cpuCores,
       ramGb: validated.ramGb,
       storageGb: validated.storageGb,
+      clusterId: validated.clusterId,
     };
 
     await prisma.asset.update({
@@ -161,6 +164,7 @@ export async function fetchAllAssets(page: number = 1, pageSize: number = 20) {
       orderBy: { name: "asc" },
       skip,
       take: pageSize,
+      include: { cluster: true },
     }),
     prisma.asset.count()
   ]);

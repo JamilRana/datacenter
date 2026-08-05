@@ -44,4 +44,11 @@ export interface DashboardRequest {
   quantity?: number;
   vmInstances?: { length: number };
   subdomain?: string | null;
+  summary?: {
+    vmCount: number;
+    namespaceCount: number;
+    cpu: number;
+    ram: number;
+    storage: number;
+  };
 }

@@ -76,6 +76,8 @@ export interface PhysicalAsset {
   details: Record<string, unknown> | null;
   createdAt: string | Date;
   warrantyExpiry: Date | string | null;
+  clusterId?: string | null;
+  cluster?: { id: string; name: string } | null;
 }
 
 export interface License {

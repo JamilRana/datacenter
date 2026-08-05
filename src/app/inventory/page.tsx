@@ -11,7 +11,10 @@ import {
   HardDrive, 
   Key, 
   ArrowRight,
-  Box
+  Box,
+  Layers,
+  Users,
+  Shield
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -21,6 +24,9 @@ interface InventoryStats {
   totalAssets: number;
   totalLicenses: number;
   expiringLicenses: number;
+  totalClusters: number;
+  totalHorizon: number;
+  totalVpn: number;
 }
 
 export default function InventoryHubPage() {
@@ -31,7 +37,10 @@ export default function InventoryHubPage() {
     totalNamespaces: 0,
     totalAssets: 0,
     totalLicenses: 0,
-    expiringLicenses: 0
+    expiringLicenses: 0,
+    totalClusters: 0,
+    totalHorizon: 0,
+    totalVpn: 0
   });
   const [loading, setLoading] = useState(true);
 
@@ -96,7 +105,7 @@ export default function InventoryHubPage() {
       </nav>
 
       {/* Main Navigation Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
         {/* VM Instances */}
         <Link href="/inventory/vms" className="group">
           <Card className="h-full transition-all duration-300 border-2 border-blue-200 hover:border-blue-400 hover:shadow-lg cursor-pointer">
@@ -169,6 +178,32 @@ export default function InventoryHubPage() {
           </Card>
         </Link>
 
+        {/* Physical Clusters */}
+        {isDCOPSorAdmin && (
+          <Link href="/inventory/clusters" className="group">
+            <Card className="h-full transition-all duration-300 border-2 border-amber-200 hover:border-amber-400 hover:shadow-lg cursor-pointer">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="p-3 rounded-xl bg-amber-100">
+                    <Layers className="h-7 w-7 text-amber-600" />
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-amber-600 group-hover:translate-x-1 transition-all" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <CardTitle className="text-xl text-slate-900">Physical Clusters</CardTitle>
+                <CardDescription className="mt-2 text-slate-600">
+                  ESXi virtualization clusters grouping host servers
+                </CardDescription>
+                <div className="mt-6 pt-4 border-t border-slate-100">
+                  <span className="text-3xl font-bold text-slate-900">{stats.totalClusters}</span>
+                  <span className="text-sm text-slate-500 ml-2">Clusters</span>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        )}
+
         {/* Software Licenses */}
         <Link href="/inventory/licenses" className="group">
           <Card className="h-full transition-all duration-300 border-2 border-purple-200 hover:border-purple-400 hover:shadow-lg cursor-pointer">
@@ -199,6 +234,58 @@ export default function InventoryHubPage() {
             </CardContent>
           </Card>
         </Link>
+
+        {/* Horizon Users */}
+        {isDCOPSorAdmin && (
+          <Link href="/inventory/horizon" className="group">
+            <Card className="h-full transition-all duration-300 border-2 border-amber-200 hover:border-amber-400 hover:shadow-lg cursor-pointer">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="p-3 rounded-xl bg-amber-100">
+                    <Users className="h-7 w-7 text-amber-600" />
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-amber-600 group-hover:translate-x-1 transition-all" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <CardTitle className="text-xl text-slate-900">Horizon Users</CardTitle>
+                <CardDescription className="mt-2 text-slate-600">
+                  Track client desktop endpoints and active user assignments
+                </CardDescription>
+                <div className="mt-6 pt-4 border-t border-slate-100">
+                  <span className="text-3xl font-bold text-slate-900">{stats.totalHorizon}</span>
+                  <span className="text-sm text-slate-500 ml-2">Assigned</span>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        )}
+
+        {/* VPN Assignments */}
+        {isDCOPSorAdmin && (
+          <Link href="/inventory/vpn" className="group">
+            <Card className="h-full transition-all duration-300 border-2 border-emerald-200 hover:border-emerald-400 hover:shadow-lg cursor-pointer">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="p-3 rounded-xl bg-emerald-100">
+                    <Shield className="h-7 w-7 text-emerald-600" />
+                  </div>
+                  <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-emerald-600 group-hover:translate-x-1 transition-all" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <CardTitle className="text-xl text-slate-900">VPN Assignments</CardTitle>
+                <CardDescription className="mt-2 text-slate-600">
+                  Track secure tunnel client access profiles and IP mappings
+                </CardDescription>
+                <div className="mt-6 pt-4 border-t border-slate-100">
+                  <span className="text-3xl font-bold text-slate-900">{stats.totalVpn}</span>
+                  <span className="text-sm text-slate-500 ml-2">Active Profiles</span>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        )}
       </div>
 
       {/* Quick Access for Admin/DCOPS */}

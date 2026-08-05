@@ -54,7 +54,12 @@ if (process.env.TESTING_NOTIFICATIONS === "true") {
   let pool: Pool;
   if (process.env.NODE_ENV !== "production") {
     if (!globalForPrisma.pool) {
-      globalForPrisma.pool = new Pool({ connectionString });
+      globalForPrisma.pool = new Pool({ 
+        connectionString,
+        max: 5,
+        idleTimeoutMillis: 10000,
+        connectionTimeoutMillis: 10000,
+      });
       globalForPrisma.pool.connect().then(() => {
         console.log('Successfully connected to the database');
       }).catch((err) => {
@@ -63,7 +68,12 @@ if (process.env.TESTING_NOTIFICATIONS === "true") {
     }
     pool = globalForPrisma.pool;
   } else {
-    pool = new Pool({ connectionString });
+    pool = new Pool({ 
+      connectionString,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
     pool.connect().then(() => {
       console.log('Successfully connected to the database');
     }).catch((err) => {

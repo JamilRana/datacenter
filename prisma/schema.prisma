@@ -29,6 +29,8 @@ model User {
   requests              Request[]              @relation("Requester")
   ownedVms              VmInstance[]           @relation("VmOwner")
   credentialAccessLogs  CredentialAccessLog[]
+  horizonAssigned       HorizonAssignment[]    @relation("HorizonAssignedBy")
+  vpnAssigned           VpnAssignment[]        @relation("VpnAssignedBy")
 }
 
 model Role {
@@ -147,9 +149,9 @@ model Request {
   accessTargetVm                VmInstance?            @relation("AccessTarget", fields: [accessTargetVmId], references: [id])
 
   // Common new fields
-  expectedDeliveryDate          DateTime?
   tags                          RequestTag[]
   vmSpecifications              VmSpecification[]
+  requestResources              RequestResource[]
 
   @@index([targetVmId])
   @@index([sourceVmId])
@@ -278,6 +280,10 @@ model VmInstance {
   specHistory           VmSpec[]               @relation("VmSpecHistory")
   systemName            String?
   decommissionRequests  Request[]              @relation("DecommissionTarget")
+  horizonAssignmentsOld HorizonAssignment[]    @relation("VmToHorizonOld")
+  horizonAssignmentsNew HorizonAssignment[]    @relation("VmToHorizonNew")
+  vpnAssignmentsNew     VpnAssignment[]        @relation("VmToVpnNew")
+  requestResources      RequestResource[]
   currentSpec           VmSpec?                @relation("CurrentVmSpec", fields: [currentSpecId], references: [id])
   owner                 User?                  @relation("VmOwner", fields: [ownerId], references: [id])
   request               Request?                @relation("RequestVms", fields: [requestId], references: [id])
@@ -501,8 +507,18 @@ model Asset {
   noOfDisks         Int?
   details           Json?
   createdAt         DateTime          @default(now())
+  clusterId         String?
+  cluster           PhysicalCluster?  @relation("HostsInCluster", fields: [clusterId], references: [id])
   vms               VmInstance[]      @relation("HostedOnAsset")
   licenses          SoftwareLicense[] @relation("AssetToSoftwareLicense")
+}
+
+model PhysicalCluster {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  hosts       Asset[]  @relation("HostsInCluster")
+  createdAt   DateTime @default(now())
 }
 
 model SystemSetting {
@@ -670,12 +686,15 @@ enum K8sNodeRole {
 }
 
 model K8sNamespace {
-  id           String       @id @default(uuid())
-  name         String       @unique
-  supervisorIp String
-  clusters     K8sCluster[]
-  createdAt    DateTime     @default(now())
-  requests     Request[]    @relation("ExistingNamespace")
+  id                 String              @id @default(uuid())
+  name               String              @unique
+  supervisorIp       String
+  clusters           K8sCluster[]
+  createdAt          DateTime            @default(now())
+  requests           Request[]           @relation("ExistingNamespace")
+  horizonAssignments HorizonAssignment[] @relation("NamespaceToHorizon")
+  vpnAssignments     VpnAssignment[]     @relation("NamespaceToVpn")
+  requestResources   RequestResource[]
 }
 
 model K8sCluster {
@@ -783,4 +802,93 @@ model PasswordResetOtp {
   createdAt DateTime @default(now())
 
   @@index([email])
+}
+
+model HorizonUser {
+  id          String              @id @default(uuid())
+  username    String              @unique @map("horizon_username")
+  fullName    String              @map("full_name")
+  email       String?
+  status      String              @default("ACTIVE") // ACTIVE, REVOKED, PENDING
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  assignments HorizonAssignment[]
+
+  @@map("horizon_users")
+}
+
+model HorizonAssignment {
+  id            String        @id @default(uuid())
+  horizonUserId String?       @map("horizon_user_id")
+  horizonUser   HorizonUser?  @relation(fields: [horizonUserId], references: [id], onDelete: Cascade)
+  vmId          String?       @map("vm_id")
+  vm            VmInstance?   @relation("VmToHorizonNew", fields: [vmId], references: [id], onDelete: Cascade)
+  namespaceId   String?       @map("namespace_id")
+  namespace     K8sNamespace? @relation("NamespaceToHorizon", fields: [namespaceId], references: [id], onDelete: Cascade)
+  assignedIp    String?       @map("assigned_ip")
+  assignedAt    DateTime      @default(now()) @map("assignment_date")
+  assignedById  String?       @map("assigned_by_id")
+  assignedBy    User?         @relation("HorizonAssignedBy", fields: [assignedById], references: [id])
+  status        String        @default("ACTIVE") // ACTIVE, REVOKED
+  notes         String?       @db.Text
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @default(now()) @updatedAt
+
+  // Deprecated legacy fields for data migration safety
+  username     String?     @map("horizon_user")
+  vmInstanceId String?     @map("vm_instance_id")
+  ipAddress    String?     @map("assigned_ip_old")
+  oldVm        VmInstance? @relation("VmToHorizonOld", fields: [vmInstanceId], references: [id], onDelete: Cascade)
+}
+
+model VpnUser {
+  id          String          @id @default(uuid())
+  username    String          @unique @map("vpn_username")
+  fullName    String          @map("full_name")
+  vpnProfile  String          @map("vpn_profile")
+  vpnIp       String          @unique @map("vpn_ip")
+  status      String          @default("ACTIVE") // ACTIVE, EXPIRED, REVOKED
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  assignments VpnAssignment[]
+
+  @@map("vpn_users")
+}
+
+model VpnAssignment {
+  id           String        @id @default(uuid())
+  vpnUserId    String?       @map("vpn_user_id")
+  vpnUser      VpnUser?      @relation(fields: [vpnUserId], references: [id], onDelete: Cascade)
+  vmId         String?       @map("vm_id")
+  vm           VmInstance?   @relation("VmToVpnNew", fields: [vmId], references: [id], onDelete: Cascade)
+  namespaceId  String?       @map("namespace_id")
+  namespace    K8sNamespace? @relation("NamespaceToVpn", fields: [namespaceId], references: [id], onDelete: Cascade)
+  assignedAt   DateTime      @default(now()) @map("assignment_date")
+  assignedById String?       @map("assigned_by_id")
+  assignedBy   User?         @relation("VpnAssignedBy", fields: [assignedById], references: [id])
+  expiresAt    DateTime?     @map("expiration_date")
+  notes        String?       @db.Text
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @default(now()) @updatedAt
+
+  // Deprecated legacy fields for data migration safety
+  username    String?   @map("vpn_user")
+  vpnIp       String?   @map("assigned_vpn_ip_old")
+  vpnProfile  String?   @map("vpn_profile_old")
+  assignedVms String?   @map("assigned_vms_old")
+}
+
+model RequestResource {
+  id          String        @id @default(uuid())
+  requestId   String        @map("request_id")
+  request     Request       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  vmId        String?       @map("vm_id")
+  vm          VmInstance?   @relation(fields: [vmId], references: [id], onDelete: Cascade)
+  namespaceId String?       @map("namespace_id")
+  namespace   K8sNamespace? @relation(fields: [namespaceId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([vmId])
+  @@index([namespaceId])
+  @@map("request_resources")
 }

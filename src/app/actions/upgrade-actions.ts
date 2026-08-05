@@ -196,9 +196,6 @@ export async function createSystemUpgradeRequest(formData: FormData) {
           systemName: `Upgrade of ${targetVm.hostname || targetVm.systemName || "VM"}`,
           purpose: purpose,
           environment: targetVm.environment || "PRODUCTION",
-          expectedDeliveryDate: formData.get("expectedDeliveryDate")
-            ? new Date(formData.get("expectedDeliveryDate") as string)
-            : null,
 
           requesterId: effectiveRequesterId,
 

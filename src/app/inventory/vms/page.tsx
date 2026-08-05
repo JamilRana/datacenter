@@ -34,8 +34,7 @@ export default function VmInventoryPage() {
 
   const queryParams = useSearchParams();
   const page = queryParams.get("page") ? parseInt(queryParams.get("page")!, 10) : 1;
-
-
+  const statusFilter = queryParams.get("status") || undefined;
 
   useEffect(() => {
     if (status === "loading" || !session?.user?.id) return;
@@ -45,7 +44,7 @@ export default function VmInventoryPage() {
       try {
         const [metricsRes, vmsData, analytics] = await Promise.all([
           getInventoryMetrics(),
-          fetchAllVms(page),
+          fetchAllVms(page, 20, statusFilter),
           fetchVmAnalytics()
         ]);
         setMetrics(metricsRes);

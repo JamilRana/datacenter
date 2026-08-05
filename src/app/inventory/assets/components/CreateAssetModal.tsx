@@ -2,13 +2,25 @@
 "use client";
 
 import { createAsset } from "@/app/actions/asset-actions";
+import { fetchClusters } from "@/app/actions/cluster-actions";
 import { AssetType } from "@prisma/client"; // ✅ Import the enum directly
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function CreateAssetModal() {
   const [isOpen, setIsOpen] = useState(false);
   // ✅ Initialize with a valid enum value
   const [assetType, setAssetType] = useState<AssetType>(AssetType.SERVER);
+  const [clusters, setClusters] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      const loadClusters = async () => {
+        const data = await fetchClusters();
+        setClusters(data);
+      };
+      loadClusters();
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -63,6 +75,24 @@ export default function CreateAssetModal() {
               ))}
             </select>
           </div>
+
+          {/* Physical Cluster Selector (only for SERVER type) */}
+          {assetType === "SERVER" && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Physical Cluster</label>
+              <select
+                name="clusterId"
+                className="w-full border rounded px-3 py-2 bg-white"
+              >
+                <option value="">No Cluster (Standalone)</option>
+                {clusters.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Common Fields */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

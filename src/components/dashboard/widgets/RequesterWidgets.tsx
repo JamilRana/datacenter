@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { SummaryStatCard } from "@/components/dashboard/SummaryStatCard";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,30 +17,38 @@ export function RequesterStatsWidget({ data }: RequesterWidgetsProps) {
   
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <SummaryStatCard
-        label="My Active VMs"
-        value={stats.myActiveVms}
-        icon={Server}
-        description="Running instances"
-      />
-      <SummaryStatCard
-        label="Pending Requests"
-        value={stats.myPendingRequests}
-        icon={Clock}
-        description="Awaiting approval"
-      />
-      <SummaryStatCard
-        label="My CPU Usage"
-        value={stats.myCpuUsed}
-        icon={Cpu}
-        description="vCPU cores"
-      />
-      <SummaryStatCard
-        label="My RAM Usage"
-        value={`${stats.myRamUsedGb} GB`}
-        icon={HardDrive}
-        description="Memory allocated"
-      />
+      <Link href="/my-vms?status=ACTIVE" className="block hover:no-underline">
+        <SummaryStatCard
+          label="My Active VMs"
+          value={stats.myActiveVms}
+          icon={Server}
+          description="Running instances"
+        />
+      </Link>
+      <Link href="/requests?status=PENDING" className="block hover:no-underline">
+        <SummaryStatCard
+          label="Pending Requests"
+          value={stats.myPendingRequests}
+          icon={Clock}
+          description="Awaiting approval"
+        />
+      </Link>
+      <Link href="/my-vms" className="block hover:no-underline">
+        <SummaryStatCard
+          label="My CPU Usage"
+          value={stats.myCpuUsed}
+          icon={Cpu}
+          description="vCPU cores"
+        />
+      </Link>
+      <Link href="/my-vms" className="block hover:no-underline">
+        <SummaryStatCard
+          label="My RAM Usage"
+          value={`${stats.myRamUsedGb} GB`}
+          icon={HardDrive}
+          description="Memory allocated"
+        />
+      </Link>
     </div>
   );
 }

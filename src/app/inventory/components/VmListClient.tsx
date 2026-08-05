@@ -122,6 +122,7 @@ export function VmListClient({
               <thead className="bg-[#f8fafc] border-b border-slate-200">
                  <tr>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Instance Identity</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Subdomain</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Owner / Context</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] text-center">Status</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">Allocation Specs</th>
@@ -141,6 +142,32 @@ export function VmListClient({
                                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest font-mono">{vm.ipAddress || "PENDING_ASSIGNMENT"}</p>
                              </div>
                           </div>
+                       </td>
+                       <td className="px-6 py-5">
+                         <div className="flex flex-wrap gap-1.5 max-w-[220px]">
+                           {vm.subdomain ? (
+                             vm.subdomain.split(",").map((sub: string) => {
+                               const trimmed = sub.trim();
+                               if (!trimmed) return null;
+                               const url = trimmed.startsWith("http://") || trimmed.startsWith("https://") 
+                                 ? trimmed 
+                                 : `https://${trimmed}`;
+                               return (
+                                 <a
+                                   key={trimmed}
+                                   href={url}
+                                   target="_blank"
+                                   rel="noopener noreferrer"
+                                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-750 hover:bg-indigo-100 border border-indigo-200 transition-colors shadow-sm"
+                                 >
+                                   {trimmed}
+                                 </a>
+                               );
+                             })
+                           ) : (
+                             <span className="text-xs text-slate-400">—</span>
+                           )}
+                         </div>
                        </td>
                        <td className="px-6 py-5">
                           <div className="space-y-1">

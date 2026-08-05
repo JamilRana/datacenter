@@ -262,7 +262,10 @@ export default function MyRequestsPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card className="border-none shadow-sm">
+        <Card 
+          onClick={() => handleFilterChange("status", "DRAFT")}
+          className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Drafts</CardTitle>
             <FileText className="h-4 w-4 text-slate-500" />
@@ -271,7 +274,10 @@ export default function MyRequestsPage() {
             <div className="text-2xl font-bold">{stats.draft}</div>
           </CardContent>
         </Card>
-        <Card className="border-none shadow-sm">
+        <Card 
+          onClick={() => handleFilterChange("status", "PENDING_L1")}
+          className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Pending</CardTitle>
             <Clock className="h-4 w-4 text-amber-600" />
@@ -280,7 +286,10 @@ export default function MyRequestsPage() {
             <div className="text-2xl font-bold">{stats.pending}</div>
           </CardContent>
         </Card>
-        <Card className="border-none shadow-sm">
+        <Card 
+          onClick={() => handleFilterChange("status", "APPROVED")}
+          className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Approved</CardTitle>
             <CheckCircle2 className="h-4 w-4 text-green-600" />
@@ -289,7 +298,10 @@ export default function MyRequestsPage() {
             <div className="text-2xl font-bold">{stats.approved}</div>
           </CardContent>
         </Card>
-        <Card className="border-none shadow-sm">
+        <Card 
+          onClick={() => handleFilterChange("status", "REJECTED")}
+          className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Rejected</CardTitle>
             <XCircle className="h-4 w-4 text-red-600" />
@@ -298,7 +310,10 @@ export default function MyRequestsPage() {
             <div className="text-2xl font-bold">{stats.rejected}</div>
           </CardContent>
         </Card>
-        <Card className="border-none shadow-sm">
+        <Card 
+          onClick={() => handleFilterChange("status", "PROVISIONED")}
+          className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">Deployed</CardTitle>
             <Server className="h-4 w-4 text-indigo-600" />
@@ -339,10 +354,10 @@ export default function MyRequestsPage() {
       </div>
 */}
       {/* Request Type Tabs */}
-      <div className="flex gap-2 border-b border-slate-200 pb-1">
+      <div className="flex gap-2 border-b border-slate-200 pb-1 overflow-x-auto whitespace-nowrap scrollbar-none">
         <button
           onClick={() => handleTabChange("ALL")}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "ALL"
+          className={`px-4 py-2 text-sm font-medium transition-colors shrink-0 ${activeTab === "ALL"
               ? "text-indigo-600 border-b-2 border-indigo-600"
               : "text-slate-500 hover:text-slate-700"
             }`}
@@ -353,7 +368,7 @@ export default function MyRequestsPage() {
           <button
             key={card.type}
             onClick={() => handleTabChange(card.type)}
-            className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === card.type
+            className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2 shrink-0 ${activeTab === card.type
                 ? "text-indigo-600 border-b-2 border-indigo-600"
                 : "text-slate-500 hover:text-slate-700"
               }`}

@@ -46,7 +46,18 @@ export function AssetListClient({
   const searchParams = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [clusterFilter, setClusterFilter] = useState<string>("all");
+  const [clusters, setClusters] = useState<any[]>([]);
   const [isPending, startTransition] = React.useTransition();
+
+  React.useEffect(() => {
+    const loadClusters = async () => {
+      const { fetchClusters } = await import("@/app/actions/cluster-actions");
+      const data = await fetchClusters();
+      setClusters(data);
+    };
+    loadClusters();
+  }, []);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -66,8 +77,10 @@ export function AssetListClient({
       asset.serial?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesType = typeFilter === "all" || asset.type === typeFilter;
+    const matchesCluster = clusterFilter === "all" || 
+      (clusterFilter === "none" ? !asset.clusterId : asset.clusterId === clusterFilter);
 
-    return matchesSearch && matchesType;
+    return matchesSearch && matchesType && matchesCluster;
   });
 
   return (
@@ -105,6 +118,23 @@ export function AssetListClient({
            </div>
         </div>
 
+        <div className="w-full md:w-56">
+           <div className="relative">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <select 
+                className="w-full h-11 pl-9 pr-4 py-2 rounded-md border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none appearance-none font-medium text-slate-700 shadow-sm"
+                value={clusterFilter}
+                onChange={(e) => setClusterFilter(e.target.value)}
+              >
+                <option value="all">Filter: All Clusters</option>
+                <option value="none">Standalone (No Cluster)</option>
+                {clusters.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+           </div>
+        </div>
+
         <div className="text-sm text-slate-500 font-medium bg-white px-3 py-1 rounded-full border border-slate-100 shadow-sm flex items-center gap-2">
           <div className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
           Showing {filteredAssets.length} of {total} total assets
@@ -128,6 +158,7 @@ export function AssetListClient({
                  <tr>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Global Asset Identity</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Type</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Cluster</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Metadata</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Inventory Logic</th>
                  </tr>
@@ -150,6 +181,15 @@ export function AssetListClient({
                           <Badge variant="outline" className={`font-black text-[9px] uppercase tracking-tighter px-3 py-0.5 border-2 ${getTypeBadgeStyles(asset.type)}`}>
                              {asset.type}
                           </Badge>
+                       </td>
+                       <td className="px-6 py-5 text-center">
+                          {asset.cluster ? (
+                            <Badge variant="outline" className="font-bold text-[9px] px-2.5 py-0.5 border border-amber-300 text-amber-700 bg-amber-50">
+                               {asset.cluster.name}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-slate-400 font-medium">-</span>
+                          )}
                        </td>
                        <td className="px-6 py-5">
                           <div className="space-y-1">
@@ -190,7 +230,7 @@ export function AssetListClient({
                  ))}
                  {filteredAssets.length === 0 && (
                     <tr>
-                       <td colSpan={4} className="px-6 py-20 text-center">
+                       <td colSpan={5} className="px-6 py-20 text-center">
                           <div className="flex flex-col items-center gap-2 opacity-30 grayscale saturate-0">
                              <Activity className="h-10 w-10 text-slate-400" />
                              <p className="font-black uppercase tracking-widest text-lg text-slate-500">Inventory Hub Empty</p>

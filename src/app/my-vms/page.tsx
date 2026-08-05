@@ -26,7 +26,7 @@ import {
   ChevronRight,
   ExternalLink
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Pagination } from "@/components/Pagination";
 
@@ -51,11 +51,12 @@ function saveState(page: number, filters: VmFilters) {
 export default function DashboardVmsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const queryParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<"vms" | "k8s">("vms");
   
   const [listLoading, setListLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [filters, setFilters] = useState<VmFilters>({ environment: "ALL", systemName: "", search: "" });
+  const [filters, setFilters] = useState<VmFilters>({ environment: "ALL", systemName: "", search: "", status: "ALL" });
   const [isInitialized, setIsInitialized] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState("");
   
@@ -75,14 +76,18 @@ export default function DashboardVmsPage() {
 
   const PAGE_SIZE = 10;
 
-  // Initialize from sessionStorage
+  // Initialize from sessionStorage or query param
   useEffect(() => {
     if (isInitialized) return;
     const stored = getStoredState();
+    const statusQuery = queryParams.get("status") || undefined;
     setCurrentPage(stored.page);
-    setFilters(stored.filters);
+    setFilters({
+      ...stored.filters,
+      status: statusQuery || stored.filters.status || "ALL"
+    });
     setIsInitialized(true);
-  }, [isInitialized]);
+  }, [isInitialized, queryParams]);
 
   // Debounce search
   useEffect(() => {
@@ -121,6 +126,9 @@ export default function DashboardVmsPage() {
         if (filters.environment && filters.environment !== "ALL") {
           filterParams.environment = filters.environment;
         }
+        if (filters.status && filters.status !== "ALL") {
+          filterParams.status = filters.status;
+        }
         if (filters.systemName) {
           filterParams.systemName = filters.systemName;
         }
@@ -138,7 +146,7 @@ export default function DashboardVmsPage() {
     };
 
     fetchVms();
-  }, [status, session, currentPage, filters.environment, filters.systemName, debouncedSearch, isInitialized]);
+  }, [status, session, currentPage, filters.environment, filters.status, filters.systemName, debouncedSearch, isInitialized]);
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -225,9 +233,12 @@ export default function DashboardVmsPage() {
 
       {activeTab === "vms" ? (
         <>
-          {/* Stats Summary */}
+      {/* Stats Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="border-none shadow-sm bg-white overflow-hidden group">
+        <Card 
+          onClick={() => handleFilterChange("environment", "ALL")}
+          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardContent className="p-5">
             <div className="flex justify-between items-start">
               <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
@@ -242,7 +253,10 @@ export default function DashboardVmsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-none shadow-sm bg-white overflow-hidden">
+        <Card 
+          onClick={() => handleFilterChange("environment", "PRODUCTION")}
+          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardContent className="p-5">
             <div className="flex justify-between items-start">
               <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
@@ -256,7 +270,10 @@ export default function DashboardVmsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-none shadow-sm bg-white overflow-hidden">
+        <Card 
+          onClick={() => handleFilterChange("environment", "STAGING")}
+          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardContent className="p-5">
             <div className="flex justify-between items-start">
               <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
@@ -270,7 +287,10 @@ export default function DashboardVmsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-none shadow-sm bg-white overflow-hidden">
+        <Card 
+          onClick={() => handleFilterChange("environment", "DEVELOPMENT")}
+          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardContent className="p-5">
             <div className="flex justify-between items-start">
               <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
@@ -284,7 +304,14 @@ export default function DashboardVmsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-none shadow-sm bg-white overflow-hidden">
+        <Card 
+          onClick={() => {
+            // Filter by custom search term for public IP
+            setFilters((prev) => ({ ...prev, search: "public" }));
+            setCurrentPage(1);
+          }}
+          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+        >
           <CardContent className="p-5">
             <div className="flex justify-between items-start">
               <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
@@ -325,6 +352,22 @@ export default function DashboardVmsPage() {
                   <SelectItem value="PRODUCTION">Production</SelectItem>
                   <SelectItem value="STAGING">Staging</SelectItem>
                   <SelectItem value="DEVELOPMENT">Development</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-full md:w-48">
+              <Select
+                value={filters.status}
+                onValueChange={(v) => handleFilterChange("status", v)}
+              >
+                <SelectTrigger className="bg-white border-slate-200">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Statuses</SelectItem>
+                  <SelectItem value="ACTIVE">Active (Running)</SelectItem>
+                  <SelectItem value="SUSPENDED">Suspended (Stopped)</SelectItem>
+                  <SelectItem value="RETIRED">Retired</SelectItem>
                 </SelectContent>
               </Select>
             </div>

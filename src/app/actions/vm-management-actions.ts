@@ -56,6 +56,7 @@ export interface VmFilters {
   environment?: string;
   systemName?: string;
   search?: string;
+  status?: string;
 }
 
 export async function getUserVmStats(): Promise<UserVmStats> {
@@ -167,6 +168,10 @@ export async function getUserVms(
   if (filters.environment && filters.environment !== "ALL") {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     where.environment = filters.environment as any;
+  }
+
+  if (filters.status && filters.status !== "ALL") {
+    where.status = filters.status.toUpperCase() as any;
   }
 
   if (filters.search) {

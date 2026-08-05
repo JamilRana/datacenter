@@ -100,9 +100,30 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
                   <div className="text-xs text-slate-500 truncate max-w-[200px]">{req.purpose}</div>
                 </td>
                 <td className="px-6 py-4">
-                  <span className="text-sm text-slate-600 font-mono">
-                    {req.subdomain || "—"}
-                  </span>
+                  <div className="flex flex-wrap gap-1.5 max-w-[220px]">
+                    {req.subdomain ? (
+                      req.subdomain.split(",").map((sub: string) => {
+                        const trimmed = sub.trim();
+                        if (!trimmed) return null;
+                        const url = trimmed.startsWith("http://") || trimmed.startsWith("https://") 
+                          ? trimmed 
+                          : `https://${trimmed}`;
+                        return (
+                          <a
+                            key={trimmed}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-750 hover:bg-indigo-100 border border-indigo-200 transition-colors shadow-sm"
+                          >
+                            {trimmed}
+                          </a>
+                        );
+                      })
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-6 py-4">
                   <Badge variant="outline" className="font-normal border-slate-200 bg-slate-50">

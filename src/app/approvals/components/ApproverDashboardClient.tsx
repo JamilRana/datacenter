@@ -465,10 +465,10 @@ export function ApproverDashboardClient({
       </div>
 
       {showSubdomainTab && (
-        <div className="flex border-b border-slate-200 gap-6 mb-2">
+        <div className="flex border-b border-slate-200 gap-6 mb-2 overflow-x-auto whitespace-nowrap scrollbar-none">
           <button
             onClick={() => setActiveMainTab("requests")}
-            className={`pb-3 text-sm font-bold border-b-2 transition-all ${
+            className={`pb-3 text-sm font-bold border-b-2 transition-all shrink-0 ${
               activeMainTab === "requests"
                 ? "border-blue-600 text-blue-600 font-extrabold"
                 : "border-transparent text-slate-500 hover:text-slate-900"
@@ -478,7 +478,7 @@ export function ApproverDashboardClient({
           </button>
           <button
             onClick={() => setActiveMainTab("subdomains")}
-            className={`pb-3 text-sm font-bold border-b-2 transition-all ${
+            className={`pb-3 text-sm font-bold border-b-2 transition-all shrink-0 ${
               activeMainTab === "subdomains"
                 ? "border-blue-600 text-blue-600 font-extrabold"
                 : "border-transparent text-slate-500 hover:text-slate-900"
@@ -637,13 +637,32 @@ export function ApproverDashboardClient({
                       }`}
                     >
                       {/* System Name */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-6 py-4">
                         <div className="flex items-center">
                           <div>
                             <div className="text-sm font-bold text-slate-900">{req.systemName || 'Unnamed System'}</div>
                             <div className="text-xs text-slate-500 mt-0.5">
                               {req.projectName || 'No project'}
                             </div>
+                            {req.summary && (req.summary.vmCount > 0 || req.summary.namespaceCount > 0 || req.summary.cpu > 0 || req.summary.ram > 0 || req.summary.storage > 0) && (
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 text-[10px] text-slate-650 font-bold bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5 w-fit">
+                                {req.summary.vmCount > 0 && (
+                                  <span className="text-indigo-650">{req.summary.vmCount} VM{req.summary.vmCount > 1 ? 's' : ''}</span>
+                                )}
+                                {req.summary.namespaceCount > 0 && (
+                                  <span className="text-cyan-600">{req.summary.namespaceCount} K8s Namespace{req.summary.namespaceCount > 1 ? 's' : ''}</span>
+                                )}
+                                {(req.summary.cpu > 0 || req.summary.ram > 0 || req.summary.storage > 0) && (
+                                  <span className="text-slate-500 font-mono">
+                                    ({[
+                                      req.summary.cpu > 0 ? `${req.summary.cpu}c` : '',
+                                      req.summary.ram > 0 ? `${req.summary.ram}GB` : '',
+                                      req.summary.storage > 0 ? `${req.summary.storage}GB` : ''
+                                    ].filter(Boolean).join("/")})
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -687,19 +706,19 @@ export function ApproverDashboardClient({
                           {canShowApprovalButtons && approvalId && (
                             <>
                               <Button
-                                variant="ghost"
+                                variant="outline"
                                 size="sm"
-                                className="h-8 text-xs text-emerald-700 hover:bg-emerald-50"
+                                className="h-8 text-xs font-bold text-emerald-700 border-emerald-250 bg-emerald-50/30 hover:bg-emerald-50 hover:text-emerald-800 shadow-sm"
                                 onClick={() => onQuickAction(approvalId, entityType, "APPROVED")}
                                 disabled={isPending || activeActionId === req.id}
                               >
-                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
                                 Approve
                               </Button>
                               <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-xs text-orange-700 hover:bg-orange-50"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8 text-orange-600 border-orange-200 bg-orange-50/30 hover:bg-orange-50 hover:text-orange-700 shadow-sm"
                                 onClick={() => {
                                   setActiveActionId(req.id);
                                   setSelectedAction("RETURNED");
@@ -708,13 +727,12 @@ export function ApproverDashboardClient({
                                 disabled={isPending}
                                 title="Return to draft"
                               >
-                                <Undo2 className="h-3 w-3 mr-1" />
-                                Return
+                                <Undo2 className="h-4 w-4" />
                               </Button>
                               <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-xs text-blue-700 hover:bg-blue-50"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8 text-blue-600 border-blue-200 bg-blue-50/30 hover:bg-blue-50 hover:text-blue-700 shadow-sm"
                                 onClick={() => {
                                   setActiveActionId(req.id);
                                   setSelectedAction("FORWARDED");
@@ -724,22 +742,21 @@ export function ApproverDashboardClient({
                                 disabled={isPending}
                                 title="Forward to higher level"
                               >
-                                <ArrowUpRight className="h-3 w-3 mr-1" />
-                                Forward
+                                <ArrowUpRight className="h-4 w-4" />
                               </Button>
                               <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-xs text-red-700 hover:bg-red-50"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8 text-red-605 border-red-200 bg-red-50/30 hover:bg-red-55 hover:text-red-700 shadow-sm"
                                 onClick={() => {
                                   setActiveActionId(req.id);
                                   setSelectedAction("REJECTED");
                                   setQuickComments("");
                                 }}
                                 disabled={isPending}
+                                title="Reject request"
                               >
-                                <XCircle className="h-3 w-3 mr-1" />
-                                Reject
+                                <XCircle className="h-4 w-4" />
                               </Button>
                             </>
                           )}

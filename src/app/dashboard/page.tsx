@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/authOptions";
 import { getPrimaryRole, getRoleLabel } from "@/lib/dashboard/registry";
 import { getAdminDashboardData } from "@/lib/dashboard/adminDashboard";
-import { getDcopsDashboardData } from "@/lib/dashboard/dcopsDashboard";
 import { getRequesterDashboardData } from "@/lib/dashboard/requesterDashboard";
 import { DashboardSkeleton } from "@/components/dashboard/DashboardSkeleton";
 import { DashboardRegistry } from "@/components/dashboard/dashboardRegistry";
@@ -25,10 +24,8 @@ export default async function DashboardPage() {
 
   let dashboardData;
   
-  if (primaryRole === "ADMIN") {
+  if (primaryRole === "ADMIN" || primaryRole === "DCOPS") {
     dashboardData = { role: "ADMIN" as const, data: await getAdminDashboardData() };
-  } else if (primaryRole === "DCOPS") {
-    dashboardData = { role: "DCOPS" as const, data: await getDcopsDashboardData() };
   } else {
     dashboardData = { role: "REQUESTER" as const, data: await getRequesterDashboardData(session.user?.id || "") };
   }

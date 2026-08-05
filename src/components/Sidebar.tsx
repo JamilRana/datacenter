@@ -95,11 +95,15 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
       title: "Inventory",
       icon: HardDrive,
       children: [
+        { title: "Inventory Hub", href: "/inventory" },
         { title: "VM Instances", href: "/inventory/vms" },
         { title: "Hardware Assets", href: "/inventory/assets" },
+        { title: "Clusters", href: "/inventory/clusters" },
         { title: "Software Licenses", href: "/inventory/licenses" },
+        { title: "Horizon Users", href: "/inventory/horizon" },
+        { title: "VPN Assignments", href: "/inventory/vpn" },
       ],
-      roles: [ROLES.DCOPS, ROLES.ADMIN],
+      roles: [ROLES.DCOPS, ROLES.ADMIN, "HORIZON_ADMIN", "VPN_ADMIN"],
     },
     {
       title: "Reports",

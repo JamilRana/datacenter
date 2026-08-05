@@ -13,6 +13,35 @@ export async function getOpsDashboardData() {
     throw new Error("Unauthorized access to Ops Hub");
   }
 
+  // Fetch host servers and active VM specs to calculate dynamic utilization
+  const hosts = await prisma.asset.findMany({
+    where: { type: "SERVER" },
+    include: {
+      vms: {
+        where: { status: "ACTIVE" },
+        include: { currentSpec: { select: { vcpu: true, ramGb: true } } }
+      }
+    }
+  });
+
+  let totalCpu = 0;
+  let totalRam = 0;
+  let allocatedCpu = 0;
+  let allocatedRam = 0;
+
+  for (const host of hosts) {
+    totalCpu += host.cpuCores || 0;
+    totalRam += host.ramGb || 0;
+    for (const vm of host.vms) {
+      allocatedCpu += vm.currentSpec?.vcpu || 0;
+      allocatedRam += vm.currentSpec?.ramGb || 0;
+    }
+  }
+
+  const cpuUsage = totalCpu > 0 ? Math.round((allocatedCpu / totalCpu) * 100) : 45;
+  const ramUsage = totalRam > 0 ? Math.round((allocatedRam / totalRam) * 100) : 55;
+  const computeStatus = cpuUsage > 90 || ramUsage > 90 ? "warning" : "healthy";
+
   // Provisioning queue logic
   const provisioningRequests = await prisma.request.findMany({
     where: { 
@@ -36,14 +65,14 @@ export async function getOpsDashboardData() {
 
   return {
     systemHealth: {
-      computeNodes: { value: 98, status: "healthy" },
+      computeNodes: { value: 100 - Math.max(0, cpuUsage - 85), status: computeStatus },
       storageCluster: { value: 87, status: "warning" },
       network: { value: 100, status: "healthy" },
       database: { value: 92, status: "healthy" }
     },
     resourceUsage: {
-      cpu: 65,
-      memory: 78,
+      cpu: cpuUsage,
+      memory: ramUsage,
       diskIo: 42
     },
     provisioningQueue: [

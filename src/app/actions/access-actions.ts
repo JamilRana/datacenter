@@ -58,27 +58,51 @@ export async function createAccessRequest(formData: FormData) {
     const isDeveloper = hasRole(session.user.roles, ROLES.DEVELOPER);
     const assignedRequesterId = formData.get("requesterId")?.toString();
 
-    const accessTargetVmId = formData.get("accessTargetVmId")?.toString();
-    if (!accessTargetVmId) {
-      throw new Error("Target VM is required for access request");
+    // Read multiple resources from JSON payload
+    const selectedResourcesStr = formData.get("selectedResources")?.toString();
+    let vmIds: string[] = [];
+    let namespaceIds: string[] = [];
+    
+    if (selectedResourcesStr) {
+      const parsed = JSON.parse(selectedResourcesStr);
+      vmIds = parsed.vmIds || [];
+      namespaceIds = parsed.namespaceIds || [];
+    } else {
+      // Fallback for legacy requests
+      const accessTargetVmId = formData.get("accessTargetVmId")?.toString();
+      if (accessTargetVmId) {
+        vmIds = [accessTargetVmId];
+      }
     }
 
-    const targetVm = await prisma.vmInstance.findUnique({
-      where: { id: accessTargetVmId },
-      include: { owner: true, currentSpec: true, request: true }
-    });
-
-    if (!targetVm) {
-      throw new Error("Target VM not found");
+    if (vmIds.length === 0 && namespaceIds.length === 0) {
+      throw new Error("At least one target VM or Kubernetes Namespace is required");
     }
 
-    // Check ownership
+    // Resolve system name and specs using the first VM/Namespace selected
+    let firstVm: any = null;
+    let firstNamespace: any = null;
+    if (vmIds.length > 0) {
+      firstVm = await prisma.vmInstance.findUnique({
+        where: { id: vmIds[0] },
+        include: { currentSpec: true, request: true }
+      });
+      if (!firstVm) throw new Error("Target VM not found");
+    }
+    if (namespaceIds.length > 0) {
+      firstNamespace = await prisma.k8sNamespace.findUnique({
+        where: { id: namespaceIds[0] }
+      });
+      if (!firstNamespace) throw new Error("Target Namespace not found");
+    }
+
+    // Check VM ownership
     const effectiveRequesterId = isDeveloper && assignedRequesterId ? assignedRequesterId : userId;
-    if (!isAdmin && targetVm.ownerId !== effectiveRequesterId) {
+    if (firstVm && !isAdmin && firstVm.ownerId !== effectiveRequesterId) {
       throw new Error("You can only request access for your own VMs");
     }
 
-    if (targetVm.status !== VmStatus.ACTIVE) {
+    if (firstVm && firstVm.status !== VmStatus.ACTIVE) {
       throw new Error("Target VM must be ACTIVE to request access");
     }
 
@@ -94,7 +118,17 @@ export async function createAccessRequest(formData: FormData) {
       ? RequestType.VPN_ACCESS 
       : RequestType.HORIZON_ACCESS;
 
-    const systemName = targetVm.request?.systemName || targetVm.hostname || "VM";
+    // Build system display name
+    let systemName = "";
+    if (vmIds.length > 0 && firstVm) {
+      systemName = `VM ${firstVm.hostname || firstVm.request?.systemName || "Unnamed"}`;
+      if (vmIds.length > 1) systemName += ` (+${vmIds.length - 1} more)`;
+    }
+    if (namespaceIds.length > 0 && firstNamespace) {
+      if (systemName) systemName += " & ";
+      systemName += `Namespace ${firstNamespace.name}`;
+      if (namespaceIds.length > 1) systemName += ` (+${namespaceIds.length - 1} more)`;
+    }
 
     const newCreatedRequest = await prisma.$transaction(async (tx: any) => {
       const created = await tx.request.create({
@@ -103,41 +137,35 @@ export async function createAccessRequest(formData: FormData) {
           status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
           quantity: 1,
           systemName: `${accessType === AccessType.VPN ? "VPN" : "Horizon"} Access to ${systemName}`,
-          projectName: targetVm.request?.projectName || "Access Request",
+          projectName: firstVm?.request?.projectName || "Access Request",
           purpose: accessJustification,
-          environment: targetVm.environment || Environment.PRODUCTION,
-          expectedDeliveryDate: formData.get("expectedDeliveryDate")
-            ? new Date(formData.get("expectedDeliveryDate") as string)
-            : null,
+          environment: firstVm?.environment || Environment.PRODUCTION,
           
           requesterId: effectiveRequesterId,
           developerId: isDeveloper ? userId : null,
 
           // Access specific fields
-          accessTargetVmId,
+          accessTargetVmId: vmIds.length > 0 ? vmIds[0] : null,
           accessType,
           accessJustification,
 
           // Copied specs for details panel compatibility
-          vcpu: targetVm.currentSpec?.vcpu || 1,
-          ramGb: targetVm.currentSpec?.ramGb || 2,
-          storageGb: targetVm.currentSpec?.storageGb || 50,
-          osName: targetVm.currentSpec?.osName || "Unknown",
-          osVersion: targetVm.currentSpec?.osVersion || "Unknown",
-          serverType: targetVm.request?.serverType || "OTHER",
+          vcpu: firstVm?.currentSpec?.vcpu || 1,
+          ramGb: firstVm?.currentSpec?.ramGb || 2,
+          storageGb: firstVm?.currentSpec?.storageGb || 50,
+          osName: firstVm?.currentSpec?.osName || "Unknown",
+          osVersion: firstVm?.currentSpec?.osVersion || "Unknown",
+          serverType: firstVm?.request?.serverType || "OTHER",
+
+          // Join table selections
+          requestResources: {
+            create: [
+              ...vmIds.map(id => ({ vmId: id })),
+              ...namespaceIds.map(id => ({ namespaceId: id }))
+            ]
+          }
         },
       });
-
-      // Only generate approvals if it's being submitted (not draft)
-      const isSubmitting = created.status !== RequestStatus.DRAFT;
-      if (isSubmitting) {
-        await generateApprovals(
-          tx,
-          created.id,
-          "REQUEST",
-          requestType
-        );
-      }
 
       await tx.auditLog.create({
         data: {
@@ -148,7 +176,8 @@ export async function createAccessRequest(formData: FormData) {
           details: JSON.stringify({
             systemName: created.systemName,
             status: created.status,
-            accessTargetVmId,
+            vmIds,
+            namespaceIds,
             accessType
           }),
         },
@@ -157,10 +186,194 @@ export async function createAccessRequest(formData: FormData) {
       return created;
     }, { timeout: 15000 });
 
+    if (newCreatedRequest.status !== RequestStatus.DRAFT) {
+      await generateApprovals(
+        prisma,
+        newCreatedRequest.id,
+        "REQUEST",
+        requestType
+      );
+    }
+
     revalidatePath("/requests");
     return newCreatedRequest;
   } catch (error) {
     console.error("Error creating access request:", error);
     throw error;
+  }
+}
+
+export async function getExistingHorizonUsers() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) throw new Error("Unauthorized");
+    return await prisma.horizonUser.findMany({
+      orderBy: { username: "asc" }
+    });
+  } catch (error) {
+    console.error("Error fetching Horizon users:", error);
+    return [];
+  }
+}
+
+export async function getExistingVpnUsers() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) throw new Error("Unauthorized");
+    return await prisma.vpnUser.findMany({
+      orderBy: { username: "asc" }
+    });
+  } catch (error) {
+    console.error("Error fetching VPN users:", error);
+    return [];
+  }
+}
+
+export async function provisionAccessRequest(
+  requestId: string,
+  data: {
+    username: string;
+    fullName: string;
+    email?: string;
+    vpnProfile?: string;
+    assignedIp?: string;
+    notes?: string;
+    expiresAt?: Date | null;
+  }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+    const isDCOps = hasRole(session.user.roles, ROLES.DCOPS) || hasRole(session.user.roles, ROLES.ADMIN);
+    if (!isDCOps) throw new Error("Only DC Ops or Administrators can provision access");
+
+    const request = await prisma.request.findUnique({
+      where: { id: requestId },
+      include: { requestResources: true }
+    });
+    if (!request) throw new Error("Request not found");
+
+    const isVpn = request.requestType === RequestType.VPN_ACCESS;
+
+    // 1. Create or update User
+    let resolvedUser: any = null;
+    if (isVpn) {
+      resolvedUser = await prisma.vpnUser.upsert({
+        where: { username: data.username },
+        update: {
+          fullName: data.fullName,
+          vpnProfile: data.vpnProfile || "Full Tunnel",
+          vpnIp: data.assignedIp || "",
+          status: "ACTIVE"
+        },
+        create: {
+          username: data.username,
+          fullName: data.fullName,
+          vpnProfile: data.vpnProfile || "Full Tunnel",
+          vpnIp: data.assignedIp || "",
+          status: "ACTIVE"
+        }
+      });
+    } else {
+      resolvedUser = await prisma.horizonUser.upsert({
+        where: { username: data.username },
+        update: {
+          fullName: data.fullName,
+          email: data.email || null,
+          status: "ACTIVE"
+        },
+        create: {
+          username: data.username,
+          fullName: data.fullName,
+          email: data.email || null,
+          status: "ACTIVE"
+        }
+      });
+    }
+
+    // 2. Write assignments for each resource
+    const assignmentsToCreate: any[] = [];
+    for (const res of request.requestResources) {
+      if (isVpn) {
+        const existing = await prisma.vpnAssignment.findFirst({
+          where: {
+            vpnUserId: resolvedUser.id,
+            vmId: res.vmId,
+            namespaceId: res.namespaceId
+          }
+        });
+        if (!existing) {
+          assignmentsToCreate.push({
+            vpnUserId: resolvedUser.id,
+            vmId: res.vmId,
+            namespaceId: res.namespaceId,
+            assignedById: userId,
+            expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+            notes: data.notes || null
+          });
+        }
+      } else {
+        const existing = await prisma.horizonAssignment.findFirst({
+          where: {
+            horizonUserId: resolvedUser.id,
+            vmId: res.vmId,
+            namespaceId: res.namespaceId
+          }
+        });
+        if (!existing) {
+          assignmentsToCreate.push({
+            horizonUserId: resolvedUser.id,
+            vmId: res.vmId,
+            namespaceId: res.namespaceId,
+            assignedIp: data.assignedIp || null,
+            assignedById: userId,
+            notes: data.notes || null,
+            status: "ACTIVE"
+          });
+        }
+      }
+    }
+
+    await prisma.$transaction(async (tx: any) => {
+      if (isVpn) {
+        for (const item of assignmentsToCreate) {
+          await tx.vpnAssignment.create({ data: item });
+        }
+      } else {
+        for (const item of assignmentsToCreate) {
+          await tx.horizonAssignment.create({ data: item });
+        }
+      }
+
+      await tx.request.update({
+        where: { id: requestId },
+        data: {
+          status: RequestStatus.PROVISIONED,
+          provisionedAt: new Date()
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: isVpn ? "PROVISION_VPN_ACCESS" : "PROVISION_HORIZON_ACCESS",
+          entityType: "REQUEST",
+          entityId: requestId,
+          details: JSON.stringify({
+            userId: resolvedUser.id,
+            username: data.username,
+            resources: request.requestResources.map((r: any) => ({ vmId: r.vmId, namespaceId: r.namespaceId })),
+            assignedIp: data.assignedIp
+          })
+        }
+      });
+    });
+
+    return { success: true, message: "Access successfully provisioned!" };
+  } catch (error: any) {
+    console.error("Error provisioning access:", error);
+    return { success: false, message: error.message || "Failed to provision access" };
   }
 }

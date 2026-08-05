@@ -113,8 +113,7 @@ export async function createK8sNamespaceRequest(formData: FormData) {
     }
 
     // ✅ CREATE REQUEST WITH CORRECT FIELDS
-    const newCreatedRequest = await prisma.$transaction(async (tx: any) => {
-      const created = await tx.request.create({
+    const newCreatedRequest = await prisma.request.create({
         data: {
           requestType: RequestType.K8S_NAMESPACE,
           status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
@@ -123,9 +122,6 @@ export async function createK8sNamespaceRequest(formData: FormData) {
           projectName: formData.get("projectName")?.toString() || null,
           purpose: formData.get("purpose")?.toString() || "",
           environment: env as Environment,
-          expectedDeliveryDate: formData.get("expectedDeliveryDate")
-            ? new Date(formData.get("expectedDeliveryDate") as string)
-            : null,
 
           requesterId: isDeveloper && assignedRequesterId 
             ? assignedRequesterId
@@ -214,9 +210,6 @@ export async function createK8sNamespaceRequest(formData: FormData) {
           },
         },
       });
-
-      return created;
-    }, { timeout: 15000 });
 
     // ✅ GENERATE APPROVALS ONLY FOR SUBMITTED REQUESTS (not drafts)
     if (newCreatedRequest.status === RequestStatus.PENDING_L1) {

@@ -69,7 +69,6 @@ export interface detailsRequest {
   systemName: string;
   purpose: string;
   environment: Environment;
-  expectedDeliveryDate?: Date | null;
 
   requesterId: string;
   requester: Person;
@@ -188,7 +187,6 @@ export interface Request {
   purpose: string;
   environment: Environment;
   expectedEndDate?: Date | null;
-  expectedDeliveryDate?: Date | null;
 
   requesterId: string;
   requester: Requester | null;

@@ -146,9 +146,6 @@ export async function createCloneRequest(formData: FormData) {
           projectName: formData.get("projectName")?.toString() || null,
           purpose: formData.get("purpose")?.toString() || "",
           environment: env as Environment,
-          expectedDeliveryDate: formData.get("expectedDeliveryDate")
-            ? new Date(formData.get("expectedDeliveryDate") as string)
-            : null,
 
           requesterId: isDeveloper && assignedRequesterId 
             ? assignedRequesterId
