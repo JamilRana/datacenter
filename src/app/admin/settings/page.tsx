@@ -1,7 +1,7 @@
 // src/app/admin/settings/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import { redirect } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -39,12 +39,10 @@ interface Setting {
   description?: string | null;
 }
 
-import { useSearchParams } from "next/navigation";
-
-export default function AdminSettingsPage() {
+export default function AdminSettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { data: session, status } = useSession();
-  const searchParams = useSearchParams();
-  const tabQuery = searchParams.get("tab") || "smtp";
+  const unwrappedSearchParams = use(searchParams);
+  const tabQuery = unwrappedSearchParams.tab || "smtp";
   const [activeTab, setActiveTab] = useState(tabQuery);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);

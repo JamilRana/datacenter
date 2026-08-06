@@ -3,7 +3,6 @@
 import { use } from "react";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { RequestDetails } from "@/app/requests/components/RequestDetail";
 import { ProvisionVMModal } from "../components/ProvisionVMModal";
 import { ProvisionAccessModal } from "../components/ProvisionAccessModal";
@@ -23,12 +22,18 @@ import { toast } from "sonner";
 
 type EntityType = "request" | "customization";
 
-export default function ApprovalDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default function ApprovalDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ type?: string }>;
+}) {
   const unwrappedParams = use(params);
   const id = unwrappedParams.id;
+  const unwrappedSearchParams = use(searchParams);
   const { data: session, status } = useSession();
   const userId = session?.user?.id;
-  const searchParams = useSearchParams();
   const [request, setRequest] = useState<detailsRequest | null>(null);
   const [customizationRequest, setCustomizationRequest] = useState<CustomizationRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,7 +43,7 @@ export default function ApprovalDetailPage({ params }: { params: Promise<{ id: s
   const [isExecuting, setIsExecuting] = useState(false);
   
   // ✅ GET ENTITY TYPE FROM QUERY PARAM (avoids double fetch)
-  const entityType = (searchParams.get("type") as EntityType) || null;
+  const entityType = (unwrappedSearchParams.type as EntityType) || null;
   
   const userRoles = session?.user?.roles || [];
   const isDCOps = userRoles.includes(ROLES.DCOPS) || userRoles.includes(ROLES.ADMIN);
