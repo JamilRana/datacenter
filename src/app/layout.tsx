@@ -48,6 +48,19 @@ export default function RootLayout({
                 document.documentElement.classList.remove('dark');
                 document.documentElement.classList.add('light');
               } catch (_) {}
+
+              try {
+                const cleanup = () => {
+                  try {
+                    if (window.next) delete window.next;
+                    if (window.React) delete window.React;
+                    if (window.__NEXT_DATA__) delete window.__NEXT_DATA__;
+                  } catch (_) {}
+                };
+                window.addEventListener('DOMContentLoaded', cleanup);
+                window.addEventListener('load', cleanup);
+                cleanup();
+              } catch (_) {}
             `,
           }}
         />
