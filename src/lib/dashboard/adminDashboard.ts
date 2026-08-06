@@ -314,7 +314,7 @@ async function getRecentActivities() {
       type: "approval",
       title: `Approval Decision: ${a.decision}`,
       subtitle: `By ${a.approver?.name || "Approver"} for ${a.request?.systemName || "Request"}`,
-      timestamp: a.updatedAt,
+      timestamp: a.decidedAt || a.createdAt,
       status: a.decision
     });
   });
