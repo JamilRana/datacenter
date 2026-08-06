@@ -9,6 +9,25 @@ export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   secret: process.env.NEXTAUTH_SECRET,
   session: { strategy: "jwt" },
+  cookies: {
+    sessionToken: {
+      name: '__sess',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+    callbackUrl: {
+      name: '__cb_url',
+      options: { sameSite: 'lax', path: '/', secure: true },
+    },
+    csrfToken: {
+      name: '__csrf',
+      options: { httpOnly: true, sameSite: 'lax', path: '/', secure: true },
+    },
+  },
   providers: [
     CredentialsProvider({
       name: "Credentials",

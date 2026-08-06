@@ -205,73 +205,59 @@ async function seedVMs() {
     (vm.storage || "").split('+').forEach((p: string) => storageGb += parseInt(p) || 0);
     if (storageGb === 0) storageGb = 20;
 
-    const vmInstance = await prisma.vmInstance.create({
-      data: {
-        sequenceNumber: 1,
-        hostname,
-        ipAddress,
-        status: "ACTIVE",
-        ownerId: userId, // NULL if no match found
-        environment: env,
-        subdomain: vm.subdomain || null,
-        provisionedAt: vm.deployment_date ? new Date(vm.deployment_date) : new Date(),
-      }
+    // Check if hostname already exists to prevent data deletion / duplicate errors
+    const existingVm = await prisma.vmInstance.findUnique({
+      where: { hostname }
     });
 
-    const spec = await prisma.vmSpec.create({
-      data: {
-        vmInstanceId: vmInstance.id,
-        vcpu,
-        ramGb,
-        storageGb,
-        osName: vm.os || "Ubuntu",
-        effectiveFrom: vm.deployment_date ? new Date(vm.deployment_date) : new Date(),
-      }
-    });
+    if (!existingVm) {
+      const vmInstance = await prisma.vmInstance.create({
+        data: {
+          sequenceNumber: 1,
+          hostname,
+          ipAddress,
+          status: "ACTIVE",
+          ownerId: userId, // NULL if no match found
+          environment: env,
+          subdomain: vm.subdomain || null,
+          provisionedAt: vm.deployment_date ? new Date(vm.deployment_date) : new Date(),
+        }
+      });
 
-    await prisma.vmInstance.update({
-      where: { id: vmInstance.id },
-      data: { currentSpecId: spec.id }
-    });
+      const spec = await prisma.vmSpec.create({
+        data: {
+          vmInstanceId: vmInstance.id,
+          vcpu,
+          ramGb,
+          storageGb,
+          osName: vm.os || "Ubuntu",
+          effectiveFrom: vm.deployment_date ? new Date(vm.deployment_date) : new Date(),
+        }
+      });
 
-    seededCount++;
+      await prisma.vmInstance.update({
+        where: { id: vmInstance.id },
+        data: { currentSpecId: spec.id }
+      });
+
+      seededCount++;
+    } else {
+      // Update details safely if it already exists, retaining spec and requests
+      await prisma.vmInstance.update({
+        where: { id: existingVm.id },
+        data: {
+          ipAddress: ipAddress || existingVm.ipAddress,
+          ownerId: userId || existingVm.ownerId,
+          subdomain: vm.subdomain || existingVm.subdomain,
+        }
+      });
+    }
   }
 
-  console.log(`✅ Seeded ${seededCount} VM Instances.`);
+  console.log(`✅ Seeded/Updated ${seededCount} VM Instances (without deleting existing records).`);
   if (unassignedCount > 0) {
     console.log(`⚠️  ${unassignedCount} VMs could not be matched to a user in UserList.json and are unassigned.`);
   }
-}
-
-async function clearInventory() {
-    console.log("🧹 Clearing existing inventory data...");
-    await prisma.vmSpec.deleteMany({});
-    await prisma.vmInstance.deleteMany({});
-    console.log("Inventory cleared.");
-}
-
-async function clearRequests() {
-    console.log("🧹 Clearing all request-related data (Requests, Notifications, Audits)...");
-    await prisma.notification.deleteMany({});
-    await prisma.auditLog.deleteMany({});
-    await prisma.approval.deleteMany({});
-    await prisma.request.deleteMany({});
-    console.log("Request data cleared.");
-}
-
-async function clearAll() {
-    console.log("🧨🧨🧨 PERFORMING FULL DATABASE WIPE...");
-    await prisma.notification.deleteMany({});
-    await prisma.auditLog.deleteMany({});
-    await prisma.approval.deleteMany({});
-    await prisma.vmSpec.deleteMany({});
-    await prisma.vmInstance.deleteMany({});
-    await prisma.request.deleteMany({});
-    await prisma.userRole.deleteMany({});
-    await prisma.user.deleteMany({});
-    await prisma.approvalWorkflow.deleteMany({});
-    await prisma.role.deleteMany({});
-    console.log("✅ Database is now completely empty.");
 }
 
 async function main() {
@@ -280,16 +266,13 @@ async function main() {
   if (arg === '--users') {
     await seedUsers();
   } else if (arg === '--vms') {
-    await clearInventory();
     await seedVMs();
-  } else if (arg === '--clear') {
-    await clearInventory();
-    await clearRequests();
-  } else if (arg === '--clear-all') {
-    await clearAll();
+  } else if (arg === '--clear' || arg === '--clear-all') {
+    console.error("❌ Database wipe commands are disabled to protect production data.");
+    process.exit(1);
   } else {
     // If no arg, provide usage
-    console.log("Usage: npx tsx prisma/seed.ts [--users | --vms | --clear | --clear-all]");
+    console.log("Usage: npx tsx prisma/seed.ts [--users | --vms]");
     console.log("Hint: Always run --users before --vms to ensure proper owner matching.");
   }
 }

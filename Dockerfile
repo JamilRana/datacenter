@@ -48,6 +48,12 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 # 1. Copy standalone files
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 
+# Rename generated server.js to next-server.js
+RUN mv server.js next-server.js
+
+# Copy our custom server wrapper to server.js
+COPY --from=builder --chown=nextjs:nodejs /app/custom-server.js ./server.js
+
 # 2. Copy static/public files
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

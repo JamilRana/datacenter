@@ -272,7 +272,7 @@ d:\datacenter\
 │   │   ├── responses.ts              # API response types
 │   │   ├── index.ts                  # Type barrel exports
 │   │   └── next-auth.d.ts            # NextAuth module augmentation
-│   └── middleware.ts                  # Auth, rate limiting, security headers
+│   └── proxy.ts                       # Auth and rate limiting network boundary (Next.js 16)
 ├── prisma/
 │   ├── schema.prisma                 # Database schema (595 lines, 20 models)
 │   ├── seed.ts                       # Database seeder
@@ -593,14 +593,13 @@ Comprehensive action tracking.
 
 ### Middleware
 
-The middleware (`src/middleware.ts`) runs on every request and handles:
+The proxy network boundary (`src/proxy.ts`) runs on every request and handles:
 
-1. **JWT Token Extraction** — `getToken()` from `next-auth/jwt`
+1. **JWT Token Extraction** — `getToken()` from `next-auth/jwt` (with custom generic cookie names)
 2. **API Rate Limiting** — All non-auth API routes are rate-limited via Redis (100 req/min)
 3. **Authentication Redirects:**
    - Authenticated user visiting `/auth` → redirect to `/`
    - Unauthenticated user visiting any protected page → redirect to `/auth`
-4. **Security Headers** — Applied on every response (see Security section)
 
 ---
 
@@ -1093,19 +1092,30 @@ All export functions accept an array of row objects and generate a client-side d
 
 ## 18. Security
 
-### Middleware Security Headers
+### Global Security Headers (next.config.mjs)
+
+The security headers are globally applied on all responses via `next.config.mjs`:
 
 ```
-X-DNS-Prefetch-Control: on
-Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
 X-Frame-Options: SAMEORIGIN
 X-Content-Type-Options: nosniff
-Referrer-Policy: origin-when-cross-origin
-Permissions-Policy: camera=(), microphone=(), geolocation=()
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+Cross-Origin-Resource-Policy: same-origin
 Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; 
-                         style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; 
-                         font-src 'self' data:; connect-src 'self';
+                         style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; 
+                         font-src 'self' data:; connect-src 'self'; frame-ancestors 'none';
 ```
+
+### Signature Masking (custom-server.js)
+
+To prevent security scanner identification of the underlying technology stack, a custom wrapper `custom-server.js` intercepts Node's `http.createServer` at runtime to:
+- Completely strip `X-Powered-By` and `Server` headers from all responses.
+- Mask internal routing assets by prefixing `/assets/` and rewriting back to `/_next/` internally.
+- Use generic session and CSRF cookie names (`__sess`, `__cb_url`, `__csrf`).
 
 ### Password Security
 

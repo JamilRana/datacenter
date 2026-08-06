@@ -249,9 +249,6 @@ export default function MyRequestsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">My Requests</h1>
-          <p className="text-slate-500 mt-1">
-            Manage your infrastructure requests and track their status
-          </p>
         </div>
         <Button asChild className="bg-indigo-600 hover:bg-indigo-700">
           <Link href="/requests/new">
@@ -262,7 +259,7 @@ export default function MyRequestsPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card 
+        <Card
           onClick={() => handleFilterChange("status", "DRAFT")}
           className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
         >
@@ -274,7 +271,7 @@ export default function MyRequestsPage() {
             <div className="text-2xl font-bold">{stats.draft}</div>
           </CardContent>
         </Card>
-        <Card 
+        <Card
           onClick={() => handleFilterChange("status", "PENDING_L1")}
           className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
         >
@@ -286,7 +283,7 @@ export default function MyRequestsPage() {
             <div className="text-2xl font-bold">{stats.pending}</div>
           </CardContent>
         </Card>
-        <Card 
+        <Card
           onClick={() => handleFilterChange("status", "APPROVED")}
           className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
         >
@@ -298,7 +295,7 @@ export default function MyRequestsPage() {
             <div className="text-2xl font-bold">{stats.approved}</div>
           </CardContent>
         </Card>
-        <Card 
+        <Card
           onClick={() => handleFilterChange("status", "REJECTED")}
           className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
         >
@@ -310,7 +307,7 @@ export default function MyRequestsPage() {
             <div className="text-2xl font-bold">{stats.rejected}</div>
           </CardContent>
         </Card>
-        <Card 
+        <Card
           onClick={() => handleFilterChange("status", "PROVISIONED")}
           className="border-none shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
         >
@@ -358,8 +355,8 @@ export default function MyRequestsPage() {
         <button
           onClick={() => handleTabChange("ALL")}
           className={`px-4 py-2 text-sm font-medium transition-colors shrink-0 ${activeTab === "ALL"
-              ? "text-indigo-600 border-b-2 border-indigo-600"
-              : "text-slate-500 hover:text-slate-700"
+            ? "text-indigo-600 border-b-2 border-indigo-600"
+            : "text-slate-500 hover:text-slate-700"
             }`}
         >
           All Requests
@@ -369,8 +366,8 @@ export default function MyRequestsPage() {
             key={card.type}
             onClick={() => handleTabChange(card.type)}
             className={`px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2 shrink-0 ${activeTab === card.type
-                ? "text-indigo-600 border-b-2 border-indigo-600"
-                : "text-slate-500 hover:text-slate-700"
+              ? "text-indigo-600 border-b-2 border-indigo-600"
+              : "text-slate-500 hover:text-slate-700"
               }`}
           >
             <card.icon className="h-4 w-4" />

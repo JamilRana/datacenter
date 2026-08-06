@@ -3,6 +3,7 @@
 import type { ApprovalDecision } from "@prisma/client";
 
 import { useState, useTransition } from "react";
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ROLES } from "@/lib/roles";
 import { format, startOfDay, endOfDay, parseISO } from "date-fns";
@@ -43,7 +44,7 @@ interface ApproverRequest extends Omit<DashboardRequest, "createdAt"> {
 }
 
 // ✅ TYPE BADGE CONFIGURATION
-const REQUEST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: JSX.Element | null }> = {
+const REQUEST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: ReactNode }> = {
   NEW_VM: { 
     label: "New VM", 
     color: "bg-blue-50 text-blue-700 border-blue-200", 

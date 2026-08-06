@@ -15,6 +15,9 @@ export interface UserVmStats {
   development: number;
   staging: number;
   withPublicIp: number;
+  totalCpu?: number;
+  totalRam?: number;
+  totalStorage?: number;
 }
 
 export interface SystemSummary {
@@ -65,7 +68,7 @@ export async function getUserVmStats(): Promise<UserVmStats> {
 
   const userId = session.user.id;
 
-  const [totalActive, production, development, staging, withPublicIp] = await Promise.all([
+  const [totalActive, production, development, staging, withPublicIp, activeVms] = await Promise.all([
     prisma.vmInstance.count({
       where: { ownerId: userId, status: "ACTIVE" }
     }),
@@ -81,7 +84,29 @@ export async function getUserVmStats(): Promise<UserVmStats> {
     prisma.vmInstance.count({
       where: { ownerId: userId, status: "ACTIVE", publicIpAddress: { not: null } }
     }),
+    prisma.vmInstance.findMany({
+      where: { ownerId: userId, status: "ACTIVE" },
+      include: {
+        currentSpec: {
+          select: {
+            vcpu: true,
+            ramGb: true,
+            storageGb: true
+          }
+        }
+      }
+    })
   ]);
+
+  let totalCpu = 0;
+  let totalRam = 0;
+  let totalStorage = 0;
+
+  for (const vm of activeVms) {
+    totalCpu += vm.currentSpec?.vcpu || 0;
+    totalRam += vm.currentSpec?.ramGb || 0;
+    totalStorage += vm.currentSpec?.storageGb || 0;
+  }
 
   return {
     totalActive,
@@ -89,6 +114,9 @@ export async function getUserVmStats(): Promise<UserVmStats> {
     development,
     staging,
     withPublicIp,
+    totalCpu,
+    totalRam,
+    totalStorage
   };
 }
 

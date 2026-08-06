@@ -20,7 +20,9 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
-  Server
+  Server,
+  Download,
+  Upload
 } from "lucide-react";
 
 interface SystemHealth {
@@ -55,6 +57,79 @@ export default function AdminSettingsPage() {
   const [approvalFlow, setApprovalFlow] = useState("");
   const [renewalPeriod, setRenewalPeriod] = useState("");
   const [notificationEmail, setNotificationEmail] = useState("");
+
+  // Backup & Restore
+  const [backingUp, setBackingUp] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const handleExportBackup = async () => {
+    setBackingUp(true);
+    try {
+      const res = await fetch("/api/admin/backup");
+      if (!res.ok) throw new Error("Failed to generate backup");
+      
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `datacenter-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast.success("Backup downloaded successfully");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create backup");
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setSelectedFile(e.target.files[0]);
+    }
+  };
+
+  const handleRestoreBackup = async () => {
+    if (!selectedFile) {
+      toast.error("Please select a backup file first");
+      return;
+    }
+
+    const confirmRestore = window.confirm(
+      "WARNING: Restoring this backup will completely wipe the current database and replace it. This cannot be undone. Do you want to proceed?"
+    );
+    if (!confirmRestore) return;
+
+    setRestoring(true);
+    try {
+      const fileText = await selectedFile.text();
+      const backupData = JSON.parse(fileText);
+
+      const res = await fetch("/api/admin/backup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(backupData),
+      });
+
+      if (res.ok) {
+        toast.success("Database restored successfully!");
+        setSelectedFile(null);
+        fetchHealth();
+      } else {
+        const errData = await res.json();
+        throw new Error(errData.error || "Failed to restore backup");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to restore backup");
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   useEffect(() => {
     if (status === "loading") return;
@@ -243,12 +318,15 @@ export default function AdminSettingsPage() {
 
       {/* Settings Tabs */}
       <Tabs defaultValue="smtp" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="smtp" className="gap-2">
             <Mail className="h-4 w-4" /> SMTP Configuration
           </TabsTrigger>
           <TabsTrigger value="general" className="gap-2">
             <Settings className="h-4 w-4" /> General Settings
+          </TabsTrigger>
+          <TabsTrigger value="backup" className="gap-2">
+            <Database className="h-4 w-4" /> Backup & Restore
           </TabsTrigger>
         </TabsList>
 
@@ -382,6 +460,86 @@ export default function AdminSettingsPage() {
                   <Save className="h-4 w-4 mr-2" />
                   {saving === "bulk" ? "Saving..." : "Save General Settings"}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="backup">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5 text-indigo-600" />
+                Database Backup & Restore
+              </CardTitle>
+              <CardDescription>
+                Export the database to a file or restore the database from a previously exported backup file
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h4 className="font-semibold text-amber-800">Critical warning for Administrators</h4>
+                  <p className="text-sm text-amber-700 mt-1">
+                    Restoring a backup will overwrite all current system data, including VM instances, user credentials, approval history, and audit logs. Please ensure you have a current export before restoring.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                {/* Export Section */}
+                <div className="p-5 border border-slate-200 rounded-lg space-y-4">
+                  <h3 className="font-semibold text-lg text-slate-800 flex items-center gap-2">
+                    <Download className="h-5 w-5 text-indigo-600" />
+                    Export Backup
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Generate and download a snapshot of the current database state as a JSON file.
+                  </p>
+                  <Button 
+                    onClick={handleExportBackup} 
+                    disabled={backingUp}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700"
+                  >
+                    {backingUp ? "Generating Backup..." : "Download Backup File"}
+                  </Button>
+                </div>
+
+                {/* Import Section */}
+                <div className="p-5 border border-slate-200 rounded-lg space-y-4">
+                  <h3 className="font-semibold text-lg text-slate-800 flex items-center gap-2">
+                    <Upload className="h-5 w-5 text-amber-600" />
+                    Restore Backup
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Select a previously exported `.json` backup file to overwrite the database.
+                  </p>
+                  
+                  <div className="space-y-2">
+                    <input 
+                      type="file" 
+                      accept=".json"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      id="backup-file-upload"
+                    />
+                    <label 
+                      htmlFor="backup-file-upload"
+                      className="flex items-center justify-center border border-dashed border-slate-300 rounded-md p-3 text-sm text-slate-600 cursor-pointer hover:bg-slate-50 transition"
+                    >
+                      {selectedFile ? selectedFile.name : "Choose backup file (.json)"}
+                    </label>
+                  </div>
+
+                  <Button 
+                    onClick={handleRestoreBackup} 
+                    disabled={restoring || !selectedFile}
+                    className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                  >
+                    {restoring ? "Restoring Database..." : "Restore Database"}
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

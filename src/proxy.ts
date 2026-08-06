@@ -7,11 +7,15 @@ import { rateLimitApi } from "@/lib/rate-limit";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
-  // 1. Get Authentication Token
+  // 1. Get Authentication Token with custom cookie name
+  const useSecureCookie = process.env.NEXTAUTH_URL?.startsWith("https://") ?? false;
+  const cookieName = useSecureCookie ? "__Secure-__sess" : "__sess";
+
   const token = await getToken({ 
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
-    secureCookie: process.env.NEXTAUTH_URL?.startsWith("https://") ?? false,
+    secureCookie: useSecureCookie,
+    cookieName: cookieName,
   });
 
   // 2. Rate Limiting for API routes
@@ -55,22 +59,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth", request.url));
   }
 
-  // 4. Security Headers
-  const response = NextResponse.next();
-  
-  // Add security headers
-  response.headers.set("X-DNS-Prefetch-Control", "on");
-  response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
-  response.headers.set("X-Frame-Options", "SAMEORIGIN");
-  response.headers.set("X-Content-Type-Options", "nosniff");
-  response.headers.set("Referrer-Policy", "origin-when-cross-origin");
-  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  response.headers.set(
-    "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self';"
-  );
-
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {

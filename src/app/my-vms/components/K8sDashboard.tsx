@@ -23,9 +23,17 @@ import {
 import { toast } from "sonner";
 import { getUserK8sNamespaces, addK8sNode, updateK8sNodeIpAndSubdomain } from "@/app/actions/k8s-actions";
 
-export function K8sDashboard() {
-  const [namespaces, setNamespaces] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+export function K8sDashboard({
+  namespaces: initialNamespaces,
+  loading: initialLoading,
+  onRefresh
+}: {
+  namespaces?: any[],
+  loading?: boolean,
+  onRefresh?: () => void
+} = {}) {
+  const [namespaces, setNamespaces] = useState<any[]>(initialNamespaces || []);
+  const [loading, setLoading] = useState(initialLoading !== undefined ? initialLoading : true);
   const [expandedNamespace, setExpandedNamespace] = useState<string | null>(null);
   const [editingNode, setEditingNode] = useState<{
     id: string;
@@ -54,8 +62,21 @@ export function K8sDashboard() {
   };
 
   useEffect(() => {
-    fetchNamespaces();
-  }, []);
+    if (initialNamespaces) {
+      setNamespaces(initialNamespaces);
+      if (initialNamespaces.length > 0 && !expandedNamespace) {
+        setExpandedNamespace(initialNamespaces[0].id);
+      }
+    } else {
+      fetchNamespaces();
+    }
+  }, [initialNamespaces]);
+
+  useEffect(() => {
+    if (initialLoading !== undefined) {
+      setLoading(initialLoading);
+    }
+  }, [initialLoading]);
 
   const handleAddNode = async (nodeGroupId: string) => {
     setIsAddingNode(nodeGroupId);
@@ -63,6 +84,7 @@ export function K8sDashboard() {
       const res = await addK8sNode(nodeGroupId);
       if (res.success) {
         toast.success(res.message);
+        if (onRefresh) onRefresh();
         await fetchNamespaces();
       } else {
         toast.error(res.message);
@@ -87,6 +109,7 @@ export function K8sDashboard() {
       if (res.success) {
         toast.success(res.message);
         setEditingNode(null);
+        if (onRefresh) onRefresh();
         await fetchNamespaces();
       } else {
         toast.error(res.message);
@@ -119,8 +142,72 @@ export function K8sDashboard() {
     );
   }
 
+  const totalNamespaces = namespaces.length;
+  const totalK8sNodes = namespaces.reduce((sum, ns) => 
+    sum + (ns.clusters?.reduce((cSum: number, c: any) => 
+      cSum + (c.nodeGroups?.reduce((gSum: number, g: any) => gSum + (g.nodes?.length || g.nodeCount || 0), 0) || 0), 0
+    ) || 0), 0
+  );
+  const totalK8sCpu = namespaces.reduce((sum, ns) => 
+    sum + (ns.clusters?.reduce((cSum: number, c: any) => 
+      cSum + (c.nodeGroups?.reduce((gSum: number, g: any) => gSum + ((g.vcpu || 0) * (g.nodes?.length || g.nodeCount || 0)), 0) || 0), 0
+    ) || 0), 0
+  );
+  const totalK8sRam = namespaces.reduce((sum, ns) => 
+    sum + (ns.clusters?.reduce((cSum: number, c: any) => 
+      cSum + (c.nodeGroups?.reduce((gSum: number, g: any) => gSum + ((g.ramGb || 0) * (g.nodes?.length || g.nodeCount || 0)), 0) || 0), 0
+    ) || 0), 0
+  );
+
   return (
     <div className="space-y-6">
+      {/* Kubernetes Stats Grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <Card className="border-none shadow-sm bg-white overflow-hidden p-5 flex flex-col justify-between border border-slate-100">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Namespaces</span>
+            <div className="p-2 bg-indigo-50 text-indigo-650 rounded-lg"><Code className="h-4 w-4" /></div>
+          </div>
+          <div className="mt-4">
+            <span className="text-2xl font-bold text-slate-900">{totalNamespaces}</span>
+            <span className="text-xs font-semibold text-slate-400 block mt-0.5">Active Namespace Allocations</span>
+          </div>
+        </Card>
+
+        <Card className="border-none shadow-sm bg-white overflow-hidden p-5 flex flex-col justify-between border border-slate-100">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Nodes</span>
+            <div className="p-2 bg-violet-50 text-violet-650 rounded-lg"><Server className="h-4 w-4" /></div>
+          </div>
+          <div className="mt-4">
+            <span className="text-2xl font-bold text-slate-900">{totalK8sNodes}</span>
+            <span className="text-xs font-semibold text-slate-400 block mt-0.5">Active VM Pod Nodes</span>
+          </div>
+        </Card>
+
+        <Card className="border-none shadow-sm bg-white overflow-hidden p-5 flex flex-col justify-between border border-slate-100">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">CPU Cores</span>
+            <div className="p-2 bg-emerald-50 text-emerald-650 rounded-lg"><Cpu className="h-4 w-4" /></div>
+          </div>
+          <div className="mt-4">
+            <span className="text-2xl font-bold text-slate-900">{totalK8sCpu} Cores</span>
+            <span className="text-xs font-semibold text-slate-400 block mt-0.5">Scale Allocations</span>
+          </div>
+        </Card>
+
+        <Card className="border-none shadow-sm bg-white overflow-hidden p-5 flex flex-col justify-between border border-slate-100">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">RAM Capacity</span>
+            <div className="p-2 bg-cyan-50 text-cyan-650 rounded-lg"><HardDrive className="h-4 w-4" /></div>
+          </div>
+          <div className="mt-4">
+            <span className="text-2xl font-bold text-slate-900">{totalK8sRam} GB</span>
+            <span className="text-xs font-semibold text-slate-400 block mt-0.5">Aggregated Namespace RAM</span>
+          </div>
+        </Card>
+      </div>
+
       {namespaces.map((ns) => {
         const isExpanded = expandedNamespace === ns.id;
         const totalVcpu = ns.clusters.reduce((sum: number, c: any) => 

@@ -21,7 +21,7 @@ export default async function ApprovalsDashboard({
   const decisionFilter = searchParams.filter as "PENDING" | "APPROVED" | "REJECTED" | undefined;
   const userRoles = session.user.roles;
   const isAdmin = userRoles.includes(ROLES.ADMIN);
-  
+
   // ✅ Single source of truth: Reuse shared data fetcher
   const { requests } = await fetchDashboardData(session.user.id, userRoles, isAdmin, page, 20, decisionFilter);
 
@@ -31,13 +31,12 @@ export default async function ApprovalsDashboard({
         <h1 className="text-3xl font-bold tracking-tight text-slate-900 capitalize">
           {userRoles.map(r => r.replace(/_/g, " ")).join(" & ")} Dashboard
         </h1>
-        <p className="text-slate-500">Manage and execute virtual machine requests across the datacenter.</p>
       </div>
 
       {/* Metrics Grid - Passed to client for client-side filtering */}
-      <ApproverDashboardClient 
-        initialRequests={JSON.parse(JSON.stringify(requests))} 
-        userRoles={userRoles} 
+      <ApproverDashboardClient
+        initialRequests={JSON.parse(JSON.stringify(requests))}
+        userRoles={userRoles}
         currentUserId={session.user.id}
       />
     </div>

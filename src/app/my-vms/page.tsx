@@ -4,22 +4,23 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { getUserVms, getUserVmStats, getSystemSummary, type VmFilters, type UserVmStats, type UserVmData, type SystemSummary } from "@/app/actions/vm-management-actions";
+import { getUserK8sNamespaces } from "@/app/actions/k8s-actions";
 import { K8sDashboard } from "./components/K8sDashboard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { 
-  Server, 
-  Terminal, 
-  Globe, 
-  Search, 
-  Loader2, 
-  HardDrive, 
-  Cpu, 
-  Layers, 
-  CheckCircle2, 
+import {
+  Server,
+  Terminal,
+  Globe,
+  Search,
+  Loader2,
+  HardDrive,
+  Cpu,
+  Layers,
+  CheckCircle2,
   AlertCircle,
   Activity,
   History,
@@ -37,7 +38,7 @@ function getStoredState() {
   try {
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) return JSON.parse(stored);
-  } catch {}
+  } catch { }
   return { page: 1, filters: { environment: "ALL", systemName: "", search: "" } };
 }
 
@@ -45,7 +46,7 @@ function saveState(page: number, filters: VmFilters) {
   if (typeof window === "undefined") return;
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ page, filters }));
-  } catch {}
+  } catch { }
 }
 
 export default function DashboardVmsPage() {
@@ -53,13 +54,13 @@ export default function DashboardVmsPage() {
   const router = useRouter();
   const queryParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<"vms" | "k8s">("vms");
-  
+
   const [listLoading, setListLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [filters, setFilters] = useState<VmFilters>({ environment: "ALL", systemName: "", search: "", status: "ALL" });
   const [isInitialized, setIsInitialized] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  
+
   const [stats, setStats] = useState<UserVmStats>({
     totalActive: 0,
     production: 0,
@@ -68,6 +69,7 @@ export default function DashboardVmsPage() {
     withPublicIp: 0
   });
   const [systemSummary, setSystemSummary] = useState<SystemSummary[]>([]);
+  const [k8sNamespaces, setK8sNamespaces] = useState<any[]>([]);
   const [vmsData, setVmsData] = useState<{
     vms: UserVmData[];
     total: number;
@@ -98,27 +100,31 @@ export default function DashboardVmsPage() {
     return () => clearTimeout(timer);
   }, [filters.search]);
 
+  const fetchStats = async () => {
+    try {
+      const [statsData, systems, k8sRes] = await Promise.all([
+        getUserVmStats(),
+        getSystemSummary(),
+        getUserK8sNamespaces()
+      ]);
+      setStats(statsData);
+      setSystemSummary(systems);
+      if (k8sRes.success && k8sRes.namespaces) {
+        setK8sNamespaces(k8sRes.namespaces);
+      }
+    } catch (err) {
+      console.error("Failed to fetch stats", err);
+    }
+  };
+
   useEffect(() => {
     if (status === "loading" || !session || !isInitialized) return;
-    
-    const fetchStats = async () => {
-      try {
-        const [statsData, systems] = await Promise.all([
-          getUserVmStats(),
-          getSystemSummary()
-        ]);
-        setStats(statsData);
-        setSystemSummary(systems);
-      } catch (err) {
-        console.error("Failed to fetch stats", err);
-      }
-    };
     fetchStats();
   }, [status, session, isInitialized]);
 
   useEffect(() => {
     if (status === "loading" || !session || !isInitialized) return;
-    
+
     const fetchVms = async () => {
       setListLoading(true);
       try {
@@ -135,7 +141,7 @@ export default function DashboardVmsPage() {
         if (debouncedSearch) {
           filterParams.search = debouncedSearch;
         }
-        
+
         const data = await getUserVms(filterParams, currentPage, PAGE_SIZE);
         setVmsData(data);
       } catch (err) {
@@ -163,6 +169,27 @@ export default function DashboardVmsPage() {
     setCurrentPage(1);
   };
 
+  // Compute K8s totals
+  let k8sTotalNodes = 0;
+  let k8sTotalCpu = 0;
+  let k8sTotalRam = 0;
+
+  for (const ns of k8sNamespaces) {
+    for (const cluster of ns.clusters || []) {
+      for (const group of cluster.nodeGroups || []) {
+        k8sTotalNodes += group.nodes?.length || group.nodeCount || 0;
+        k8sTotalCpu += (group.vcpu || 0) * (group.nodes?.length || group.nodeCount || 0);
+        k8sTotalRam += (group.ramGb || 0) * (group.nodes?.length || group.nodeCount || 0);
+      }
+    }
+  }
+
+  // Combined grand totals
+  const grandTotalNodes = stats.totalActive + k8sTotalNodes;
+  const grandTotalCpu = (stats.totalCpu || 0) + k8sTotalCpu;
+  const grandTotalRam = (stats.totalRam || 0) + k8sTotalRam;
+  const grandTotalStorage = (stats.totalStorage || 0);
+
   if (status === "loading") {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -189,9 +216,6 @@ export default function DashboardVmsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">My Virtual Machines</h1>
-          <p className="text-slate-500 mt-1">
-            Monitor and manage your provisioned server infrastructure
-          </p>
         </div>
         <div className="flex gap-3">
           <Button variant="outline" size="sm" asChild>
@@ -207,25 +231,89 @@ export default function DashboardVmsPage() {
         </div>
       </div>
 
+      {/* Consolidated Infrastructure footprint (VM + K8s) */}
+      <div className="space-y-3 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+        <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Consolidated Resource Footprint</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="border-none shadow-sm bg-gradient-to-br from-indigo-50/70 to-indigo-100/30 overflow-hidden border border-indigo-100/50">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-indigo-650 uppercase tracking-wider block">Total Deployments</span>
+                <span className="text-xl font-black text-slate-800">{grandTotalNodes} Nodes</span>
+                <span className="text-[10px] text-slate-505 font-medium block">
+                  ({stats.totalActive} VMs + {k8sTotalNodes} K8s Nodes)
+                </span>
+              </div>
+              <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100">
+                <Layers className="h-4.5 w-4.5" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-sm bg-gradient-to-br from-violet-50/70 to-violet-100/30 overflow-hidden border border-violet-100/50">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-violet-650 uppercase tracking-wider block">Consolidated CPU</span>
+                <span className="text-xl font-black text-slate-800">{grandTotalCpu} Cores</span>
+                <span className="text-[10px] text-slate-505 font-medium block">
+                  ({stats.totalCpu || 0} VM + {k8sTotalCpu} K8s) Cores
+                </span>
+              </div>
+              <div className="p-2.5 bg-violet-50 text-violet-600 rounded-xl border border-violet-100">
+                <Cpu className="h-4.5 w-4.5" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-sm bg-gradient-to-br from-emerald-50/70 to-emerald-100/30 overflow-hidden border border-emerald-100/50">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-emerald-650 uppercase tracking-wider block">Consolidated Memory</span>
+                <span className="text-xl font-black text-slate-800">{grandTotalRam} GB RAM</span>
+                <span className="text-[10px] text-slate-505 font-medium block">
+                  ({stats.totalRam || 0} VM + {k8sTotalRam} K8s) GB
+                </span>
+              </div>
+              <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100">
+                <HardDrive className="h-4.5 w-4.5" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-none shadow-sm bg-gradient-to-br from-cyan-50/70 to-cyan-100/30 overflow-hidden border border-cyan-100/50">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-cyan-650 uppercase tracking-wider block">Consolidated Storage</span>
+                <span className="text-xl font-black text-slate-800">{stats.totalStorage || 0} GB SSD</span>
+                <span className="text-[10px] text-slate-505 font-medium block">
+                  VM allocated storage volume
+                </span>
+              </div>
+              <div className="p-2.5 bg-cyan-50 text-cyan-600 rounded-xl border border-cyan-100">
+                <Server className="h-4.5 w-4.5" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="flex border-b border-slate-200 gap-6 mb-2">
         <button
           onClick={() => setActiveTab("vms")}
-          className={`pb-3 text-sm font-bold border-b-2 transition-all ${
-            activeTab === "vms"
-              ? "border-indigo-650 text-indigo-600 font-extrabold"
-              : "border-transparent text-slate-500 hover:text-slate-900"
-          }`}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all ${activeTab === "vms"
+            ? "border-indigo-650 text-indigo-600 font-extrabold"
+            : "border-transparent text-slate-500 hover:text-slate-900"
+            }`}
         >
           Virtual Machines
         </button>
         <button
           onClick={() => setActiveTab("k8s")}
-          className={`pb-3 text-sm font-bold border-b-2 transition-all ${
-            activeTab === "k8s"
-              ? "border-indigo-650 text-indigo-600 font-extrabold"
-              : "border-transparent text-slate-500 hover:text-slate-900"
-          }`}
+          className={`pb-3 text-sm font-bold border-b-2 transition-all ${activeTab === "k8s"
+            ? "border-indigo-650 text-indigo-600 font-extrabold"
+            : "border-transparent text-slate-500 hover:text-slate-900"
+            }`}
         >
           Kubernetes Namespaces
         </button>
@@ -233,275 +321,317 @@ export default function DashboardVmsPage() {
 
       {activeTab === "vms" ? (
         <>
-      {/* Stats Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card 
-          onClick={() => handleFilterChange("environment", "ALL")}
-          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
-        >
-          <CardContent className="p-5">
-            <div className="flex justify-between items-start">
-              <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
-                <Server className="h-5 w-5" />
-              </div>
-              <Badge className="bg-green-100 text-green-700 border-none">Active</Badge>
-            </div>
-            <div className="mt-4">
-              <div className="text-2xl font-bold text-slate-900">{stats.totalActive}</div>
-              <div className="text-xs font-semibold text-slate-500 uppercase mt-1">Total Servers</div>
-            </div>
-          </CardContent>
-        </Card>
+          {/* Stats Summary */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <Card
+              onClick={() => handleFilterChange("environment", "ALL")}
+              className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+            >
+              <CardContent className="p-5">
+                <div className="flex justify-between items-start">
+                  <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                    <Server className="h-5 w-5" />
+                  </div>
+                  <Badge className="bg-green-100 text-green-700 border-none">Active</Badge>
+                </div>
+                <div className="mt-4">
+                  <div className="text-2xl font-bold text-slate-900">{stats.totalActive}</div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase mt-1">Total Servers</div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card 
-          onClick={() => handleFilterChange("environment", "PRODUCTION")}
-          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
-        >
-          <CardContent className="p-5">
-            <div className="flex justify-between items-start">
-              <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
-                <CheckCircle2 className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-4">
-              <div className="text-2xl font-bold text-slate-900">{stats.production}</div>
-              <div className="text-xs font-semibold text-slate-500 uppercase mt-1 text-emerald-600">Production</div>
-            </div>
-          </CardContent>
-        </Card>
+            <Card
+              onClick={() => handleFilterChange("environment", "PRODUCTION")}
+              className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+            >
+              <CardContent className="p-5">
+                <div className="flex justify-between items-start">
+                  <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="text-2xl font-bold text-slate-900">{stats.production}</div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase mt-1 text-emerald-600">Production</div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card 
-          onClick={() => handleFilterChange("environment", "STAGING")}
-          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
-        >
-          <CardContent className="p-5">
-            <div className="flex justify-between items-start">
-              <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                <Activity className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-4">
-              <div className="text-2xl font-bold text-slate-900">{stats.staging}</div>
-              <div className="text-xs font-semibold text-slate-500 uppercase mt-1 text-blue-600">Staging</div>
-            </div>
-          </CardContent>
-        </Card>
+            <Card
+              onClick={() => handleFilterChange("environment", "STAGING")}
+              className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+            >
+              <CardContent className="p-5">
+                <div className="flex justify-between items-start">
+                  <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                    <Activity className="h-5 w-5" />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="text-2xl font-bold text-slate-900">{stats.staging}</div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase mt-1 text-blue-600">Staging</div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card 
-          onClick={() => handleFilterChange("environment", "DEVELOPMENT")}
-          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
-        >
-          <CardContent className="p-5">
-            <div className="flex justify-between items-start">
-              <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
-                <Terminal className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-4">
-              <div className="text-2xl font-bold text-slate-900">{stats.development}</div>
-              <div className="text-xs font-semibold text-slate-500 uppercase mt-1 text-amber-600">Development</div>
-            </div>
-          </CardContent>
-        </Card>
+            <Card
+              onClick={() => handleFilterChange("environment", "DEVELOPMENT")}
+              className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+            >
+              <CardContent className="p-5">
+                <div className="flex justify-between items-start">
+                  <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
+                    <Terminal className="h-5 w-5" />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="text-2xl font-bold text-slate-900">{stats.development}</div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase mt-1 text-amber-600">Development</div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card 
-          onClick={() => {
-            // Filter by custom search term for public IP
-            setFilters((prev) => ({ ...prev, search: "public" }));
-            setCurrentPage(1);
-          }}
-          className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
-        >
-          <CardContent className="p-5">
-            <div className="flex justify-between items-start">
-              <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
-                <Globe className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-4">
-              <div className="text-2xl font-bold text-slate-900">{stats.withPublicIp}</div>
-              <div className="text-xs font-semibold text-slate-500 uppercase mt-1 text-purple-600">Public Access</div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            <Card
+              onClick={() => {
+                // Filter by custom search term for public IP
+                setFilters((prev) => ({ ...prev, search: "public" }));
+                setCurrentPage(1);
+              }}
+              className="border-none shadow-sm bg-white overflow-hidden cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all duration-200 active:scale-[0.98]"
+            >
+              <CardContent className="p-5">
+                <div className="flex justify-between items-start">
+                  <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
+                    <Globe className="h-5 w-5" />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="text-2xl font-bold text-slate-900">{stats.withPublicIp}</div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase mt-1 text-purple-600">Public Access</div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-      {/* Filters & View Actions */}
-      <div className="flex flex-col md:flex-row gap-4 items-end">
-        <div className="flex-1 w-full space-y-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <Input
-                placeholder="Search by hostname, IP address or specs..."
-                className="pl-10 bg-white border-slate-200"
-                value={filters.search}
-                onChange={(e) => handleFilterChange("search", e.target.value)}
-              />
-            </div>
-            <div className="w-full md:w-48">
-              <Select
-                value={filters.environment}
-                onValueChange={(v) => handleFilterChange("environment", v)}
-              >
-                <SelectTrigger className="bg-white border-slate-200">
-                  <SelectValue placeholder="Environment" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Environments</SelectItem>
-                  <SelectItem value="PRODUCTION">Production</SelectItem>
-                  <SelectItem value="STAGING">Staging</SelectItem>
-                  <SelectItem value="DEVELOPMENT">Development</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-full md:w-48">
-              <Select
-                value={filters.status}
-                onValueChange={(v) => handleFilterChange("status", v)}
-              >
-                <SelectTrigger className="bg-white border-slate-200">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Statuses</SelectItem>
-                  <SelectItem value="ACTIVE">Active (Running)</SelectItem>
-                  <SelectItem value="SUSPENDED">Suspended (Stopped)</SelectItem>
-                  <SelectItem value="RETIRED">Retired</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-full md:w-64">
-<Select
-  value={filters.systemName}
-  onValueChange={(v) => handleFilterChange("systemName", v)}
->
-  <SelectTrigger className="bg-white border-slate-200">
-    <SelectValue placeholder="System/Project" />
-  </SelectTrigger>
-  <SelectContent>
-    <SelectItem value="ALL">All Systems</SelectItem>
-    {systemSummary.map((sys) => (
-      <SelectItem
-        key={sys.systemName}
-        value={sys.systemName}
-      >
-        {sys.systemName} ({sys.totalVms})
-      </SelectItem>
-    ))}
-  </SelectContent>
-</Select>
+          {/* Resource Allocation Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="border-none shadow-sm bg-gradient-to-br from-indigo-50/50 to-indigo-100/30 overflow-hidden border border-indigo-100/30">
+              <CardContent className="p-5 flex items-center justify-between">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider block">Allocated CPU Cores</span>
+                  <span className="text-2xl font-black text-slate-800">{stats.totalCpu || 0} Cores</span>
+                  <span className="text-xs text-indigo-600 font-medium block pt-1">Across all active virtual machines</span>
+                </div>
+                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-100">
+                  <Cpu className="h-5 w-5" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-none shadow-sm bg-gradient-to-br from-emerald-50/50 to-emerald-100/30 overflow-hidden border border-emerald-100/30">
+              <CardContent className="p-5 flex items-center justify-between">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider block">Allocated Memory</span>
+                  <span className="text-2xl font-black text-slate-800">{stats.totalRam || 0} GB RAM</span>
+                  <span className="text-xs text-emerald-600 font-medium block pt-1">Total physical memory</span>
+                </div>
+                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100">
+                  <HardDrive className="h-5 w-5" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-none shadow-sm bg-gradient-to-br from-cyan-50/50 to-cyan-100/30 overflow-hidden border border-cyan-100/30">
+              <CardContent className="p-5 flex items-center justify-between">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-wider block">Allocated Storage</span>
+                  <span className="text-2xl font-black text-slate-800">{stats.totalStorage || 0} GB SSD</span>
+                  <span className="text-xs text-cyan-600 font-medium block pt-1">Total Storage</span>
+                </div>
+                <div className="p-3 bg-cyan-50 text-cyan-600 rounded-xl border border-cyan-100">
+                  <Server className="h-5 w-5" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Filters & View Actions */}
+          <div className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="flex-1 w-full space-y-4">
+              <div className="flex flex-col md:flex-row gap-4">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Input
+                    placeholder="Search by hostname, IP address or specs..."
+                    className="pl-10 bg-white border-slate-200"
+                    value={filters.search}
+                    onChange={(e) => handleFilterChange("search", e.target.value)}
+                  />
+                </div>
+                <div className="w-full md:w-48">
+                  <Select
+                    value={filters.environment}
+                    onValueChange={(v) => handleFilterChange("environment", v)}
+                  >
+                    <SelectTrigger className="bg-white border-slate-200">
+                      <SelectValue placeholder="Environment" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">All Environments</SelectItem>
+                      <SelectItem value="PRODUCTION">Production</SelectItem>
+                      <SelectItem value="STAGING">Staging</SelectItem>
+                      <SelectItem value="DEVELOPMENT">Development</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-full md:w-48">
+                  <Select
+                    value={filters.status}
+                    onValueChange={(v) => handleFilterChange("status", v)}
+                  >
+                    <SelectTrigger className="bg-white border-slate-200">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">All Statuses</SelectItem>
+                      <SelectItem value="ACTIVE">Active (Running)</SelectItem>
+                      <SelectItem value="SUSPENDED">Suspended (Stopped)</SelectItem>
+                      <SelectItem value="RETIRED">Retired</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-full md:w-64">
+                  <Select
+                    value={filters.systemName}
+                    onValueChange={(v) => handleFilterChange("systemName", v)}
+                  >
+                    <SelectTrigger className="bg-white border-slate-200">
+                      <SelectValue placeholder="System/Project" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">All Systems</SelectItem>
+                      {systemSummary.map((sys) => (
+                        <SelectItem
+                          key={sys.systemName}
+                          value={sys.systemName}
+                        >
+                          {sys.systemName} ({sys.totalVms})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* VM List Table */}
-      <Card className="border-none shadow-sm overflow-hidden">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Server Info</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Resources</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Environment</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {listLoading && !vmsData ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i}>
-                      <td colSpan={5} className="px-6 py-8">
-                        <div className="h-10 bg-slate-50 animate-pulse rounded" />
-                      </td>
+          {/* VM List Table */}
+          <Card className="border-none shadow-sm overflow-hidden">
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Server Info</th>
+                      <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Resources</th>
+                      <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Environment</th>
+                      <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                     </tr>
-                  ))
-                ) : !vmsData || vmsData.vms.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-20 text-center">
-                      <div className="flex flex-col items-center">
-                        <div className="p-4 bg-slate-50 rounded-full mb-4">
-                          <AlertCircle className="h-8 w-8 text-slate-400" />
-                        </div>
-                        <h3 className="text-lg font-medium text-slate-900">No servers found</h3>
-                        <p className="text-slate-500 max-w-xs mx-auto mt-1">
-                          We couldn&apos;t find any provisioned VMs matching your criteria.
-                        </p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  vmsData.vms.map((vm) => (
-                    <tr key={vm.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
-                            {vm.hostname}
-                            {vm.subdomain && (
-                              <Badge variant="outline" className="text-[10px] py-0 px-1 font-normal text-slate-400 border-slate-200">
-                                {vm.subdomain}
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {listLoading && !vmsData ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <tr key={i}>
+                          <td colSpan={5} className="px-6 py-8">
+                            <div className="h-10 bg-slate-50 animate-pulse rounded" />
+                          </td>
+                        </tr>
+                      ))
+                    ) : !vmsData || vmsData.vms.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-20 text-center">
+                          <div className="flex flex-col items-center">
+                            <div className="p-4 bg-slate-50 rounded-full mb-4">
+                              <AlertCircle className="h-8 w-8 text-slate-400" />
+                            </div>
+                            <h3 className="text-lg font-medium text-slate-900">No servers found</h3>
+                            <p className="text-slate-500 max-w-xs mx-auto mt-1">
+                              We couldn&apos;t find any provisioned VMs matching your criteria.
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      vmsData.vms.map((vm) => (
+                        <tr key={vm.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                                {vm.hostname}
+                                {vm.subdomain && (
+                                  <Badge variant="outline" className="text-[10px] py-0 px-1 font-normal text-slate-400 border-slate-200">
+                                    {vm.subdomain}
+                                  </Badge>
+                                )}
+                              </span>
+                              <span className="text-sm text-slate-500 flex items-center gap-1.5 mt-0.5">
+                                <Layers className="h-3 w-3" /> {vm.ipAddress || "No assigned IP"}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200 border-none font-medium text-[11px] gap-1 px-2">
+                                <Cpu className="h-3 w-3" /> {vm.vcpu} vCPU
                               </Badge>
-                            )}
-                          </span>
-                          <span className="text-sm text-slate-500 flex items-center gap-1.5 mt-0.5">
-                            <Layers className="h-3 w-3" /> {vm.ipAddress || "No assigned IP"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          <Badge variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200 border-none font-medium text-[11px] gap-1 px-2">
-                            <Cpu className="h-3 w-3" /> {vm.vcpu} vCPU
-                          </Badge>
-                          <Badge variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200 border-none font-medium text-[11px] gap-1 px-2">
-                            <HardDrive className="h-3 w-3" /> {vm.ramGb}GB RAM
-                          </Badge>
-                          <Badge variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200 border-none font-medium text-[11px] gap-1 px-2">
-                            <HardDrive className="h-3 w-3" /> {vm.storageGb}GB Disk
-                          </Badge>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge className={`
-                          ${vm.environment === 'PRODUCTION' ? 'bg-emerald-100 text-emerald-700' : 
-                            vm.environment === 'STAGING' ? 'bg-blue-100 text-blue-700' : 
-                            'bg-amber-100 text-amber-700'} 
+                              <Badge variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200 border-none font-medium text-[11px] gap-1 px-2">
+                                <HardDrive className="h-3 w-3" /> {vm.ramGb}GB RAM
+                              </Badge>
+                              <Badge variant="secondary" className="bg-slate-100 text-slate-700 hover:bg-slate-200 border-none font-medium text-[11px] gap-1 px-2">
+                                <HardDrive className="h-3 w-3" /> {vm.storageGb}GB Disk
+                              </Badge>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <Badge className={`
+                          ${vm.environment === 'PRODUCTION' ? 'bg-emerald-100 text-emerald-700' :
+                                vm.environment === 'STAGING' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-amber-100 text-amber-700'} 
                           border-none text-[11px] font-bold uppercase tracking-wider px-2
                         `}>
-                          {vm.environment}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className={`h-2 w-2 rounded-full ${vm.status === 'ACTIVE' ? 'bg-green-500' : 'bg-slate-300'} shadow-[0_0_8px_rgba(34,197,94,0.4)]`} />
-                          <span className="text-sm font-medium text-slate-700 capitalize">{vm.status.toLowerCase()}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="sm" asChild className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 font-semibold px-3">
-                            <Link href={`/my-vms/${vm.id}`}>Details</Link>
-                          </Button>
-                          {vm.ipAddress && (
-                            <Button variant="ghost" size="icon" title="Open Subdomain" asChild className="h-8 w-8 text-slate-400 hover:text-indigo-600">
-                               <a href={vm.subdomain ? `https://${vm.subdomain}` : '#'} target="_blank" rel="noopener noreferrer">
-                                 <ExternalLink className="h-4 w-4" />
-                               </a>
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                              {vm.environment}
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <div className={`h-2 w-2 rounded-full ${vm.status === 'ACTIVE' ? 'bg-green-500' : 'bg-slate-300'} shadow-[0_0_8px_rgba(34,197,94,0.4)]`} />
+                              <span className="text-sm font-medium text-slate-700 capitalize">{vm.status.toLowerCase()}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button variant="ghost" size="sm" asChild className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 font-semibold px-3">
+                                <Link href={`/my-vms/${vm.id}`}>Details</Link>
+                              </Button>
+                              {vm.ipAddress && (
+                                <Button variant="ghost" size="icon" title="Open Subdomain" asChild className="h-8 w-8 text-slate-400 hover:text-indigo-600">
+                                  <a href={vm.subdomain ? `https://${vm.subdomain}` : '#'} target="_blank" rel="noopener noreferrer">
+                                    <ExternalLink className="h-4 w-4" />
+                                  </a>
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Pagination */}
           {vmsData && vmsData.totalPages > 1 && (
@@ -515,7 +645,11 @@ export default function DashboardVmsPage() {
           )}
         </>
       ) : (
-        <K8sDashboard />
+        <K8sDashboard
+          namespaces={k8sNamespaces}
+          loading={listLoading}
+          onRefresh={fetchStats}
+        />
       )}
     </div>
   );

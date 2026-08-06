@@ -67,8 +67,8 @@ export async function getCachedData<T>(
       logger.info(`Cache hit for key: ${key}`);
       return JSON.parse(cached) as T;
     }
-  } catch (error: unknown) {
-    logger.error(`Error reading from cache for key ${key}:`, error as Error);
+  } catch (error: any) {
+    logger.warn(`Redis cache read failed for key ${key}: ${error.message || error}`);
   }
 
   const data = await fetchFn();
@@ -101,8 +101,8 @@ export async function invalidateCache(key: string | string[]): Promise<void> {
       await redis.del(key);
       logger.info(`Cache invalidated for key: ${key}`);
     }
-  } catch (error: unknown) {
-    logger.error(`Error invalidating cache for key(s) ${key}:`, error as Error);
+  } catch (error: any) {
+    logger.warn(`Redis cache invalidate failed for key(s) ${key}: ${error.message || error}`);
   }
 }
 
@@ -119,7 +119,7 @@ export async function setCachedData<T>(
     try {
         await redis.set(key, JSON.stringify(data), 'EX', ttlSeconds);
         logger.info(`Data written to cache for key: ${key}`);
-    } catch (error: unknown) {
-        logger.error(`Error writing to cache for key ${key}:`, error as Error);
+    } catch (error: any) {
+        logger.warn(`Redis cache write failed for key ${key}: ${error.message || error}`);
     }
 }
