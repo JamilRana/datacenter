@@ -302,10 +302,10 @@ export function RequestDetails({
     if (reqData.approvals && reqData.approvals.length > 0) {
       addSection("Approval Workflow History");
       reqData.approvals.forEach((app: any) => {
-        const statusText = app.status.replace(/_/g, " ");
+        const statusText = (app.decision || "PENDING").replace(/_/g, " ");
         const name = app.approver?.name || "System/Auto";
-        const role = app.approverRole || "—";
-        const date = app.actionedAt ? format(new Date(app.actionedAt), "yyyy-MM-dd HH:mm") : "—";
+        const role = app.approverRole || `Level ${app.level}`;
+        const date = app.decidedAt ? format(new Date(app.decidedAt), "yyyy-MM-dd HH:mm") : "—";
         const comments = app.comments || "—";
         lines.push(`"${statusText}","By: ${name} (${role}) | Date: ${date} | Comments: ${comments}"`);
       });
@@ -436,10 +436,10 @@ export function RequestDetails({
     if (reqData.approvals && reqData.approvals.length > 0) {
       addSection("Approval Workflow History");
       reqData.approvals.forEach((app: any) => {
-        const statusText = app.status.replace(/_/g, " ");
+        const statusText = (app.decision || "PENDING").replace(/_/g, " ");
         const name = app.approver?.name || "System/Auto";
-        const role = app.approverRole || "—";
-        const date = app.actionedAt ? format(new Date(app.actionedAt), "yyyy-MM-dd HH:mm") : "—";
+        const role = app.approverRole || `Level ${app.level}`;
+        const date = app.decidedAt ? format(new Date(app.decidedAt), "yyyy-MM-dd HH:mm") : "—";
         const comments = app.comments || "—";
         addRow(statusText, `By: ${name} (${role}) | Date: ${date} | Comments: ${comments}`);
       });
@@ -918,7 +918,7 @@ export function RequestDetails({
         </div>
       )}
       {/* Bottom Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t p-4 shadow-2xl flex justify-between items-center z-50">
+      <div className="fixed bottom-0 left-0 lg:left-64 right-0 bg-white/80 backdrop-blur-md border-t p-4 shadow-2xl flex justify-between items-center z-50">
         <Button asChild variant="ghost">
           <Link href="/requests">Back to List</Link>
         </Button>
@@ -1124,9 +1124,9 @@ export function RequestDetails({
               {data.approvals && data.approvals.length > 0 ? (
                 data.approvals.map((app: any, i: number) => (
                   <tr key={i} className="border-b">
-                    <td className="p-1 font-bold uppercase">{app.status.replace(/_/g, " ")}</td>
-                    <td className="p-1">{app.approver?.name || "System/Auto"} ({app.approverRole})</td>
-                    <td className="p-1">{app.actionedAt ? format(new Date(app.actionedAt), "yyyy-MM-dd HH:mm") : "—"}</td>
+                    <td className="p-1 font-bold uppercase">{(app.decision || "PENDING").replace(/_/g, " ")}</td>
+                    <td className="p-1">{app.approver?.name || "System/Auto"} ({app.approverRole || `Level ${app.level}`})</td>
+                    <td className="p-1">{app.decidedAt ? format(new Date(app.decidedAt), "yyyy-MM-dd HH:mm") : "—"}</td>
                     <td className="p-1 italic text-slate-600">{app.comments || "No comments supplied"}</td>
                   </tr>
                 ))
