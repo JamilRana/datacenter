@@ -99,6 +99,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
         { title: "VM Instances", href: "/inventory/vms" },
         { title: "Hardware Assets", href: "/inventory/assets" },
         { title: "Clusters", href: "/inventory/clusters" },
+        { title: "Kubernetes Namespaces", href: "/inventory/namespaces" },
         { title: "Software Licenses", href: "/inventory/licenses" },
         { title: "Horizon Users", href: "/inventory/horizon" },
         { title: "VPN Assignments", href: "/inventory/vpn" },
@@ -113,8 +114,16 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
     },
     {
       title: "Admin",
-      href: "/admin",
       icon: Settings,
+      children: [
+        { title: "Dashboard", href: "/admin" },
+        { title: "User Directory", href: "/admin/users" },
+        { title: "Approval Workflows", href: "/admin/workflows" },
+        { title: "Compliance Tags", href: "/admin/tags" },
+        { title: "Audit Trail", href: "/admin/audit-logs" },
+        { title: "Email Configuration", href: "/admin/email-settings" },
+        { title: "Backup & Restore", href: "/admin/settings?tab=backup" },
+      ],
       roles: [ROLES.ADMIN],
     },
   ];

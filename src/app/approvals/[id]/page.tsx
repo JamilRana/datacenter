@@ -1,5 +1,6 @@
 //src/app/approvals/[id]/page.tsx
 "use client";
+import { use } from "react";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -22,8 +23,9 @@ import { toast } from "sonner";
 
 type EntityType = "request" | "customization";
 
-export default function ApprovalDetailPage({ params }: { params: { id: string } }) {
-  const id = params.id;
+export default function ApprovalDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const unwrappedParams = use(params);
+  const id = unwrappedParams.id;
   const { data: session, status } = useSession();
   const userId = session?.user?.id;
   const searchParams = useSearchParams();

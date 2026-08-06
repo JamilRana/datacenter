@@ -1,5 +1,6 @@
 // src/app/requests/[id]/page.tsx
 "use client";
+import { use } from "react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useSession } from "next-auth/react";
@@ -10,8 +11,9 @@ import { ChevronRight } from "lucide-react";
 export default function RequestDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = use(params);
   const { data: session, status } = useSession();
   const router = useRouter();
 
@@ -43,7 +45,7 @@ export default function RequestDetailPage({
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-        <RequestDetails requestId={params.id} />
+        <RequestDetails requestId={id} />
       </div>
     </div>
   );

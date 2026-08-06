@@ -26,7 +26,11 @@ import { fetchAssetUtilization } from "@/app/actions/analytics-actions";
 import { AssetUtilization } from "@/lib/analytics/assetUtilization";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
 
-export default function AssetDetailPage({ params }: { params: { id: string } }) {
+import { use } from "react";
+
+export default function AssetDetailPage({ params }: { params: Promise<{ id: string }> }) {
+   const unwrappedParams = use(params);
+   const id = unwrappedParams.id;
    const { data: session } = useSession();
    const [asset, setAsset] = useState<Asset & { licenses: SoftwareLicense[] } | null>(null);
    const [utilization, setUtilization] = useState<AssetUtilization | null>(null);
@@ -42,11 +46,11 @@ export default function AssetDetailPage({ params }: { params: { id: string } }) 
    }
 
    useEffect(() => {
-     const getAsset = async (id: string) => {
+     const getAsset = async (assetId: string) => {
        try {
          const [assetData, utilData] = await Promise.all([
-           fetchAssetDetailsWithLicenses(id),
-           fetchAssetUtilization(id)
+           fetchAssetDetailsWithLicenses(assetId),
+           fetchAssetUtilization(assetId)
          ]);
          if (!assetData) return;
          setAsset(assetData);
@@ -59,9 +63,9 @@ export default function AssetDetailPage({ params }: { params: { id: string } }) 
      };
 
      if (session) {
-       getAsset(params.id);
+       getAsset(id);
      }
-   }, [session, params.id]);
+   }, [session, id]);
 
   if (!asset || loading) {
     return (

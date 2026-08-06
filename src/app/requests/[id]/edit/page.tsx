@@ -4,6 +4,7 @@ import { RequestForm } from "@/app/requests/components/RequestForm";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { use } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
@@ -19,8 +20,9 @@ interface Request {
 export default function EditRequestPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = use(params);
   const { data: session, status } = useSession();
   const router = useRouter();
   const [request, setRequest] = useState<Request | null>(null);
@@ -37,7 +39,7 @@ export default function EditRequestPage({
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch(`/api/requests/${params.id}`);
+        const res = await fetch(`/api/requests/${id}`);
         if (!res.ok) throw new Error("Failed to fetch request");
         const reqData = await res.json();
         
@@ -60,7 +62,7 @@ export default function EditRequestPage({
     if (session?.user) {
       fetchData();
     }
-  }, [params.id, session, router]);
+  }, [id, session, router]);
 
   if (loading || status === "loading") {
     return (
@@ -91,7 +93,7 @@ export default function EditRequestPage({
         <ChevronRight className="h-4 w-4 mx-2" />
         <Link href="/requests" className="hover:text-slate-900">Requests</Link>
         <ChevronRight className="h-4 w-4 mx-2" />
-        <Link href={`/requests/${params.id}/view`} className="hover:text-slate-900">Details</Link>
+        <Link href={`/requests/${id}/view`} className="hover:text-slate-900">Details</Link>
         <ChevronRight className="h-4 w-4 mx-2" />
         <span className="text-slate-900 font-medium">Edit</span>
       </div>
@@ -104,7 +106,7 @@ export default function EditRequestPage({
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-        <RequestForm userId={session?.user.id || ""} editId={params.id} />
+        <RequestForm userId={session?.user.id || ""} editId={id} />
       </div>
     </div>
   );

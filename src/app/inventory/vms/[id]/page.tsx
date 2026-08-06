@@ -18,11 +18,14 @@ import type { SerializedVmInstanceDetail } from "@/types/vm";
 import { getPendingCustomizationForVm } from "@/app/actions/customization-actions";
 import { CustomizationModal } from "@/app/requests/customize/components/CustomizationModal";
 import { toast } from "sonner";
+import { use } from "react";
 import DecommissionModal from "@/components/vms/DecommissionModal";
 import VmCredentialsCard from "../components/VmCredentialsCard";
 import ComplianceTagsCard from "@/components/vms/ComplianceTagsCard";
 
-export default function VmDetailPage({ params }: { params: { id: string } }) {
+export default function VmDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const unwrappedParams = use(params);
+  const id = unwrappedParams.id;
   const { data: session } = useSession();
   const [vm, setVm] = useState<SerializedVmInstanceDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -48,8 +51,8 @@ export default function VmDetailPage({ params }: { params: { id: string } }) {
     const fetchVm = async () => {
       try {
         const [vmData, pendingCheck] = await Promise.all([
-          fetchVmDetailsSerialized(params.id),
-          getPendingCustomizationForVm(params.id, session.user.id)
+          fetchVmDetailsSerialized(id),
+          getPendingCustomizationForVm(id, session.user.id)
         ]);
         if (!vmData) notFound();
         setVm(vmData);
@@ -61,7 +64,7 @@ export default function VmDetailPage({ params }: { params: { id: string } }) {
       }
     };
     fetchVm();
-  }, [params.id, session, isCustomizeModalOpen, isDecommissionModalOpen]);
+  }, [id, session, isCustomizeModalOpen, isDecommissionModalOpen]);
 
   const handleRename = async () => {
     if (!newSystemName.trim() || !vm) return;

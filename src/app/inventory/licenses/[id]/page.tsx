@@ -19,8 +19,12 @@ import { SoftwareLicense } from "@/types/inventory";
 import { fetchLicenseDetailsWithAssets } from "@/app/actions/license-actions";
 
 
-export default function LicenseDetailPage({ params }: { params: { id: string } }) {
+import { use } from "react";
 
+export default function LicenseDetailPage({ params }: { params: Promise<{ id: string }> }) {
+
+   const unwrappedParams = use(params);
+   const id = unwrappedParams.id;
    const { data: session } = useSession();
    const [license, setLicense] = useState<SoftwareLicense>();
 
@@ -30,9 +34,9 @@ export default function LicenseDetailPage({ params }: { params: { id: string } }
      redirect("/inventory/vms");
   }
   useEffect(() => {
-    const getLicense = async (id: string) => {
+    const getLicense = async (licenseId: string) => {
       try {
-        const res = await fetchLicenseDetailsWithAssets(id);
+        const res = await fetchLicenseDetailsWithAssets(licenseId);
         if (!res) return;
         setLicense(res as unknown as SoftwareLicense);
       } catch (err) {
@@ -41,9 +45,9 @@ export default function LicenseDetailPage({ params }: { params: { id: string } }
     };
 
     if (session) {
-      getLicense(params.id);
+      getLicense(id);
     }
-  }, [session, params.id]);
+  }, [session, id]);
 
 
   return (

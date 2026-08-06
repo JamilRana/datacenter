@@ -39,11 +39,23 @@ interface Setting {
   description?: string | null;
 }
 
+import { useSearchParams } from "next/navigation";
+
 export default function AdminSettingsPage() {
   const { data: session, status } = useSession();
+  const searchParams = useSearchParams();
+  const tabQuery = searchParams.get("tab") || "smtp";
+  const [activeTab, setActiveTab] = useState(tabQuery);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [health, setHealth] = useState<SystemHealth | null>(null);
+
+  // Sync activeTab state if tab query param changes
+  useEffect(() => {
+    if (tabQuery) {
+      setActiveTab(tabQuery);
+    }
+  }, [tabQuery]);
   
   // SMTP Form
   const [smtpHost, setSmtpHost] = useState("");
@@ -317,7 +329,7 @@ export default function AdminSettingsPage() {
       </div>
 
       {/* Settings Tabs */}
-      <Tabs defaultValue="smtp" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="smtp" className="gap-2">
             <Mail className="h-4 w-4" /> SMTP Configuration
