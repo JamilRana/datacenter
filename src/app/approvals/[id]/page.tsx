@@ -19,6 +19,7 @@ import { Server, Play } from "lucide-react";
 import { ROLES } from "@/lib/roles";
 import { executeRequest } from "@/app/actions/approval-actions";
 import { toast } from "sonner";
+import { DcOpsExecutionCenter } from "../components/DcOpsExecutionCenter";
 
 type EntityType = "request" | "customization";
 
@@ -87,6 +88,34 @@ export default function ApprovalDetailPage({
     }
   };
 
+  const loadEntity = async () => {
+    try {
+      setError(null);
+
+      // ✅ SINGLE FETCH BASED ON TYPE
+      if (entityType === "request") {
+        const response = await getDetailedRequest(id);
+        if (!response) throw new Error("Request not found");
+        // Handle both ApiResponse and raw data for backwards compatibility
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = (response as any).success ? (response as any).data : response;
+        if (!data) throw new Error("Request not found");
+        setRequest(data as detailsRequest);
+        setCustomizationRequest(null);
+      } else if (entityType === "customization") {
+        const data = await getCustomizationRequest(id);
+        if (!data) throw new Error("Customization request not found");
+        setCustomizationRequest(data);
+        setRequest(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load entity");
+      console.error("Fetch error:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (status === "unauthenticated") {
       window.location.href = "/auth";
@@ -101,35 +130,7 @@ export default function ApprovalDetailPage({
       return;
     }
 
-    const loadEntity = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        // ✅ SINGLE FETCH BASED ON TYPE
-        if (entityType === "request") {
-          const response = await getDetailedRequest(id);
-          if (!response) throw new Error("Request not found");
-          // Handle both ApiResponse and raw data for backwards compatibility
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const data = (response as any).success ? (response as any).data : response;
-          if (!data) throw new Error("Request not found");
-          setRequest(data as detailsRequest);
-          setCustomizationRequest(null);
-        } else if (entityType === "customization") {
-          const data = await getCustomizationRequest(id);
-          if (!data) throw new Error("Customization request not found");
-          setCustomizationRequest(data);
-          setRequest(null);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load entity");
-        console.error("Fetch error:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
+    setIsLoading(true);
     loadEntity();
   }, [id, userId, entityType]);
 
@@ -159,20 +160,23 @@ export default function ApprovalDetailPage({
               displayRequest?.requestType === "DECOMMISSION" ? "bg-red-50 text-red-700" :
               "bg-emerald-50 text-emerald-700"
             }`}>
-              {isCustomization ? "CUSTOMIZATION" : displayRequest?.requestType.replace(/_/g, " ")}
+              {isCustomization ? "Customization" : displayRequest?.requestType || "Request"}
             </span>
           </div>
-          <p className="text-slate-500">ID: {id}</p>
+          <p className="text-sm text-slate-500">
+            {isCustomization ? `Target: ${displayCustomization?.targetVm?.hostname}` : 
+             `System: ${displayRequest?.systemName}`}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
           {canProvision && (
-            <Button onClick={() => setShowProvisionModal(true)}>
+            <Button onClick={() => setShowProvisionModal(true)} className="bg-indigo-600 hover:bg-indigo-700">
               <Server className="h-4 w-4 mr-2" />
               Provision VMs
             </Button>
           )}
           {canProvisionAccess && (
-            <Button onClick={() => setShowProvisionAccessModal(true)}>
+            <Button onClick={() => setShowProvisionAccessModal(true)} className="bg-amber-600 hover:bg-amber-700">
               <Server className="h-4 w-4 mr-2" />
               Provision Access
             </Button>
@@ -192,7 +196,12 @@ export default function ApprovalDetailPage({
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* Main Content */}
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 space-y-8">
+          {/* DC Ops Execution Center for approved/in-progress multi-resource requests */}
+          {session?.user && displayRequest && isDCOps && (displayRequest.status === "APPROVED" || displayRequest.status === "PARTIALLY_PROVISIONED" || displayRequest.status === "PROVISIONED") && (
+            <DcOpsExecutionCenter request={displayRequest} onRefresh={loadEntity} />
+          )}
+
           {session?.user && displayRequest && (
             <RequestDetails requestId={displayRequest.id} hideTimeline={true} />
           )}

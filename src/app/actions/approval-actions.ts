@@ -453,6 +453,7 @@ export async function handleApprovalDecision(
         requesterId, 
         systemName, 
         decision === ApprovalDecision.REJECTED ? "REJECTED" : "APPROVED",
+        entityId,
         comments || undefined
       );
     }
@@ -796,7 +797,8 @@ export async function executeRequest(requestId: string, notes?: string): Promise
         await NotificationService.notifyRequester(
           customization.requesterId,
           vmHostname,
-          "CUSTOMIZATION_APPLIED"
+          "CUSTOMIZATION_APPLIED",
+          customization.id
         );
       }
     }
@@ -984,6 +986,9 @@ export interface VmProvisioningInput {
   publicIpAddress: string | null;
   subdomain: string | null;
   sequenceNumber: number;
+  vmSpecificationId?: string | null;
+  hostAssetId?: string | null;
+  vpnRequired?: boolean;
 }
 
 interface ProvisionResult {
@@ -991,6 +996,7 @@ interface ProvisionResult {
   message: string;
   provisionedCount?: number;
   errors?: { index: number; field: string; message: string }[];
+  newStatus?: RequestStatus;
 }
 
 export async function provisionVMs(
@@ -1015,11 +1021,18 @@ export async function provisionVMs(
     // Increase timeout for VM provisioning (30 seconds)
     const result = await prisma.$transaction(
       async (tx: any) => {
-      // Fetch the request
+      // Fetch the request with full VM specifications and relations
       const request = await tx.request.findUnique({
         where: { id: requestId },
         include: {
           vmInstances: true,
+          vmSpecifications: {
+            include: {
+              connectivity: true,
+              firewallRules: true,
+              additionalStorage: true
+            }
+          },
           requester: true,
           additionalDisks: true,
           firewallPorts: true,
@@ -1035,13 +1048,14 @@ export async function provisionVMs(
         return { success: false, message: `Cannot provision VM for request with status: ${request.status}` };
       }
 
+      const totalQuantity = request.quantity || (request.vmSpecifications?.length || 1);
       const existingCount = request.vmInstances.length;
       const totalAfterProvision = existingCount + vms.length;
 
-      if (totalAfterProvision > request.quantity) {
+      if (totalAfterProvision > totalQuantity) {
         return {
           success: false,
-          message: `Cannot provision ${vms.length} VMs. Only ${request.quantity - existingCount} VMs remaining.`,
+          message: `Cannot provision ${vms.length} VMs. Only ${totalQuantity - existingCount} VMs remaining.`,
         };
       }
 
@@ -1119,6 +1133,63 @@ export async function provisionVMs(
           continue;
         }
 
+        // Resolve specific specification for this VM if available
+        let matchedSpec: any = null;
+        if (vm.vmSpecificationId) {
+          matchedSpec = request.vmSpecifications?.find((s: any) => s.id === vm.vmSpecificationId);
+        } else if (request.vmSpecifications && request.vmSpecifications.length > 0) {
+          const targetIndex = (vm.sequenceNumber - 1) % request.vmSpecifications.length;
+          matchedSpec = request.vmSpecifications[targetIndex];
+        }
+
+        const vcpu = matchedSpec?.vcpu ?? request.vcpu ?? 1;
+        const ramGb = matchedSpec?.ramGb ?? request.ramGb ?? 2;
+        const storageGb = matchedSpec?.storageGb ?? request.storageGb ?? 50;
+        const osVersion = matchedSpec?.osVersion ?? request.osVersion ?? null;
+        const osName = request.osName ?? (osVersion ? osVersion.split(" ")[0] : "Linux");
+        const stack = matchedSpec?.stack ?? request.systemName ?? null;
+        const environment = matchedSpec?.environment ?? request.environment;
+
+        const specDisks = matchedSpec?.additionalStorage && matchedSpec.additionalStorage.length > 0
+          ? matchedSpec.additionalStorage.map((d: any) => ({
+              sizeGb: d.sizeGb,
+              purpose: d.purpose || null,
+              sequence: d.sequence
+            }))
+          : request.additionalDisks.map((d: any) => ({
+              sizeGb: d.sizeGb,
+              purpose: d.purpose || null,
+              sequence: d.sequence
+            }));
+
+        const specFirewalls = matchedSpec?.firewallRules && matchedSpec.firewallRules.length > 0
+          ? matchedSpec.firewallRules.map((p: any) => ({
+              port: p.port,
+              protocol: p.protocol,
+              purpose: p.purpose || "",
+              source: p.source || null
+            }))
+          : request.firewallPorts.map((p: any) => ({
+              port: p.port,
+              protocol: p.protocol,
+              purpose: p.purpose || "",
+              source: p.source || null
+            }));
+
+        const specConnectivity = matchedSpec?.connectivity && matchedSpec.connectivity.length > 0
+          ? matchedSpec.connectivity.map((a: any) => ({
+              accessType: a.accessType
+            }))
+          : request.networkAccess.map((a: any) => ({
+              accessType: a.accessType
+            }));
+
+        const isVpnRequiredForThisVm = vm.vpnRequired ?? (
+          matchedSpec?.connectivity?.some((c: any) => c.accessType === "VPN") ||
+          request.vpnRequired ||
+          false
+        );
+
         // Create VM instance
         const vmInstance = await tx.vmInstance.create({
           data: {
@@ -1127,47 +1198,38 @@ export async function provisionVMs(
             hostname: trimmedHostname,
             ipAddress: trimmedIpAddress,
             publicIpAddress: vm.publicIpAddress,
-            subdomain: vm.subdomain,
+            subdomain: vm.subdomain || matchedSpec?.subdomain || request.subdomain || null,
             ownerId: requesterId,
             status: VmStatus.ACTIVE,
             provisionedAt: new Date(),
             renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 6)),
-            environment: request.environment,
-            systemName: request.systemName,
+            environment: environment,
+            systemName: stack || request.systemName,
+            hostAssetId: vm.hostAssetId || null,
+            vpnRequired: isVpnRequiredForThisVm,
             cloneOfRequestId: request.requestType === RequestType.CLONE_VM ? requestId : null,
           },
         });
 
-        // Create initial spec from request
+        // Create initial spec from specific spec or request
         const spec = await tx.vmSpec.create({
           data: {
             vmInstanceId: vmInstance.id,
-            vcpu: request.vcpu || 1,
-            ramGb: request.ramGb || 2,
-            storageGb: request.storageGb || 50,
-            osName: request.osName,
-            osVersion: request.osVersion,
+            vcpu,
+            ramGb,
+            storageGb,
+            osName,
+            osVersion,
             effectiveFrom: new Date(),
             sourceRequestId: request.id,
             additionalDisks: {
-              create: request.additionalDisks.map((d: any) => ({
-                sizeGb: d.sizeGb,
-                purpose: d.purpose,
-                sequence: d.sequence
-              }))
+              create: specDisks
             },
             firewallPorts: {
-              create: request.firewallPorts.map((p: any) => ({
-                port: p.port,
-                protocol: p.protocol,
-                purpose: p.purpose,
-                source: p.source
-              }))
+              create: specFirewalls
             },
             networkAccess: {
-              create: request.networkAccess.map((a: any) => ({
-                accessType: a.accessType
-              }))
+              create: specConnectivity
             }
           }
         });
@@ -1205,9 +1267,34 @@ export async function provisionVMs(
         };
       }
 
-      // Update request status
+      // Calculate combined request status
+      const isAllVmsProvisioned = totalAfterProvision >= totalQuantity;
+
+      // Check if VPN is required and whether VPN is already provisioned
+      const isVpnRequired = request.vpnRequired || 
+        request.requestType === RequestType.VPN_ACCESS ||
+        request.vmSpecifications?.some((s: any) => s.connectivity?.some((c: any) => c.accessType === "VPN"));
+      
+      const vpnAssignmentsCount = await tx.vpnAssignment.count({
+        where: {
+          OR: [
+            { vm: { requestId: requestId } },
+            { namespace: { requests: { some: { id: requestId } } } }
+          ]
+        }
+      });
+
+      // Check if K8s namespace is required and whether it is provisioned
+      const isK8sRequired = request.requestType === RequestType.K8S_NAMESPACE || request.kubernetesOption;
+      const k8sClusterCount = await tx.k8sCluster.count({
+        where: { requestId: requestId }
+      });
+
       let newStatus: RequestStatus;
-      if (totalAfterProvision === request.quantity) {
+      const isAllVpnFulfilled = !isVpnRequired || vpnAssignmentsCount > 0;
+      const isAllK8sFulfilled = !isK8sRequired || k8sClusterCount > 0;
+
+      if (isAllVmsProvisioned && isAllVpnFulfilled && isAllK8sFulfilled) {
         newStatus = RequestStatus.PROVISIONED;
       } else {
         newStatus = RequestStatus.PARTIALLY_PROVISIONED;
@@ -1230,7 +1317,7 @@ export async function provisionVMs(
           entityId: requestId,
           details: JSON.stringify({
             provisionedCount: provisionedVms.length,
-            totalVms: request.quantity,
+            totalVms: totalQuantity,
             newStatus,
           }),
         },

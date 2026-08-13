@@ -377,3 +377,276 @@ export async function provisionAccessRequest(
     return { success: false, message: error.message || "Failed to provision access" };
   }
 }
+
+export interface ProvisionVpnForRequestInput {
+  username: string;
+  fullName: string;
+  vpnProfile: string;
+  assignedIp: string;
+  selectedVmIds?: string[];
+  selectedNamespaceIds?: string[];
+  notes?: string;
+  expiresAt?: Date | null;
+}
+
+export async function provisionVpnForRequest(
+  requestId: string,
+  data: ProvisionVpnForRequestInput
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+    const isDCOps = hasRole(session.user.roles, ROLES.DCOPS) || hasRole(session.user.roles, ROLES.ADMIN);
+    if (!isDCOps) throw new Error("Only DC Ops or Administrators can provision VPN access");
+
+    const request = await prisma.request.findUnique({
+      where: { id: requestId },
+      include: {
+        vmInstances: true,
+        vmSpecifications: true
+      }
+    });
+    if (!request) throw new Error("Request not found");
+
+    // 1. Create or update VPN User
+    const vpnUser = await prisma.vpnUser.upsert({
+      where: { username: data.username },
+      update: {
+        fullName: data.fullName,
+        vpnProfile: data.vpnProfile || "Full Tunnel",
+        vpnIp: data.assignedIp || "",
+        status: "ACTIVE"
+      },
+      create: {
+        username: data.username,
+        fullName: data.fullName,
+        vpnProfile: data.vpnProfile || "Full Tunnel",
+        vpnIp: data.assignedIp || "",
+        status: "ACTIVE"
+      }
+    });
+
+    // 2. Identify VMs and Namespaces to attach
+    let vmIdsToAssign = data.selectedVmIds || [];
+    if (vmIdsToAssign.length === 0 && request.vmInstances.length > 0) {
+      vmIdsToAssign = request.vmInstances.map((v: any) => v.id);
+    }
+
+    const namespaceIdsToAssign = data.selectedNamespaceIds || [];
+
+    await prisma.$transaction(async (tx: any) => {
+      // Create assignments for VMs
+      for (const vmId of vmIdsToAssign) {
+        const existing = await tx.vpnAssignment.findFirst({
+          where: { vpnUserId: vpnUser.id, vmId }
+        });
+        if (!existing) {
+          await tx.vpnAssignment.create({
+            data: {
+              vpnUserId: vpnUser.id,
+              vmId,
+              assignedById: userId,
+              notes: data.notes || null,
+              expiresAt: data.expiresAt ? new Date(data.expiresAt) : null
+            }
+          });
+        }
+      }
+
+      // Create assignments for Namespaces
+      for (const namespaceId of namespaceIdsToAssign) {
+        const existing = await tx.vpnAssignment.findFirst({
+          where: { vpnUserId: vpnUser.id, namespaceId }
+        });
+        if (!existing) {
+          await tx.vpnAssignment.create({
+            data: {
+              vpnUserId: vpnUser.id,
+              namespaceId,
+              assignedById: userId,
+              notes: data.notes || null,
+              expiresAt: data.expiresAt ? new Date(data.expiresAt) : null
+            }
+          });
+        }
+      }
+
+      // 3. Recalculate status of request
+      const totalVMsRequested = request.quantity || (request.vmSpecifications?.length || 1);
+      const isAllVmsProvisioned = request.vmInstances.length >= totalVMsRequested;
+
+      const isK8sRequired = request.requestType === RequestType.K8S_NAMESPACE || request.kubernetesOption;
+      const k8sClusterCount = await tx.k8sCluster.count({
+        where: { requestId: requestId }
+      });
+      const isAllK8sFulfilled = !isK8sRequired || k8sClusterCount > 0;
+
+      if (isAllVmsProvisioned && isAllK8sFulfilled) {
+        await tx.request.update({
+          where: { id: requestId },
+          data: {
+            status: RequestStatus.PROVISIONED,
+            provisionedAt: new Date()
+          }
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: "PROVISION_VPN_ACCESS",
+          entityType: "REQUEST",
+          entityId: requestId,
+          details: JSON.stringify({
+            vpnUserId: vpnUser.id,
+            username: data.username,
+            assignedVmsCount: vmIdsToAssign.length,
+            assignedNamespacesCount: namespaceIdsToAssign.length,
+            vpnIp: data.assignedIp
+          })
+        }
+      });
+    });
+
+    revalidatePath(`/approvals/${requestId}`);
+    return { success: true, message: `VPN access successfully provisioned for user ${data.username}` };
+  } catch (error: any) {
+    console.error("Error provisioning VPN for request:", error);
+    return { success: false, message: error.message || "Failed to provision VPN access" };
+  }
+}
+
+export interface ProvisionHorizonForRequestInput {
+  username: string;
+  fullName: string;
+  email?: string;
+  assignedIp?: string;
+  selectedVmIds?: string[];
+  selectedNamespaceIds?: string[];
+  notes?: string;
+}
+
+export async function provisionHorizonForRequest(
+  requestId: string,
+  data: ProvisionHorizonForRequestInput
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+    const isDCOps = hasRole(session.user.roles, ROLES.DCOPS) || hasRole(session.user.roles, ROLES.ADMIN);
+    if (!isDCOps) throw new Error("Only DC Ops or Administrators can provision Horizon access");
+
+    const request = await prisma.request.findUnique({
+      where: { id: requestId },
+      include: {
+        vmInstances: true,
+        vmSpecifications: true
+      }
+    });
+    if (!request) throw new Error("Request not found");
+
+    // 1. Create or update Horizon User
+    const horizonUser = await prisma.horizonUser.upsert({
+      where: { username: data.username },
+      update: {
+        fullName: data.fullName,
+        email: data.email || null,
+        status: "ACTIVE"
+      },
+      create: {
+        username: data.username,
+        fullName: data.fullName,
+        email: data.email || null,
+        status: "ACTIVE"
+      }
+    });
+
+    // 2. Identify VMs and Namespaces to attach
+    let vmIdsToAssign = data.selectedVmIds || [];
+    if (vmIdsToAssign.length === 0 && request.vmInstances.length > 0) {
+      vmIdsToAssign = request.vmInstances.map((v: any) => v.id);
+    }
+
+    const namespaceIdsToAssign = data.selectedNamespaceIds || [];
+
+    await prisma.$transaction(async (tx: any) => {
+      // Create assignments for VMs
+      for (const vmId of vmIdsToAssign) {
+        const existing = await tx.horizonAssignment.findFirst({
+          where: { horizonUserId: horizonUser.id, vmId }
+        });
+        if (!existing) {
+          await tx.horizonAssignment.create({
+            data: {
+              horizonUserId: horizonUser.id,
+              vmId,
+              assignedIp: data.assignedIp || null,
+              assignedById: userId,
+              notes: data.notes || null,
+              status: "ACTIVE"
+            }
+          });
+        }
+      }
+
+      // Create assignments for Namespaces
+      for (const namespaceId of namespaceIdsToAssign) {
+        const existing = await tx.horizonAssignment.findFirst({
+          where: { horizonUserId: horizonUser.id, namespaceId }
+        });
+        if (!existing) {
+          await tx.horizonAssignment.create({
+            data: {
+              horizonUserId: horizonUser.id,
+              namespaceId,
+              assignedIp: data.assignedIp || null,
+              assignedById: userId,
+              notes: data.notes || null,
+              status: "ACTIVE"
+            }
+          });
+        }
+      }
+
+      // 3. Recalculate status of request
+      const totalVMsRequested = request.quantity || (request.vmSpecifications?.length || 1);
+      const isAllVmsProvisioned = request.vmInstances.length >= totalVMsRequested;
+
+      if (isAllVmsProvisioned) {
+        await tx.request.update({
+          where: { id: requestId },
+          data: {
+            status: RequestStatus.PROVISIONED,
+            provisionedAt: new Date()
+          }
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: "PROVISION_HORIZON_ACCESS",
+          entityType: "REQUEST",
+          entityId: requestId,
+          details: JSON.stringify({
+            horizonUserId: horizonUser.id,
+            username: data.username,
+            assignedVmsCount: vmIdsToAssign.length,
+            assignedNamespacesCount: namespaceIdsToAssign.length,
+            assignedIp: data.assignedIp
+          })
+        }
+      });
+    });
+
+    revalidatePath(`/approvals/${requestId}`);
+    return { success: true, message: `Horizon access successfully provisioned for user ${data.username}` };
+  } catch (error: any) {
+    console.error("Error provisioning Horizon for request:", error);
+    return { success: false, message: error.message || "Failed to provision Horizon access" };
+  }
+}

@@ -55,7 +55,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const requiredFields = [
   "systemName",
-  "purpose", 
+  "purpose",
   "environment",
   "osName",
   "osVersion",
@@ -407,7 +407,7 @@ export function RequestForm({
           setExpandedSpecs([mapped[0].id]);
         }
       }
-      
+
       if ((prefillData as any).requestResources && (prefillData as any).requestResources.length > 0) {
         const vms = (prefillData as any).requestResources.map((r: any) => r.vmId).filter(Boolean);
         const ns = (prefillData as any).requestResources.map((r: any) => r.namespaceId).filter(Boolean);
@@ -454,45 +454,45 @@ export function RequestForm({
         setPrefillData(requestData);
 
         if (requestData) {
-            setAdditionalDisks(
-              requestData?.additionalDisks?.map(d => ({
-                sequence: d.sequence,
-                sizeGb: d.sizeGb,
-                purpose: d.purpose || "",
-              })) || [{ sequence: 1, sizeGb: 0, purpose: "" }]
-            );
+          setAdditionalDisks(
+            requestData?.additionalDisks?.map(d => ({
+              sequence: d.sequence,
+              sizeGb: d.sizeGb,
+              purpose: d.purpose || "",
+            })) || [{ sequence: 1, sizeGb: 0, purpose: "" }]
+          );
 
-            setFirewallPorts(
-              requestData?.firewallPorts?.map(p => ({
-                port: p.port,
-                protocol: p.protocol || Protocol.TCP,
-                purpose: p.purpose || "",
-                source: p.source || "",
-              })) || [{ port: 80, protocol: Protocol.TCP, purpose: "HTTP", source: "" }]
-            );
+          setFirewallPorts(
+            requestData?.firewallPorts?.map(p => ({
+              port: p.port,
+              protocol: p.protocol || Protocol.TCP,
+              purpose: p.purpose || "",
+              source: p.source || "",
+            })) || [{ port: 80, protocol: Protocol.TCP, purpose: "HTTP", source: "" }]
+          );
 
-            setNetworkAccess(requestData?.networkAccess?.map((n: { accessType: string }) => n.accessType) || ["LOCAL"]);
+          setNetworkAccess(requestData?.networkAccess?.map((n: { accessType: string }) => n.accessType) || ["LOCAL"]);
 
-            const attachments = requestData?.attachments || [];
-            const securityRep = attachments.find((a: { attachmentType: string }) => a.attachmentType === "SECURITY_REPORT");
-            const justification = attachments.find((a: { attachmentType: string }) => a.attachmentType === "JUSTIFICATION");
-            setExistingAttachments({
-              securityReport: securityRep ? { id: securityRep.id, fileName: securityRep.fileName, filePath: securityRep.filePath } : undefined,
-              justification: justification ? { id: justification.id, fileName: justification.fileName, filePath: justification.filePath } : undefined,
-            });
+          const attachments = requestData?.attachments || [];
+          const securityRep = attachments.find((a: { attachmentType: string }) => a.attachmentType === "SECURITY_REPORT");
+          const justification = attachments.find((a: { attachmentType: string }) => a.attachmentType === "JUSTIFICATION");
+          setExistingAttachments({
+            securityReport: securityRep ? { id: securityRep.id, fileName: securityRep.fileName, filePath: securityRep.filePath } : undefined,
+            justification: justification ? { id: justification.id, fileName: justification.fileName, filePath: justification.filePath } : undefined,
+          });
 
-            if (securityRep?.filePath) {
-              const url = await getAttachmentUrl(securityRep.filePath);
-              setAttachmentUrls(prev => ({ ...prev, securityReport: url }));
-            }
-            if (justification?.filePath) {
-              const url = await getAttachmentUrl(justification.filePath);
-              setAttachmentUrls(prev => ({ ...prev, justification: url }));
-            }
+          if (securityRep?.filePath) {
+            const url = await getAttachmentUrl(securityRep.filePath);
+            setAttachmentUrls(prev => ({ ...prev, securityReport: url }));
           }
+          if (justification?.filePath) {
+            const url = await getAttachmentUrl(justification.filePath);
+            setAttachmentUrls(prev => ({ ...prev, justification: url }));
+          }
+        }
 
-         setSecurityReport(null);
-         setJustificationDoc(null);
+        setSecurityReport(null);
+        setJustificationDoc(null);
       } catch (err) {
         toast.error(`Failed to load request data: ${err}`);
         setPrefillData(null);
@@ -523,8 +523,17 @@ export function RequestForm({
       return false;
     }
 
+    if (submitType === "submit" && (requestType === "NEW_VM" || requestType === "K8S_NAMESPACE")) {
+      if (!justificationDoc && !existingAttachments.justification) {
+        toast.error("Please upload the Software Requirements Specification (SRS) document");
+        setIsSubmitting(false);
+        setIsAutoSaving(false);
+        return false;
+      }
+    }
+
     const formData = new FormData(form);
-    
+
     if (isDeveloper && assignedRequesterId) {
       formData.set("requesterId", assignedRequesterId);
       formData.set("developerId", userId);
@@ -558,7 +567,7 @@ export function RequestForm({
       if (upgradeRamInput?.value) formData.set("upgradeRamGb", upgradeRamInput.value);
       if (upgradeStorageInput?.value) formData.set("upgradeStorageGb", upgradeStorageInput.value);
     }
-    
+
     if (requestType === "K8S_NAMESPACE" && hasDuplicateSubdomains()) {
       toast.error("Duplicate subdomains are not allowed!");
       setIsSubmitting(false);
@@ -580,12 +589,12 @@ export function RequestForm({
     } else {
       formData.set("subdomain", subdomain);
     }
-    const hasVpn = requestType === "NEW_VM" 
+    const hasVpn = requestType === "NEW_VM"
       ? vmSpecifications.some(spec => spec.connectivity?.includes("VPN"))
       : networkAccess.includes("VPN");
     formData.set("vpnRequired", hasVpn ? "on" : "off");
-    
-    const hasPublicIp = requestType === "NEW_VM" 
+
+    const hasPublicIp = requestType === "NEW_VM"
       ? vmSpecifications.some(spec => spec.connectivity?.includes("INTERNET"))
       : networkAccess.includes("INTERNET");
     formData.set("requiredPublicIP", hasPublicIp ? "on" : "off");
@@ -680,7 +689,7 @@ export function RequestForm({
         }
       }
       formData.set("vmSpecifications", JSON.stringify(vmSpecifications));
-      
+
       // Clear or set request-level fields based on first spec
       const firstSpec = vmSpecifications[0];
       formData.set("vcpu", firstSpec.vcpu);
@@ -729,7 +738,7 @@ export function RequestForm({
       formData.set("selectedResources", JSON.stringify({ vmIds: selectedVmIds, namespaceIds: selectedNamespaceIds }));
       formData.set("accessType", requestType === "VPN_ACCESS" ? "VPN" : "HORIZON");
       formData.set("accessJustification", purpose);
-      
+
       // Fallback for legacy columns constraint
       if (selectedVmIds.length > 0) {
         formData.set("accessTargetVmId", selectedVmIds[0]);
@@ -770,7 +779,7 @@ export function RequestForm({
         if (!isAutoSave) {
           toast.success(`Request ${submitType === "submit" ? "submitted for approval" : "saved as draft"}!`);
         }
-        
+
         // If it was the first save of a new request, store the ID to continue editing
         if (!isEditing && !draftRequestId && result.id) {
           setDraftRequestId(result.id);
@@ -928,7 +937,7 @@ export function RequestForm({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const getDefaultValue = (value: string | number | boolean | null | undefined, defaultValue: string) => 
+  const getDefaultValue = (value: string | number | boolean | null | undefined, defaultValue: string) =>
     value !== null && value !== undefined ? String(value) : defaultValue;
 
   return (
@@ -978,10 +987,10 @@ export function RequestForm({
                 </div>
 
                 <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-blue-100 mt-4">
-                  <Checkbox 
-                    id="cloneFullDisk" 
-                    checked={cloneFullDisk} 
-                    onCheckedChange={(c) => setCloneFullDisk(!!c)} 
+                  <Checkbox
+                    id="cloneFullDisk"
+                    checked={cloneFullDisk}
+                    onCheckedChange={(c) => setCloneFullDisk(!!c)}
                   />
                   <Label htmlFor="cloneFullDisk" className="text-sm font-semibold text-blue-900 cursor-pointer select-none">
                     Confirm full disk clone of the source VM
@@ -1011,8 +1020,8 @@ export function RequestForm({
                         return (
                           <div key={vmId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold shadow-sm">
                             <span>VM: {vm.hostname || vm.request?.systemName || "Unnamed VM"} ({vm.ipAddress})</span>
-                            <button 
-                              type="button" 
+                            <button
+                              type="button"
                               onClick={() => setSelectedVmIds(prev => prev.filter(id => id !== vmId))}
                               className="hover:bg-emerald-100 p-0.5 rounded-full font-bold text-emerald-500 hover:text-emerald-700"
                             >
@@ -1027,8 +1036,8 @@ export function RequestForm({
                         return (
                           <div key={nsId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-xs font-semibold shadow-sm">
                             <span>Namespace: {ns.name}</span>
-                            <button 
-                              type="button" 
+                            <button
+                              type="button"
                               onClick={() => setSelectedNamespaceIds(prev => prev.filter(id => id !== nsId))}
                               className="hover:bg-indigo-100 p-0.5 rounded-full font-bold text-indigo-500 hover:text-indigo-700"
                             >
@@ -1045,9 +1054,9 @@ export function RequestForm({
                     {/* VM Search and Select */}
                     <div className="space-y-2">
                       <Label className="text-slate-700 font-medium text-sm">Select Virtual Machines</Label>
-                      <Input 
-                        type="text" 
-                        placeholder="Search VMs by name or system..." 
+                      <Input
+                        type="text"
+                        placeholder="Search VMs by name or system..."
                         value={vmSearchQuery}
                         onChange={(e) => setVmSearchQuery(e.target.value)}
                         className="border-slate-200 bg-white"
@@ -1071,9 +1080,8 @@ export function RequestForm({
                                     setSelectedVmIds(prev => [...prev, vm.id]);
                                   }
                                 }}
-                                className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${
-                                  isSelected ? 'bg-emerald-50/50 hover:bg-emerald-50' : 'hover:bg-slate-50'
-                                }`}
+                                className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${isSelected ? 'bg-emerald-50/50 hover:bg-emerald-50' : 'hover:bg-slate-50'
+                                  }`}
                               >
                                 <div>
                                   <p className="font-semibold text-slate-800">{vm.hostname || "Unnamed VM"}</p>
@@ -1081,9 +1089,8 @@ export function RequestForm({
                                     System: {vm.request?.systemName || "N/A"} • IP: {vm.ipAddress || "N/A"}
                                   </p>
                                 </div>
-                                <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${
-                                  isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'
-                                }`}>
+                                <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'
+                                  }`}>
                                   {isSelected && "✓"}
                                 </span>
                               </button>
@@ -1098,9 +1105,9 @@ export function RequestForm({
                     {/* Namespace Search and Select */}
                     <div className="space-y-2">
                       <Label className="text-slate-700 font-medium text-sm">Select Kubernetes Namespaces</Label>
-                      <Input 
-                        type="text" 
-                        placeholder="Search Namespaces by name..." 
+                      <Input
+                        type="text"
+                        placeholder="Search Namespaces by name..."
                         value={nsSearchQuery}
                         onChange={(e) => setNsSearchQuery(e.target.value)}
                         className="border-slate-200 bg-white"
@@ -1121,9 +1128,8 @@ export function RequestForm({
                                     setSelectedNamespaceIds(prev => [...prev, ns.id]);
                                   }
                                 }}
-                                className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${
-                                  isSelected ? 'bg-indigo-50/50 hover:bg-indigo-50' : 'hover:bg-slate-50'
-                                }`}
+                                className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${isSelected ? 'bg-indigo-50/50 hover:bg-indigo-50' : 'hover:bg-slate-50'
+                                  }`}
                               >
                                 <div>
                                   <p className="font-semibold text-slate-800">{ns.name}</p>
@@ -1131,9 +1137,8 @@ export function RequestForm({
                                     Supervisor: {ns.supervisorIp || "N/A"}
                                   </p>
                                 </div>
-                                <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${
-                                  isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'
-                                }`}>
+                                <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'
+                                  }`}>
                                   {isSelected && "✓"}
                                 </span>
                               </button>
@@ -1207,29 +1212,29 @@ export function RequestForm({
                       <div className="space-y-3">
                         <div className="space-y-1">
                           <Label className="text-xs">New vCPU Cores (optional)</Label>
-                          <Input 
-                            type="number" 
-                            name="upgradeCpu" 
-                            min={currentCpu + 1} 
-                            placeholder={`Must be > ${currentCpu} cores`} 
+                          <Input
+                            type="number"
+                            name="upgradeCpu"
+                            min={currentCpu + 1}
+                            placeholder={`Must be > ${currentCpu} cores`}
                           />
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs">New RAM in GB (optional)</Label>
-                          <Input 
-                            type="number" 
-                            name="upgradeRamGb" 
-                            min={currentRam + 1} 
-                            placeholder={`Must be > ${currentRam} GB`} 
+                          <Input
+                            type="number"
+                            name="upgradeRamGb"
+                            min={currentRam + 1}
+                            placeholder={`Must be > ${currentRam} GB`}
                           />
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs">Additional Storage in GB (optional)</Label>
-                          <Input 
-                            type="number" 
-                            name="upgradeStorageGb" 
-                            min={1} 
-                            placeholder="Additive (e.g. 50 for +50GB)" 
+                          <Input
+                            type="number"
+                            name="upgradeStorageGb"
+                            min={1}
+                            placeholder="Additive (e.g. 50 for +50GB)"
                           />
                         </div>
                       </div>
@@ -1248,8 +1253,8 @@ export function RequestForm({
             <CardContent className="pt-6 space-y-4">
               <div className="space-y-2">
                 <Label>Detailed Purpose / Justification *</Label>
-                <Textarea 
-                  placeholder="Describe the business or technical justification for this request..." 
+                <Textarea
+                  placeholder="Describe the business or technical justification for this request..."
                   value={purpose}
                   onChange={(e) => setPurpose(e.target.value)}
                   className="min-h-32"
@@ -1303,11 +1308,11 @@ export function RequestForm({
                 className={cn(
                   "px-10 min-w-[220px] transition-all duration-300 shadow-xl font-bold",
                   termsAccepted && (
-                    (requestType === "CLONE_VM" && sourceVmId) || 
-                    (requestType === "SYSTEM_UPGRADE" && upgradeVmId) || 
+                    (requestType === "CLONE_VM" && sourceVmId) ||
+                    (requestType === "SYSTEM_UPGRADE" && upgradeVmId) ||
                     (requestType !== "CLONE_VM" && requestType !== "SYSTEM_UPGRADE" && (selectedVmIds.length > 0 || selectedNamespaceIds.length > 0))
                   ) && purpose.trim()
-                    ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" 
+                    ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
                     : "bg-slate-400 cursor-not-allowed opacity-50"
                 )}
                 disabled={isSubmitting || !termsAccepted || (requestType === "CLONE_VM" ? !sourceVmId : requestType === "SYSTEM_UPGRADE" ? !upgradeVmId : (selectedVmIds.length === 0 && selectedNamespaceIds.length === 0)) || !purpose.trim()}
@@ -1324,8 +1329,8 @@ export function RequestForm({
           {/* Stepper Header */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8 overflow-hidden relative">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-indigo-600" />
-            <RequestStepper 
-              currentStep={currentStep} 
+            <RequestStepper
+              currentStep={currentStep}
               onStepClick={(stepId) => {
                 if (requestType === "NEW_VM" && stepId === 3) {
                   return; // Skip/disable Step 3
@@ -1349,1717 +1354,1712 @@ export function RequestForm({
               </div>
             )}
 
-        <AnimatePresence mode="wait">
-          {currentStep === 0 && (
-            <motion.div
-              key="step0"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-6"
-            >
-              {/* Request Type Selection */}
-              <Card className="shadow-md border-slate-200">
-                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
-                  <div className="flex items-center gap-2 text-blue-600">
-                    <Server className="w-5 h-5" />
-                    <CardTitle className="text-lg">Select Request Type</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {REQUEST_TYPES.map((type) => {
-                      const Icon = type.icon;
-                      return (
-                        <button
-                          key={type.value}
-                          type="button"
-                          onClick={() => {
-                            setRequestType(type.value);
-                            setCurrentStep(1);
-                            const url = new URL(window.location.href);
-                            url.searchParams.set("type", type.value);
-                            router.replace(url.pathname + url.search);
-                          }}
-                          className={`p-6 rounded-xl border-2 transition-all duration-200 text-left hover:shadow-md ${
-                            requestType === type.value
-                              ? "border-blue-600 bg-blue-50"
-                              : "border-slate-200 hover:border-blue-300"
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 mb-3">
-                            <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
-                              <Icon className="w-6 h-6 text-blue-600" />
-                            </div>
-                          </div>
-                          <h4 className="font-semibold text-slate-900">{type.label}</h4>
-                          <p className="text-sm text-slate-500 mt-1">{type.description}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-          
-          {currentStep === 1 && (
-            <motion.div
-              key="step1"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-6"
-            >
-              {/* Source VM Selector for Clone */}
-              {requestType === "CLONE_VM" && (
-                <Card className="shadow-md border-blue-200 bg-blue-50/20">
-                  <CardHeader className="bg-blue-50/50 border-b border-slate-100">
-                    <div className="flex items-center gap-2 text-blue-600">
-                      <Layers className="w-5 h-5" />
-                      <CardTitle className="text-lg">Select Source VM to Clone</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4 pt-6">
-                    <div className="space-y-2">
-                      <Label className="text-blue-855 font-semibold">Source VM *</Label>
-                      <Select value={sourceVmId} onValueChange={handleSourceVmChange} required>
-                        <SelectTrigger className="border-blue-300">
-                          <SelectValue placeholder="Select one of your active VMs to clone" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {cloneableVms.length === 0 ? (
-                            <SelectItem value="none" disabled>No active VMs available to clone</SelectItem>
-                          ) : (
-                            cloneableVms.map((vm) => (
-                              <SelectItem key={vm.id} value={vm.id}>
-                                {vm.hostname || vm.request?.systemName || "Unnamed VM"} — {vm.ipAddress} ({vm.environment || "N/A"})
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-blue-100 mt-4">
-                      <Checkbox 
-                        id="cloneFullDisk" 
-                        checked={cloneFullDisk} 
-                        onCheckedChange={(c) => setCloneFullDisk(!!c)} 
-                      />
-                      <Label htmlFor="cloneFullDisk" className="text-sm font-semibold text-blue-900 cursor-pointer select-none">
-                        Confirm full disk clone of the source VM
-                      </Label>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-
-
-              {/* Target VM Selector for Access Request */}
-              {(requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") && (
-                <Card className="shadow-md border-emerald-200 bg-emerald-50/20">
-                  <CardHeader className="bg-emerald-50/50 border-b border-slate-100">
-                    <div className="flex items-center gap-2 text-emerald-600">
-                      <ShieldCheck className="w-5 h-5" />
-                      <CardTitle className="text-lg">Select Target Resources for Access</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4 pt-6">
-                    <div className="space-y-4">
-                      {/* Selected items badges */}
-                      {(selectedVmIds.length > 0 || selectedNamespaceIds.length > 0) && (
-                        <div className="flex flex-wrap gap-2 p-3 bg-white border border-slate-200 rounded-lg min-h-[50px] items-center">
-                          {selectedVmIds.map(vmId => {
-                            const vm = accessableVms.find(v => v.id === vmId);
-                            if (!vm) return null;
-                            return (
-                              <div key={vmId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold shadow-sm">
-                                <span>VM: {vm.hostname || vm.request?.systemName || "Unnamed VM"} ({vm.ipAddress})</span>
-                                <button 
-                                  type="button" 
-                                  onClick={() => setSelectedVmIds(prev => prev.filter(id => id !== vmId))}
-                                  className="hover:bg-emerald-100 p-0.5 rounded-full font-bold text-emerald-500 hover:text-emerald-700"
-                                >
-                                  &times;
-                                </button>
-                              </div>
-                            );
-                          })}
-                          {selectedNamespaceIds.map(nsId => {
-                            const ns = namespaces.find(n => n.id === nsId);
-                            if (!ns) return null;
-                            return (
-                              <div key={nsId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-xs font-semibold shadow-sm">
-                                <span>Namespace: {ns.name}</span>
-                                <button 
-                                  type="button" 
-                                  onClick={() => setSelectedNamespaceIds(prev => prev.filter(id => id !== nsId))}
-                                  className="hover:bg-indigo-100 p-0.5 rounded-full font-bold text-indigo-500 hover:text-indigo-700"
-                                >
-                                  &times;
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* Search Inputs and Lists */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* VM Search and Select */}
-                        <div className="space-y-2">
-                          <Label className="text-slate-700 font-medium text-sm">Select Virtual Machines</Label>
-                          <Input 
-                            type="text" 
-                            placeholder="Search VMs by name or system..." 
-                            value={vmSearchQuery}
-                            onChange={(e) => setVmSearchQuery(e.target.value)}
-                            className="border-slate-200 bg-white"
-                          />
-                          <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100 shadow-inner min-h-[120px]">
-                            {accessableVms
-                              .filter(vm => {
-                                const label = `${vm.hostname || ""} ${vm.request?.systemName || ""} ${vm.ipAddress || ""}`.toLowerCase();
-                                return label.includes(vmSearchQuery.toLowerCase());
-                              })
-                              .map(vm => {
-                                const isSelected = selectedVmIds.includes(vm.id);
-                                return (
-                                  <button
-                                    key={vm.id}
-                                    type="button"
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setSelectedVmIds(prev => prev.filter(id => id !== vm.id));
-                                      } else {
-                                        setSelectedVmIds(prev => [...prev, vm.id]);
-                                      }
-                                    }}
-                                    className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${
-                                      isSelected ? 'bg-emerald-50/50 hover:bg-emerald-50' : 'hover:bg-slate-50'
-                                    }`}
-                                  >
-                                    <div>
-                                      <p className="font-semibold text-slate-800">{vm.hostname || "Unnamed VM"}</p>
-                                      <p className="text-xs text-slate-500">
-                                        System: {vm.request?.systemName || "N/A"} • IP: {vm.ipAddress || "N/A"}
-                                      </p>
-                                    </div>
-                                    <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${
-                                      isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'
-                                    }`}>
-                                      {isSelected && "✓"}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            {accessableVms.length === 0 && (
-                              <p className="text-xs text-slate-400 p-3 text-center">No active VMs available</p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Namespace Search and Select */}
-                        <div className="space-y-2">
-                          <Label className="text-slate-700 font-medium text-sm">Select Kubernetes Namespaces</Label>
-                          <Input 
-                            type="text" 
-                            placeholder="Search Namespaces by name..." 
-                            value={nsSearchQuery}
-                            onChange={(e) => setNsSearchQuery(e.target.value)}
-                            className="border-slate-200 bg-white"
-                          />
-                          <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100 shadow-inner min-h-[120px]">
-                            {namespaces
-                              .filter(ns => ns.name.toLowerCase().includes(nsSearchQuery.toLowerCase()))
-                              .map(ns => {
-                                const isSelected = selectedNamespaceIds.includes(ns.id);
-                                return (
-                                  <button
-                                    key={ns.id}
-                                    type="button"
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setSelectedNamespaceIds(prev => prev.filter(id => id !== ns.id));
-                                      } else {
-                                        setSelectedNamespaceIds(prev => [...prev, ns.id]);
-                                      }
-                                    }}
-                                    className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${
-                                      isSelected ? 'bg-indigo-50/50 hover:bg-indigo-50' : 'hover:bg-slate-50'
-                                    }`}
-                                  >
-                                    <div>
-                                      <p className="font-semibold text-slate-800">{ns.name}</p>
-                                      <p className="text-xs text-slate-500">
-                                        Supervisor: {ns.supervisorIp || "N/A"}
-                                      </p>
-                                    </div>
-                                    <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${
-                                      isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'
-                                    }`}>
-                                      {isSelected && "✓"}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            {namespaces.length === 0 && (
-                              <p className="text-xs text-slate-400 p-3 text-center">No namespaces available</p>
-                            )}
-                          </div>
-                        </div>
+            <AnimatePresence mode="wait">
+              {currentStep === 0 && (
+                <motion.div
+                  key="step0"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-6"
+                >
+                  {/* Request Type Selection */}
+                  <Card className="shadow-md border-slate-200">
+                    <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                      <div className="flex items-center gap-2 text-blue-600">
+                        <Server className="w-5 h-5" />
+                        <CardTitle className="text-lg">Select Request Type</CardTitle>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-
-              {/* Developer Assignment */}
-              {isDeveloper && (
-                <Card className="shadow-md border-amber-200 bg-amber-50/30">
-                  <CardHeader>
-                    <CardTitle className="text-lg text-amber-800 flex items-center gap-2">
-                      <Users className="w-5 h-5" /> Assign Responsible Requester
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <Label className="text-amber-800">Requester *</Label>
-                      <Select value={assignedRequesterId} onValueChange={setAssignedRequesterId} required>
-                        <SelectTrigger className="border-amber-300">
-                          <SelectValue placeholder="Select the user responsible for this VM" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {requesters.map((requester) => (
-                            <SelectItem key={requester.id} value={requester.id}>
-                              {requester.name} • {requester.designation || requester.email}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Identity & Project */}
-              <Card className="shadow-md border-slate-200">
-                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
-                  <div className="flex items-center gap-2 text-blue-600">
-                    <Server className="w-5 h-5" />
-                    <CardTitle className="text-lg">System Identification</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
-                  <div className="space-y-2">
-                    <Label>System/Service Name *</Label>
-                    <Input 
-                      name="systemName" 
-                      placeholder="e.g. Health Management Information System" 
-                      value={systemName}
-                      onChange={(e) => setSystemName(e.target.value)}
-                      required 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Project/Program Name</Label>
-                    <Input 
-                      name="projectName" 
-                      placeholder="e.g. DGHS Digitalization" 
-                      value={projectName}
-                      onChange={(e) => setProjectName(e.target.value)}
-                    />
-                  </div>
-                  <div className="md:col-span-2 space-y-2">
-                    <Label>System Purpose *</Label>
-                    <Textarea 
-                      name="purpose" 
-                      placeholder="Briefly describe the business need for this server..." 
-                      className="min-h-[100px]" 
-                      value={purpose}
-                      onChange={(e) => setPurpose(e.target.value)}
-                      required 
-                    />
-                  </div>
-                  {requestType !== "NEW_VM" && (
-                    <>
-                      <div className="space-y-2">
-                        <Label>Target Environment</Label>
-                        <Select name="environment" value={environment} onValueChange={setEnvironment}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {["DEVELOPMENT", "STAGING", "PRODUCTION", "TESTING"].map((e) => (
-                              <SelectItem key={e} value={e}>{e}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Tech Stack */}
-              {requestType !== "NEW_VM" && (
-                <Card className="shadow-md border-slate-200">
-                  <CardHeader className="bg-slate-50/50 border-b border-slate-100">
-                    <div className="flex items-center gap-2 text-purple-600">
-                      <Code className="w-5 h-5" />
-                      <CardTitle className="text-lg">Technology Stack</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
-                    <div className="space-y-2">
-                      <Label>Frontend Technology</Label>
-                      <Input 
-                        name="frontendTech" 
-                        placeholder="e.g. Next.js, Flutter" 
-                        value={frontendTech}
-                        onChange={(e) => setFrontendTech(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Backend Technology</Label>
-                      <Input 
-                        name="backendTech" 
-                        placeholder="e.g. Node.js, Go" 
-                        value={backendTech}
-                        onChange={(e) => setBackendTech(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Database</Label>
-                      <Input 
-                        name="dataBase" 
-                        placeholder="e.g. PostgreSQL, Redis" 
-                        value={dataBase}
-                        onChange={(e) => setDataBase(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Architecture</Label>
-                      <Input 
-                        name="serverArchitecture" 
-                        placeholder="e.g. Microservices, Docker" 
-                        value={serverArchitecture}
-                        onChange={(e) => setServerArchitecture(e.target.value)}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </motion.div>
-          )}
-
-          {currentStep === 2 && (
-            <motion.div
-              key="step2"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-6"
-            >
-              {requestType === "NEW_VM" ? (
-                <Card className="shadow-md border-slate-200">
-                  <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-row items-center justify-between">
-                    <div className="flex items-center gap-2 text-indigo-600">
-                      <Cpu className="w-5 h-5" />
-                      <CardTitle className="text-lg">Resource Specifications</CardTitle>
-                    </div>
-                    <Button 
-                      type="button" 
-                      onClick={() => {
-                        const newId = crypto.randomUUID();
-                        setVmSpecifications([...vmSpecifications, {
-                          id: newId,
-                          stack: "",
-                          environment: "PRODUCTION",
-                          vcpu: "2",
-                          ramGb: "4",
-                          storageGb: "50",
-                          gpuEnabled: false,
-                          gpuVramGb: "",
-                          gpuStorageGb: "",
-                          osVersion: "Ubuntu 22.04 LTS",
-                          connectivity: ["LOCAL"],
-                          firewallRules: [],
-                          subdomain: "",
-                          additionalStorage: []
-                        }]);
-                        setExpandedSpecs([...expandedSpecs, newId]);
-                      }}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 h-8 px-3 rounded-lg"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add VM Specification
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="space-y-4 pt-6">
-                    {vmSpecifications.map((spec, index) => {
-                      const isExpanded = expandedSpecs.includes(spec.id);
-                      return (
-                        <div key={spec.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200">
-                          {/* Card Header toggle */}
-                          <div 
-                            onClick={() => {
-                              if (isExpanded) {
-                                setExpandedSpecs(expandedSpecs.filter(id => id !== spec.id));
-                              } else {
-                                setExpandedSpecs([...expandedSpecs, spec.id]);
-                              }
-                            }}
-                            className="bg-slate-50/40 hover:bg-slate-50 px-5 py-3 border-b border-slate-100 flex justify-between items-center cursor-pointer select-none"
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className="h-5 w-5 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center text-xs font-bold">
-                                {index + 1}
-                              </span>
-                              <span className="font-bold text-slate-700 text-sm">
-                                VM Specification {index + 1} {spec.stack ? `— ${spec.stack}` : ""}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                              <Button 
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRemoveSpec(index)}
-                                className="text-red-500 hover:text-red-700 hover:bg-red-50 text-xs px-2 h-7"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
-                              </Button>
-                              <div className="text-slate-400">
-                                {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Card Content */}
-                          {isExpanded && (
-                            <div className="p-5 space-y-6">
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                  <Label className="text-sm font-bold text-slate-700">Technology Stack</Label>
-                                  <Input 
-                                    value={spec.stack || ""}
-                                    onChange={(e) => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].stack = e.target.value;
-                                      setVmSpecifications(updated);
-                                    }}
-                                    placeholder="e.g. Next.js, Node.js, PostgreSQL, Redis"
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-sm font-bold text-slate-700">Environment Type *</Label>
-                                  <Select 
-                                    value={spec.environment}
-                                    onValueChange={(val) => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].environment = val;
-                                      setVmSpecifications(updated);
-                                    }}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="PRODUCTION">Production</SelectItem>
-                                      <SelectItem value="STAGING">Staging</SelectItem>
-                                      <SelectItem value="TESTING">Testing</SelectItem>
-                                      <SelectItem value="DEVELOPMENT">Development</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                  <Label className="text-sm font-bold text-slate-700">OS Version *</Label>
-                                  <Input 
-                                    value={spec.osVersion || ""}
-                                    onChange={(e) => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].osVersion = e.target.value;
-                                      setVmSpecifications(updated);
-                                    }}
-                                    placeholder="e.g. Ubuntu 22.04 LTS, Windows Server 2022"
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-sm font-bold text-slate-700">Proposed Subdomain (Optional)</Label>
-                                  <Input 
-                                    value={spec.subdomain || ""}
-                                    onChange={(e) => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].subdomain = e.target.value;
-                                      setVmSpecifications(updated);
-                                    }}
-                                    placeholder="e.g. app-name"
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-100">
-                                <div className="space-y-2">
-                                  <Label className="text-sm font-bold text-slate-700">vCPU Cores *</Label>
-                                  <Input 
-                                    type="number"
-                                    value={spec.vcpu || ""}
-                                    onChange={(e) => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].vcpu = e.target.value;
-                                      setVmSpecifications(updated);
-                                    }}
-                                    min="1"
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-sm font-bold text-slate-700">Memory (RAM GB) *</Label>
-                                  <Input 
-                                    type="number"
-                                    value={spec.ramGb || ""}
-                                    onChange={(e) => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].ramGb = e.target.value;
-                                      setVmSpecifications(updated);
-                                    }}
-                                    min="1"
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label className="text-sm font-bold text-slate-700">Primary Storage (GB) *</Label>
-                                  <Input 
-                                    type="number"
-                                    value={spec.storageGb || ""}
-                                    onChange={(e) => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].storageGb = e.target.value;
-                                      setVmSpecifications(updated);
-                                    }}
-                                    min="1"
-                                    required
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="space-y-4 pt-4 border-t border-slate-100">
-                                <div className="flex items-center justify-between">
-                                  <Label className="text-sm font-bold text-slate-700">Require GPU</Label>
-                                  <Switch 
-                                    checked={spec.gpuEnabled}
-                                    onCheckedChange={(val) => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].gpuEnabled = val;
-                                      setVmSpecifications(updated);
-                                    }}
-                                  />
-                                </div>
-                                {spec.gpuEnabled && (
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                                    <div className="space-y-2">
-                                      <Label className="text-sm font-bold text-slate-700">GPU VRAM (GB) *</Label>
-                                      <Input 
-                                        type="number"
-                                        value={spec.gpuVramGb || ""}
-                                        onChange={(e) => {
-                                          const updated = [...vmSpecifications];
-                                          updated[index].gpuVramGb = e.target.value;
-                                          setVmSpecifications(updated);
-                                        }}
-                                        min="1"
-                                        required
-                                      />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label className="text-sm font-bold text-slate-700">GPU Storage (GB) *</Label>
-                                      <Input 
-                                        type="number"
-                                        value={spec.gpuStorageGb || ""}
-                                        onChange={(e) => {
-                                          const updated = [...vmSpecifications];
-                                          updated[index].gpuStorageGb = e.target.value;
-                                          setVmSpecifications(updated);
-                                        }}
-                                        min="1"
-                                        required
-                                      />
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="space-y-3 pt-4 border-t border-slate-100">
-                                <Label className="text-sm font-bold text-slate-700">Connectivity</Label>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-1">
-                                  <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
-                                    <div className="space-y-0.5">
-                                      <Label className="text-sm font-bold text-slate-700">VPN Required</Label>
-                                      <p className="text-[10px] text-slate-400">Secure external VPN connectivity</p>
-                                    </div>
-                                    <Switch 
-                                      checked={spec.connectivity?.includes("VPN")}
-                                      onCheckedChange={(checked) => {
-                                        const updated = [...vmSpecifications];
-                                        let currentConn = [...(updated[index].connectivity || [])];
-                                        if (checked) {
-                                          if (!currentConn.includes("VPN")) currentConn.push("VPN");
-                                        } else {
-                                          currentConn = currentConn.filter(c => c !== "VPN");
-                                        }
-                                        updated[index].connectivity = currentConn;
-                                        setVmSpecifications(updated);
-                                      }}
-                                    />
-                                  </div>
-
-                                  <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
-                                    <div className="space-y-0.5">
-                                      <Label className="text-sm font-bold text-slate-700">Public IP Required</Label>
-                                      <p className="text-[10px] text-slate-400">Direct internet exposure</p>
-                                    </div>
-                                    <Switch 
-                                      checked={spec.connectivity?.includes("INTERNET")}
-                                      onCheckedChange={(checked) => {
-                                        const updated = [...vmSpecifications];
-                                        let currentConn = [...(updated[index].connectivity || [])];
-                                        if (checked) {
-                                          if (!currentConn.includes("INTERNET")) currentConn.push("INTERNET");
-                                        } else {
-                                          currentConn = currentConn.filter(c => c !== "INTERNET");
-                                        }
-                                        updated[index].connectivity = currentConn;
-                                        setVmSpecifications(updated);
-                                      }}
-                                    />
-                                  </div>
-                                </div>
-                                {spec.connectivity.includes("VPN") && (
-                                  <div className="mt-3 space-y-2">
-                                    <Label className="text-sm font-bold text-slate-700">VPN Details *</Label>
-                                    <Input 
-                                      placeholder="Please describe your VPN requirement and who needs access..."
-                                      value={spec.vpnDetails || ""}
-                                      onChange={(e) => {
-                                        const updated = [...vmSpecifications];
-                                        updated[index].vpnDetails = e.target.value;
-                                        setVmSpecifications(updated);
-                                      }}
-                                      required
-                                    />
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="space-y-4 pt-4 border-t border-slate-100">
-                                <Label className="text-sm font-bold text-slate-700">Firewall Rules</Label>
-                                <div className="space-y-3">
-                                  {(spec.firewallRules || []).map((rule: any, ruleIdx: number) => (
-                                    <div key={ruleIdx} className="grid grid-cols-12 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 relative group">
-                                      <div className="col-span-12 md:col-span-3 space-y-1.5">
-                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Port</Label>
-                                        <Input 
-                                          placeholder="Port" 
-                                          value={rule.port || ""} 
-                                          onChange={(e) => {
-                                            const updated = [...vmSpecifications];
-                                            updated[index].firewallRules[ruleIdx].port = parseInt(e.target.value) || 0;
-                                            setVmSpecifications(updated);
-                                          }} 
-                                          type="number" 
-                                          className="h-9 no-spinner" 
-                                        />
-                                      </div>
-                                      <div className="col-span-12 md:col-span-3 space-y-1.5">
-                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Protocol</Label>
-                                        <Select 
-                                          value={rule.protocol} 
-                                          onValueChange={(v) => {
-                                            const updated = [...vmSpecifications];
-                                            updated[index].firewallRules[ruleIdx].protocol = v;
-                                            setVmSpecifications(updated);
-                                          }}
-                                        >
-                                          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="TCP">TCP</SelectItem>
-                                            <SelectItem value="UDP">UDP</SelectItem>
-                                            <SelectItem value="OTHER">Other</SelectItem>
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                      <div className="col-span-12 md:col-span-5 space-y-1.5">
-                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Purpose</Label>
-                                        <Input 
-                                          placeholder="Description" 
-                                          value={rule.purpose || ""} 
-                                          onChange={(e) => {
-                                            const updated = [...vmSpecifications];
-                                            updated[index].firewallRules[ruleIdx].purpose = e.target.value;
-                                            setVmSpecifications(updated);
-                                          }} 
-                                          className="h-9" 
-                                        />
-                                      </div>
-                                      <div className="col-span-12 md:col-span-1 flex items-end justify-end">
-                                        <Button 
-                                          type="button" 
-                                          variant="ghost" 
-                                          size="icon" 
-                                          className="h-9 w-9 text-red-500 hover:bg-red-50" 
-                                          onClick={() => {
-                                            const updated = [...vmSpecifications];
-                                            updated[index].firewallRules = spec.firewallRules.filter((_: any, idx: number) => idx !== ruleIdx);
-                                            setVmSpecifications(updated);
-                                          }}
-                                        >
-                                          <Trash2 className="w-4 h-4" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                  <Button 
-                                    type="button" 
-                                    variant="outline" 
-                                    size="sm" 
-                                    className="w-full border-dashed border-2 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700 h-10" 
-                                    onClick={() => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].firewallRules = [...(spec.firewallRules || []), { port: 80, protocol: "TCP", purpose: "" }];
-                                      setVmSpecifications(updated);
-                                    }}
-                                  >
-                                    <Plus className="w-4 h-4 mr-2" /> Add Firewall Rule
-                                  </Button>
-                                </div>
-                              </div>
-
-                              <div className="space-y-4 pt-4 border-t border-slate-100">
-                                <Label className="text-sm font-bold text-slate-700">Additional Storage</Label>
-                                <div className="space-y-4">
-                                  {(spec.additionalStorage || []).map((disk: any, diskIdx: number) => (
-                                    <div key={diskIdx} className="flex gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 items-end">
-                                      <div className="w-32 space-y-1.5">
-                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Size (GB)</Label>
-                                        <Input 
-                                          placeholder="Size" 
-                                          type="number" 
-                                          value={disk.sizeGb || ""} 
-                                          onChange={(e) => {
-                                            const updated = [...vmSpecifications];
-                                            updated[index].additionalStorage[diskIdx].sizeGb = parseInt(e.target.value) || 0;
-                                            setVmSpecifications(updated);
-                                          }} 
-                                          className="no-spinner" 
-                                        />
-                                      </div>
-                                      <div className="flex-1 space-y-1.5">
-                                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Mount Point/Purpose</Label>
-                                        <Input 
-                                          placeholder="e.g. /var/lib/mysql" 
-                                          value={disk.purpose || ""} 
-                                          onChange={(e) => {
-                                            const updated = [...vmSpecifications];
-                                            updated[index].additionalStorage[diskIdx].purpose = e.target.value;
-                                            setVmSpecifications(updated);
-                                          }} 
-                                        />
-                                      </div>
-                                      <Button 
-                                        type="button" 
-                                        variant="ghost" 
-                                        size="icon" 
-                                        className="text-red-500 hover:bg-red-50" 
-                                        onClick={() => {
-                                          const updated = [...vmSpecifications];
-                                          updated[index].additionalStorage = spec.additionalStorage.filter((_: any, idx: number) => idx !== diskIdx);
-                                          setVmSpecifications(updated);
-                                        }}
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </Button>
-                                    </div>
-                                  ))}
-                                  <Button 
-                                    type="button" 
-                                    variant="outline" 
-                                    size="sm" 
-                                    className="w-full border-dashed border-2 h-10" 
-                                    onClick={() => {
-                                      const updated = [...vmSpecifications];
-                                      updated[index].additionalStorage = [...(spec.additionalStorage || []), { sizeGb: 0, purpose: "" }];
-                                      setVmSpecifications(updated);
-                                    }}
-                                  >
-                                    <Plus className="w-4 h-4 mr-2" /> Add Data Disk
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              ) : requestType === "K8S_NAMESPACE" ? (<>
-                <Card className="shadow-md border-indigo-200 bg-indigo-50/20">
-                  <CardHeader className="bg-indigo-50/50 border-b border-indigo-100 flex flex-row items-center justify-between">
-                    <div className="flex items-center gap-2 text-indigo-600">
-                      <Code className="w-5 h-5" />
-                      <CardTitle className="text-lg">Kubernetes Node Specifications</CardTitle>
-                    </div>
-                    <Button 
-                      type="button" 
-                      onClick={() => setK8sNodeGroups([...k8sNodeGroups, { role: "WORKER", nodeCount: 1, vcpu: 2, ramGb: 4, storageGb: 50 }])}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 h-8 px-3 rounded-lg"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add Node Group
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="space-y-4 pt-6">
-                    {k8sNodeGroups.length === 0 ? (
-                      <div className="text-center py-6 text-sm text-slate-500 italic bg-white rounded-lg border border-slate-100">
-                        No node groups defined. Please add at least one group.
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {k8sNodeGroups.map((group, index) => (
-                          <div key={index} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4 relative">
-                            <button 
+                    </CardHeader>
+                    <CardContent className="pt-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {REQUEST_TYPES.map((type) => {
+                          const Icon = type.icon;
+                          return (
+                            <button
+                              key={type.value}
                               type="button"
                               onClick={() => {
-                                if (k8sNodeGroups.length <= 1) {
-                                  toast.error("At least one node group is required");
-                                  return;
-                                }
-                                setK8sNodeGroups(k8sNodeGroups.filter((_, idx) => idx !== index));
+                                setRequestType(type.value);
+                                setCurrentStep(1);
+                                const url = new URL(window.location.href);
+                                url.searchParams.set("type", type.value);
+                                router.replace(url.pathname + url.search);
                               }}
-                              className="absolute top-4 right-4 text-red-500 hover:text-red-700 transition-colors"
+                              className={`p-6 rounded-xl border-2 transition-all duration-200 text-left hover:shadow-md ${requestType === type.value
+                                  ? "border-blue-600 bg-blue-50"
+                                  : "border-slate-200 hover:border-blue-300"
+                                }`}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                                  <Icon className="w-6 h-6 text-blue-600" />
+                                </div>
+                              </div>
+                              <h4 className="font-semibold text-slate-900">{type.label}</h4>
+                              <p className="text-sm text-slate-500 mt-1">{type.description}</p>
                             </button>
-                            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                              <div className="space-y-1.5">
-                                <Label className="text-xs text-slate-500 font-bold uppercase">Node Role</Label>
-                                <Select 
-                                  value={group.role} 
-                                  onValueChange={(val) => {
-                                    const updated = [...k8sNodeGroups];
-                                    updated[index].role = val;
-                                    setK8sNodeGroups(updated);
-                                  }}
-                                >
-                                  <SelectTrigger className="h-9">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="MASTER">Master Node</SelectItem>
-                                    <SelectItem value="WORKER">Worker Node</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )}
+
+              {currentStep === 1 && (
+                <motion.div
+                  key="step1"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-6"
+                >
+                  {/* Source VM Selector for Clone */}
+                  {requestType === "CLONE_VM" && (
+                    <Card className="shadow-md border-blue-200 bg-blue-50/20">
+                      <CardHeader className="bg-blue-50/50 border-b border-slate-100">
+                        <div className="flex items-center gap-2 text-blue-600">
+                          <Layers className="w-5 h-5" />
+                          <CardTitle className="text-lg">Select Source VM to Clone</CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4 pt-6">
+                        <div className="space-y-2">
+                          <Label className="text-blue-855 font-semibold">Source VM *</Label>
+                          <Select value={sourceVmId} onValueChange={handleSourceVmChange} required>
+                            <SelectTrigger className="border-blue-300">
+                              <SelectValue placeholder="Select one of your active VMs to clone" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {cloneableVms.length === 0 ? (
+                                <SelectItem value="none" disabled>No active VMs available to clone</SelectItem>
+                              ) : (
+                                cloneableVms.map((vm) => (
+                                  <SelectItem key={vm.id} value={vm.id}>
+                                    {vm.hostname || vm.request?.systemName || "Unnamed VM"} — {vm.ipAddress} ({vm.environment || "N/A"})
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-blue-100 mt-4">
+                          <Checkbox
+                            id="cloneFullDisk"
+                            checked={cloneFullDisk}
+                            onCheckedChange={(c) => setCloneFullDisk(!!c)}
+                          />
+                          <Label htmlFor="cloneFullDisk" className="text-sm font-semibold text-blue-900 cursor-pointer select-none">
+                            Confirm full disk clone of the source VM
+                          </Label>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+
+
+                  {/* Target VM Selector for Access Request */}
+                  {(requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") && (
+                    <Card className="shadow-md border-emerald-200 bg-emerald-50/20">
+                      <CardHeader className="bg-emerald-50/50 border-b border-slate-100">
+                        <div className="flex items-center gap-2 text-emerald-600">
+                          <ShieldCheck className="w-5 h-5" />
+                          <CardTitle className="text-lg">Select Target Resources for Access</CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4 pt-6">
+                        <div className="space-y-4">
+                          {/* Selected items badges */}
+                          {(selectedVmIds.length > 0 || selectedNamespaceIds.length > 0) && (
+                            <div className="flex flex-wrap gap-2 p-3 bg-white border border-slate-200 rounded-lg min-h-[50px] items-center">
+                              {selectedVmIds.map(vmId => {
+                                const vm = accessableVms.find(v => v.id === vmId);
+                                if (!vm) return null;
+                                return (
+                                  <div key={vmId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-semibold shadow-sm">
+                                    <span>VM: {vm.hostname || vm.request?.systemName || "Unnamed VM"} ({vm.ipAddress})</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedVmIds(prev => prev.filter(id => id !== vmId))}
+                                      className="hover:bg-emerald-100 p-0.5 rounded-full font-bold text-emerald-500 hover:text-emerald-700"
+                                    >
+                                      &times;
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                              {selectedNamespaceIds.map(nsId => {
+                                const ns = namespaces.find(n => n.id === nsId);
+                                if (!ns) return null;
+                                return (
+                                  <div key={nsId} className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full text-xs font-semibold shadow-sm">
+                                    <span>Namespace: {ns.name}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedNamespaceIds(prev => prev.filter(id => id !== nsId))}
+                                      className="hover:bg-indigo-100 p-0.5 rounded-full font-bold text-indigo-500 hover:text-indigo-700"
+                                    >
+                                      &times;
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Search Inputs and Lists */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* VM Search and Select */}
+                            <div className="space-y-2">
+                              <Label className="text-slate-700 font-medium text-sm">Select Virtual Machines</Label>
+                              <Input
+                                type="text"
+                                placeholder="Search VMs by name or system..."
+                                value={vmSearchQuery}
+                                onChange={(e) => setVmSearchQuery(e.target.value)}
+                                className="border-slate-200 bg-white"
+                              />
+                              <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100 shadow-inner min-h-[120px]">
+                                {accessableVms
+                                  .filter(vm => {
+                                    const label = `${vm.hostname || ""} ${vm.request?.systemName || ""} ${vm.ipAddress || ""}`.toLowerCase();
+                                    return label.includes(vmSearchQuery.toLowerCase());
+                                  })
+                                  .map(vm => {
+                                    const isSelected = selectedVmIds.includes(vm.id);
+                                    return (
+                                      <button
+                                        key={vm.id}
+                                        type="button"
+                                        onClick={() => {
+                                          if (isSelected) {
+                                            setSelectedVmIds(prev => prev.filter(id => id !== vm.id));
+                                          } else {
+                                            setSelectedVmIds(prev => [...prev, vm.id]);
+                                          }
+                                        }}
+                                        className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${isSelected ? 'bg-emerald-50/50 hover:bg-emerald-50' : 'hover:bg-slate-50'
+                                          }`}
+                                      >
+                                        <div>
+                                          <p className="font-semibold text-slate-800">{vm.hostname || "Unnamed VM"}</p>
+                                          <p className="text-xs text-slate-500">
+                                            System: {vm.request?.systemName || "N/A"} • IP: {vm.ipAddress || "N/A"}
+                                          </p>
+                                        </div>
+                                        <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'
+                                          }`}>
+                                          {isSelected && "✓"}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                {accessableVms.length === 0 && (
+                                  <p className="text-xs text-slate-400 p-3 text-center">No active VMs available</p>
+                                )}
                               </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-xs text-slate-500 font-bold uppercase">Node Count</Label>
-                                <Input 
-                                  type="number" 
-                                  value={group.nodeCount} 
-                                  onChange={(e) => {
-                                    const updated = [...k8sNodeGroups];
-                                    updated[index].nodeCount = parseInt(e.target.value) || 1;
-                                    setK8sNodeGroups(updated);
-                                  }}
-                                  min="1" 
-                                  max="20"
-                                  className="h-9"
-                                />
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-xs text-slate-500 font-bold uppercase">vCPU Cores</Label>
-                                <Input 
-                                  type="number" 
-                                  value={group.vcpu} 
-                                  onChange={(e) => {
-                                    const updated = [...k8sNodeGroups];
-                                    updated[index].vcpu = parseInt(e.target.value) || 1;
-                                    setK8sNodeGroups(updated);
-                                  }}
-                                  min="1" 
-                                  max="64"
-                                  className="h-9"
-                                />
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-xs text-slate-500 font-bold uppercase">RAM (GB)</Label>
-                                <Input 
-                                  type="number" 
-                                  value={group.ramGb} 
-                                  onChange={(e) => {
-                                    const updated = [...k8sNodeGroups];
-                                    updated[index].ramGb = parseInt(e.target.value) || 1;
-                                    setK8sNodeGroups(updated);
-                                  }}
-                                  min="1" 
-                                  max="256"
-                                  className="h-9"
-                                />
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-xs text-slate-500 font-bold uppercase">Storage (GB)</Label>
-                                <Input 
-                                  type="number" 
-                                  value={group.storageGb} 
-                                  onChange={(e) => {
-                                    const updated = [...k8sNodeGroups];
-                                    updated[index].storageGb = parseInt(e.target.value) || 1;
-                                    setK8sNodeGroups(updated);
-                                  }}
-                                  min="10" 
-                                  max="2000"
-                                  className="h-9"
-                                />
+                            </div>
+
+                            {/* Namespace Search and Select */}
+                            <div className="space-y-2">
+                              <Label className="text-slate-700 font-medium text-sm">Select Kubernetes Namespaces</Label>
+                              <Input
+                                type="text"
+                                placeholder="Search Namespaces by name..."
+                                value={nsSearchQuery}
+                                onChange={(e) => setNsSearchQuery(e.target.value)}
+                                className="border-slate-200 bg-white"
+                              />
+                              <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100 shadow-inner min-h-[120px]">
+                                {namespaces
+                                  .filter(ns => ns.name.toLowerCase().includes(nsSearchQuery.toLowerCase()))
+                                  .map(ns => {
+                                    const isSelected = selectedNamespaceIds.includes(ns.id);
+                                    return (
+                                      <button
+                                        key={ns.id}
+                                        type="button"
+                                        onClick={() => {
+                                          if (isSelected) {
+                                            setSelectedNamespaceIds(prev => prev.filter(id => id !== ns.id));
+                                          } else {
+                                            setSelectedNamespaceIds(prev => [...prev, ns.id]);
+                                          }
+                                        }}
+                                        className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors ${isSelected ? 'bg-indigo-50/50 hover:bg-indigo-50' : 'hover:bg-slate-50'
+                                          }`}
+                                      >
+                                        <div>
+                                          <p className="font-semibold text-slate-800">{ns.name}</p>
+                                          <p className="text-xs text-slate-500">
+                                            Supervisor: {ns.supervisorIp || "N/A"}
+                                          </p>
+                                        </div>
+                                        <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-white text-[10px] ${isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300'
+                                          }`}>
+                                          {isSelected && "✓"}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                {namespaces.length === 0 && (
+                                  <p className="text-xs text-slate-400 p-3 text-center">No namespaces available</p>
+                                )}
                               </div>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card className="shadow-md border-slate-200 mt-6">
-                  <CardHeader className="bg-slate-50/50 border-b border-slate-100">
-                    <div className="flex items-center gap-2 text-indigo-600">
-                      <Layers className="w-5 h-5" />
-                      <CardTitle className="text-lg">Operating System Details</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
-                    <div className="space-y-2">
-                      <Label>Operating System Name *</Label>
-                      <Input 
-                        name="osName" 
-                        placeholder="e.g. Ubuntu, Rocky Linux" 
-                        value={osName}
-                        onChange={(e) => setOsName(e.target.value)}
-                        required 
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>OS Version *</Label>
-                      <Input 
-                        name="osVersion" 
-                        placeholder="e.g. 22.04 LTS, 9.0" 
-                        value={osVersion}
-                        onChange={(e) => setOsVersion(e.target.value)}
-                        required 
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-              </>) : (
-                <Card className="shadow-md border-slate-200">
-                <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-2 text-indigo-600">
-                    <Cpu className="w-5 h-5" />
-                    <CardTitle className="text-lg">Resource Allocation</CardTitle>
-                  </div>
-                  <div className="flex items-center gap-3 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
-                    <Label htmlFor="quantity" className="text-xs font-bold text-indigo-700 uppercase tracking-wider">Quantity:</Label>
-                    <Input 
-                      name="quantity" 
-                      type="number" 
-                      value={quantity}
-                      onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                      className="w-12 h-7 bg-white border-indigo-200 text-center p-0 no-spinner font-bold" 
-                      min="1" 
-                      max="20" 
-                    />
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-8 pt-8">
-                  {/* Access Request Read-Only Specs Card */}
-                  {(requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") && accessTargetVmId && (
-                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl mb-6">
-                      <h4 className="text-xs font-bold text-emerald-800 mb-2 uppercase tracking-wide">VM Specifications (Read-Only)</h4>
-                      <p className="text-xs text-slate-500 mb-3">Access will be configured for the VM with the following specifications:</p>
-                      <div className="grid grid-cols-3 gap-4 text-center">
-                        <div className="bg-white p-2 rounded-lg border border-emerald-100">
-                          <div className="text-[10px] text-slate-500 uppercase font-semibold">vCPU Cores</div>
-                          <div className="text-sm font-bold text-slate-800">{vcpuValue} Cores</div>
                         </div>
-                        <div className="bg-white p-2 rounded-lg border border-emerald-100">
-                          <div className="text-[10px] text-slate-500 uppercase font-semibold">Memory (RAM)</div>
-                          <div className="text-sm font-bold text-slate-800">{ramValue} GB</div>
-                        </div>
-                        <div className="bg-white p-2 rounded-lg border border-emerald-100">
-                          <div className="text-[10px] text-slate-500 uppercase font-semibold">Disk Storage</div>
-                          <div className="text-sm font-bold text-slate-800">{storageValue} GB</div>
-                        </div>
-                      </div>
-                    </div>
+                      </CardContent>
+                    </Card>
                   )}
 
-                  {/* vCPU */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">vCPU Cores</Label>
-                      {vcpuValue === "other" && <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-medium">Custom</span>}
-                    </div>
-                    <RadioGroup value={vcpuValue} onValueChange={setVcpuValue} className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                      {[1, 2, 4, 8].map((n) => (
-                        <div key={n} className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", vcpuValue === n.toString() ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
-                          <RadioGroupItem value={n.toString()} id={`cpu-${n}`} className="sr-only" />
-                          <Label htmlFor={`cpu-${n}`} className="cursor-pointer text-center">
-                            <div className="text-xl font-bold">{n}</div>
-                            <div className="text-[10px] text-slate-500 uppercase">Cores</div>
-                          </Label>
+
+                  {/* Developer Assignment */}
+                  {isDeveloper && (
+                    <Card className="shadow-md border-amber-200 bg-amber-50/30">
+                      <CardHeader>
+                        <CardTitle className="text-lg text-amber-800 flex items-center gap-2">
+                          <Users className="w-5 h-5" /> Assign Responsible Requester
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <Label className="text-amber-800">Requester *</Label>
+                          <Select value={assignedRequesterId} onValueChange={setAssignedRequesterId} required>
+                            <SelectTrigger className="border-amber-300">
+                              <SelectValue placeholder="Select the user responsible for this VM" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {requesters.map((requester) => (
+                                <SelectItem key={requester.id} value={requester.id}>
+                                  {requester.name} • {requester.designation || requester.email}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
-                      ))}
-                      <div className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", vcpuValue === "other" ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
-                        <RadioGroupItem value="other" id="cpu-other" className="sr-only" />
-                        <Label htmlFor="cpu-other" className="cursor-pointer text-center">
-                          <div className="text-xl font-bold leading-none">?</div>
-                          <div className="text-[10px] text-slate-500 uppercase mt-1">Other</div>
-                        </Label>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Identity & Project */}
+                  <Card className="shadow-md border-slate-200">
+                    <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                      <div className="flex items-center gap-2 text-blue-600">
+                        <Server className="w-5 h-5" />
+                        <CardTitle className="text-lg">System Identification</CardTitle>
                       </div>
-                    </RadioGroup>
-                    {vcpuValue === "other" && <Input name="customVcpu" placeholder="Enter number of cores" type="number" defaultValue={getDefaultValue(prefillData?.vcpu?.toString(), "")} className="mt-2" />}
-                  </div>
-
-                  {/* RAM */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Memory (RAM GB)</Label>
-                    </div>
-                    <RadioGroup value={ramValue} onValueChange={setRamValue} className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                      {[4, 8, 16, 32].map((n) => (
-                        <div key={n} className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", ramValue === n.toString() ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
-                          <RadioGroupItem value={n.toString()} id={`ram-${n}`} className="sr-only" />
-                          <Label htmlFor={`ram-${n}`} className="cursor-pointer text-center">
-                            <div className="text-xl font-bold">{n}</div>
-                            <div className="text-[10px] text-slate-500 uppercase">GB</div>
-                          </Label>
-                        </div>
-                      ))}
-                      <div className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", ramValue === "other" ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
-                        <RadioGroupItem value="other" id="ram-other" className="sr-only" />
-                        <Label htmlFor="ram-other" className="cursor-pointer text-center">
-                          <div className="text-xl font-bold leading-none">?</div>
-                          <div className="text-[10px] text-slate-500 uppercase mt-1">Other</div>
-                        </Label>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
+                      <div className="space-y-2">
+                        <Label>System/Service Name *</Label>
+                        <Input
+                          name="systemName"
+                          placeholder="e.g. Health Management Information System"
+                          value={systemName}
+                          onChange={(e) => setSystemName(e.target.value)}
+                          required
+                        />
                       </div>
-                    </RadioGroup>
-                    {ramValue === "other" && <Input name="customRam" placeholder="Enter RAM in GB" type="number" defaultValue={getDefaultValue(prefillData?.ramGb?.toString(), "")} className="mt-2" />}
-                  </div>
-
-                  {/* Storage */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Primary OS Disk</Label>
-                    </div>
-                    <RadioGroup value={storageValue} onValueChange={setStorageValue} className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                      {[50, 100, 250, 500].map((n) => (
-                        <div key={n} className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", storageValue === n.toString() ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
-                          <RadioGroupItem value={n.toString()} id={`st-${n}`} className="sr-only" />
-                          <Label htmlFor={`st-${n}`} className="cursor-pointer text-center">
-                            <div className="text-xl font-bold">{n}</div>
-                            <div className="text-[10px] text-slate-500 uppercase">GB</div>
-                          </Label>
-                        </div>
-                      ))}
-                      <div className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", storageValue === "other" ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
-                        <RadioGroupItem value="other" id="st-other" className="sr-only" />
-                        <Label htmlFor="st-other" className="cursor-pointer text-center">
-                          <div className="text-xl font-bold leading-none">?</div>
-                          <div className="text-[10px] text-slate-500 uppercase mt-1">Other</div>
-                        </Label>
+                      <div className="space-y-2">
+                        <Label>Project/Program Name</Label>
+                        <Input
+                          name="projectName"
+                          placeholder="e.g. DGHS Digitalization"
+                          value={projectName}
+                          onChange={(e) => setProjectName(e.target.value)}
+                        />
                       </div>
-                    </RadioGroup>
-                    {storageValue === "other" && <Input name="customStorage" placeholder="Enter OS Disk GB" type="number" defaultValue={getDefaultValue(prefillData?.storageGb?.toString(), "")} className="mt-2" />}
-                  </div>
-
-                  {/* OS Details */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
-                    <div className="space-y-2">
-                      <Label>Operating System Name *</Label>
-                      <Input 
-                        name="osName" 
-                        placeholder="e.g. Ubuntu, Windows Server" 
-                        value={osName}
-                        onChange={(e) => setOsName(e.target.value)}
-                        required 
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>OS Version *</Label>
-                      <Input 
-                        name="osVersion" 
-                        placeholder="e.g. 22.04 LTS, 2022" 
-                        value={osVersion}
-                        onChange={(e) => setOsVersion(e.target.value)}
-                        required 
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              )}
-            </motion.div>
-          )}
-
-          {currentStep === 3 && (requestType !== "NEW_VM") && (
-            <motion.div
-              key="step3"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-6"
-            >
-              <Card className="shadow-md border-slate-200">
-                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
-                  <div className="flex items-center gap-2 text-emerald-600">
-                    <Network className="w-5 h-5" />
-                    <CardTitle className="text-lg">Network & Security</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-8 pt-6">
-                    <div className="space-y-4 col-span-2">
-                      <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Connectivity</Label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
-                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
-                          <div className="space-y-0.5">
-                            <Label className="text-sm font-bold text-slate-700">VPN Required</Label>
-                            <p className="text-[10px] text-slate-400">Secure external VPN connectivity</p>
-                          </div>
-                          <Switch 
-                            checked={networkAccess.includes("VPN")}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setNetworkAccess([...networkAccess.filter(n => n !== "VPN"), "VPN"]);
-                              } else {
-                                setNetworkAccess(networkAccess.filter(n => n !== "VPN"));
-                              }
-                            }}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
-                          <div className="space-y-0.5">
-                            <Label className="text-sm font-bold text-slate-700">Public IP Required</Label>
-                            <p className="text-[10px] text-slate-400">Direct internet exposure</p>
-                          </div>
-                          <Switch 
-                            checked={networkAccess.includes("INTERNET")}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setNetworkAccess([...networkAccess.filter(n => n !== "INTERNET"), "INTERNET"]);
-                              } else {
-                                setNetworkAccess(networkAccess.filter(n => n !== "INTERNET"));
-                              }
-                            }}
-                          />
-                        </div>
+                      <div className="md:col-span-2 space-y-2">
+                        <Label>System Purpose *</Label>
+                        <Textarea
+                          name="purpose"
+                          placeholder="Briefly describe the business need for this server..."
+                          className="min-h-[100px]"
+                          value={purpose}
+                          onChange={(e) => setPurpose(e.target.value)}
+                          required
+                        />
                       </div>
-                      {networkAccess.includes("VPN") && (
-                        <div className="mt-4 space-y-2">
-                          <Label className="text-sm font-bold text-slate-700">VPN Details *</Label>
-                          <Input 
-                            name="vpnDetails"
-                            placeholder="Describe who needs access and what resources are required via VPN..."
-                            value={vpnDetails}
-                            onChange={(e) => setVpnDetails(e.target.value)}
-                            required
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                  <div className="space-y-4">
-                    <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Firewall Rules</Label>
-                    <div className="space-y-3">
-                      {firewallPorts.map((port, i) => (
-                        <div key={i} className="grid grid-cols-12 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 relative group">
-                          <div className="col-span-12 md:col-span-3 space-y-1.5">
-                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Port</Label>
-                            <Input placeholder="Port" value={port.port} onChange={(e) => {
-                              const newPorts = [...firewallPorts];
-                              newPorts[i].port = parseInt(e.target.value);
-                              setFirewallPorts(newPorts);
-                            }} type="number" className="h-9 no-spinner" />
-                          </div>
-                          <div className="col-span-12 md:col-span-3 space-y-1.5">
-                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Protocol</Label>
-                            <Select value={port.protocol} onValueChange={(v) => {
-                              const newPorts = [...firewallPorts];
-                              newPorts[i].protocol = v as Protocol;
-                              setFirewallPorts(newPorts);
-                            }}>
-                              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      {requestType !== "NEW_VM" && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Target Environment</Label>
+                            <Select name="environment" value={environment} onValueChange={setEnvironment}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="TCP">TCP</SelectItem>
-                                <SelectItem value="UDP">UDP</SelectItem>
-                                <SelectItem value="OTHER">Other</SelectItem>
+                                {["DEVELOPMENT", "STAGING", "PRODUCTION", "TESTING"].map((e) => (
+                                  <SelectItem key={e} value={e}>{e}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="col-span-12 md:col-span-5 space-y-1.5">
-                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Purpose</Label>
-                            <Input placeholder="Description" value={port.purpose} onChange={(e) => {
-                              const newPorts = [...firewallPorts];
-                              newPorts[i].purpose = e.target.value;
-                              setFirewallPorts(newPorts);
-                            }} className="h-9" />
-                          </div>
-                          <div className="col-span-12 md:col-span-1 flex items-end justify-end">
-                            <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-red-500 hover:bg-red-50" onClick={() => setFirewallPorts(firewallPorts.filter((_, idx) => idx !== i))}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                      <Button type="button" variant="outline" size="sm" className="w-full border-dashed border-2 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700 h-10" onClick={() => setFirewallPorts([...firewallPorts, { port: 80, protocol: Protocol.TCP, purpose: "" }])}>
-                        <Plus className="w-4 h-4 mr-2" /> Add Firewall Rule
-                      </Button>
-                    </div>
-                  </div>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
 
-                  <div className="space-y-4 pt-6 border-t border-slate-100">
-                    <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Host Details</Label>
-                    {requestType === "K8S_NAMESPACE" ? (
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-center">
-                          <Label>Proposed Subdomains *</Label>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSubdomainList([...subdomainList, ""])}
-                            className="h-8 border-dashed hover:bg-slate-50"
-                          >
-                            <Plus className="h-3.5 w-3.5 mr-1" /> Add Subdomain
-                          </Button>
+                  {/* Tech Stack */}
+                  {requestType !== "NEW_VM" && (
+                    <Card className="shadow-md border-slate-200">
+                      <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                        <div className="flex items-center gap-2 text-purple-600">
+                          <Code className="w-5 h-5" />
+                          <CardTitle className="text-lg">Technology Stack</CardTitle>
                         </div>
-                        <div className="space-y-3">
-                          {subdomainList.map((sub, idx) => (
-                            <div key={idx} className="flex items-center gap-2">
-                              <div className="bg-slate-100 px-3 py-2 rounded-lg text-slate-500 text-sm font-medium border border-slate-200">https://</div>
-                              <Input
-                                value={sub}
-                                onChange={(e) => {
-                                  const newList = [...subdomainList];
-                                  newList[idx] = e.target.value;
-                                  setSubdomainList(newList);
-                                  setSubdomain(newList.filter(s => s.trim() !== "").join(","));
-                                }}
-                                placeholder="app-name.dghs.gov.bd"
-                                required={idx === 0}
-                                className="flex-1"
-                              />
-                              {idx > 0 && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => {
-                                    const newList = subdomainList.filter((_, i) => i !== idx);
-                                    setSubdomainList(newList);
-                                    setSubdomain(newList.filter(s => s.trim() !== "").join(","));
-                                  }}
-                                  className="text-red-500 hover:bg-red-50"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                        {hasDuplicateSubdomains() && (
-                          <p className="text-xs text-red-500 font-bold flex items-center gap-1 mt-1">
-                            <Trash2 className="w-3.5 h-3.5 text-red-500" /> Warning: Duplicate subdomains are entered!
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <Label>Proposed Subdomain *</Label>
-                        <div className="flex items-center gap-2">
-                          <div className="bg-slate-100 px-3 py-2 rounded-lg text-slate-500 text-sm font-medium border border-slate-200">https://</div>
-                          <Input 
-                            name="subdomain" 
-                            placeholder="app-name.dghs.gov.bd" 
-                            value={subdomain}
-                            onChange={(e) => setSubdomain(e.target.value)}
-                            required 
-                            className="flex-1" 
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
+                        <div className="space-y-2">
+                          <Label>Frontend Technology</Label>
+                          <Input
+                            name="frontendTech"
+                            placeholder="e.g. Next.js, Flutter"
+                            value={frontendTech}
+                            onChange={(e) => setFrontendTech(e.target.value)}
                           />
                         </div>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                        <div className="space-y-2">
+                          <Label>Backend Technology</Label>
+                          <Input
+                            name="backendTech"
+                            placeholder="e.g. Node.js, Go"
+                            value={backendTech}
+                            onChange={(e) => setBackendTech(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Database</Label>
+                          <Input
+                            name="dataBase"
+                            placeholder="e.g. PostgreSQL, Redis"
+                            value={dataBase}
+                            onChange={(e) => setDataBase(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Architecture</Label>
+                          <Input
+                            name="serverArchitecture"
+                            placeholder="e.g. Microservices, Docker"
+                            value={serverArchitecture}
+                            onChange={(e) => setServerArchitecture(e.target.value)}
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </motion.div>
+              )}
 
-              {/* Additional Disks */}
-              <Card className="shadow-md border-slate-200">
-                <CardHeader className="bg-slate-50/50 border-b border-slate-100">
-                  <div className="flex items-center gap-2 text-blue-600">
-                    <Layers className="w-5 h-5" />
-                    <CardTitle className="text-lg">Additional Storage</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4 pt-6">
-                  {additionalDisks.map((disk, i) => (
-                    <div key={i} className="flex gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 items-end">
-                      <div className="w-32 space-y-1.5">
-                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Size (GB)</Label>
-                        <Input placeholder="Size" type="number" value={disk.sizeGb} onChange={(e) => {
-                          const d = [...additionalDisks];
-                          d[i].sizeGb = parseInt(e.target.value);
-                          setAdditionalDisks(d);
-                        }} className="no-spinner" />
+              {currentStep === 2 && (
+                <motion.div
+                  key="step2"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-6"
+                >
+                  {requestType === "NEW_VM" ? (
+                    <Card className="shadow-md border-slate-200">
+                      <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-row items-center justify-between">
+                        <div className="flex items-center gap-2 text-indigo-600">
+                          <Cpu className="w-5 h-5" />
+                          <CardTitle className="text-lg">Resource Specifications</CardTitle>
+                        </div>
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            const newId = crypto.randomUUID();
+                            setVmSpecifications([...vmSpecifications, {
+                              id: newId,
+                              stack: "",
+                              environment: "PRODUCTION",
+                              vcpu: "2",
+                              ramGb: "4",
+                              storageGb: "50",
+                              gpuEnabled: false,
+                              gpuVramGb: "",
+                              gpuStorageGb: "",
+                              osVersion: "Ubuntu 22.04 LTS",
+                              connectivity: ["LOCAL"],
+                              firewallRules: [],
+                              subdomain: "",
+                              additionalStorage: []
+                            }]);
+                            setExpandedSpecs([...expandedSpecs, newId]);
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 h-8 px-3 rounded-lg"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Add VM Specification
+                        </Button>
+                      </CardHeader>
+                      <CardContent className="space-y-4 pt-6">
+                        {vmSpecifications.map((spec, index) => {
+                          const isExpanded = expandedSpecs.includes(spec.id);
+                          return (
+                            <div key={spec.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200">
+                              {/* Card Header toggle */}
+                              <div
+                                onClick={() => {
+                                  if (isExpanded) {
+                                    setExpandedSpecs(expandedSpecs.filter(id => id !== spec.id));
+                                  } else {
+                                    setExpandedSpecs([...expandedSpecs, spec.id]);
+                                  }
+                                }}
+                                className="bg-slate-50/40 hover:bg-slate-50 px-5 py-3 border-b border-slate-100 flex justify-between items-center cursor-pointer select-none"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <span className="h-5 w-5 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center text-xs font-bold">
+                                    {index + 1}
+                                  </span>
+                                  <span className="font-bold text-slate-700 text-sm">
+                                    VM Specification {index + 1} {spec.stack ? `— ${spec.stack}` : ""}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRemoveSpec(index)}
+                                    className="text-red-500 hover:text-red-700 hover:bg-red-50 text-xs px-2 h-7"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
+                                  </Button>
+                                  <div className="text-slate-400">
+                                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Card Content */}
+                              {isExpanded && (
+                                <div className="p-5 space-y-6">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-2">
+                                      <Label className="text-sm font-bold text-slate-700">Technology Stack</Label>
+                                      <Input
+                                        value={spec.stack || ""}
+                                        onChange={(e) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].stack = e.target.value;
+                                          setVmSpecifications(updated);
+                                        }}
+                                        placeholder="e.g. Next.js, Node.js, PostgreSQL, Redis"
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-sm font-bold text-slate-700">Environment Type *</Label>
+                                      <Select
+                                        value={spec.environment}
+                                        onValueChange={(val) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].environment = val;
+                                          setVmSpecifications(updated);
+                                        }}
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="PRODUCTION">Production</SelectItem>
+                                          <SelectItem value="STAGING">Staging</SelectItem>
+                                          <SelectItem value="TESTING">Testing</SelectItem>
+                                          <SelectItem value="DEVELOPMENT">Development</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-2">
+                                      <Label className="text-sm font-bold text-slate-700">OS Version *</Label>
+                                      <Input
+                                        value={spec.osVersion || ""}
+                                        onChange={(e) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].osVersion = e.target.value;
+                                          setVmSpecifications(updated);
+                                        }}
+                                        placeholder="e.g. Ubuntu 22.04 LTS, Windows Server 2022"
+                                        required
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-sm font-bold text-slate-700">Proposed Subdomain (Optional)</Label>
+                                      <Input
+                                        value={spec.subdomain || ""}
+                                        onChange={(e) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].subdomain = e.target.value;
+                                          setVmSpecifications(updated);
+                                        }}
+                                        placeholder="e.g. app-name"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-100">
+                                    <div className="space-y-2">
+                                      <Label className="text-sm font-bold text-slate-700">vCPU Cores *</Label>
+                                      <Input
+                                        type="number"
+                                        value={spec.vcpu || ""}
+                                        onChange={(e) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].vcpu = e.target.value;
+                                          setVmSpecifications(updated);
+                                        }}
+                                        min="1"
+                                        required
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-sm font-bold text-slate-700">Memory (RAM GB) *</Label>
+                                      <Input
+                                        type="number"
+                                        value={spec.ramGb || ""}
+                                        onChange={(e) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].ramGb = e.target.value;
+                                          setVmSpecifications(updated);
+                                        }}
+                                        min="1"
+                                        required
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-sm font-bold text-slate-700">Primary Storage (GB) *</Label>
+                                      <Input
+                                        type="number"
+                                        value={spec.storageGb || ""}
+                                        onChange={(e) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].storageGb = e.target.value;
+                                          setVmSpecifications(updated);
+                                        }}
+                                        min="1"
+                                        required
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                                    <div className="flex items-center justify-between">
+                                      <Label className="text-sm font-bold text-slate-700">Require GPU</Label>
+                                      <Switch
+                                        checked={spec.gpuEnabled}
+                                        onCheckedChange={(val) => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].gpuEnabled = val;
+                                          setVmSpecifications(updated);
+                                        }}
+                                      />
+                                    </div>
+                                    {spec.gpuEnabled && (
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                                        <div className="space-y-2">
+                                          <Label className="text-sm font-bold text-slate-700">GPU VRAM (GB) *</Label>
+                                          <Input
+                                            type="number"
+                                            value={spec.gpuVramGb || ""}
+                                            onChange={(e) => {
+                                              const updated = [...vmSpecifications];
+                                              updated[index].gpuVramGb = e.target.value;
+                                              setVmSpecifications(updated);
+                                            }}
+                                            min="1"
+                                            required
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label className="text-sm font-bold text-slate-700">GPU Storage (GB) *</Label>
+                                          <Input
+                                            type="number"
+                                            value={spec.gpuStorageGb || ""}
+                                            onChange={(e) => {
+                                              const updated = [...vmSpecifications];
+                                              updated[index].gpuStorageGb = e.target.value;
+                                              setVmSpecifications(updated);
+                                            }}
+                                            min="1"
+                                            required
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="space-y-3 pt-4 border-t border-slate-100">
+                                    <Label className="text-sm font-bold text-slate-700">Connectivity</Label>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-1">
+                                      <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                        <div className="space-y-0.5">
+                                          <Label className="text-sm font-bold text-slate-700">VPN Required</Label>
+                                          <p className="text-[10px] text-slate-400">Secure external VPN connectivity</p>
+                                        </div>
+                                        <Switch
+                                          checked={spec.connectivity?.includes("VPN")}
+                                          onCheckedChange={(checked) => {
+                                            const updated = [...vmSpecifications];
+                                            let currentConn = [...(updated[index].connectivity || [])];
+                                            if (checked) {
+                                              if (!currentConn.includes("VPN")) currentConn.push("VPN");
+                                            } else {
+                                              currentConn = currentConn.filter(c => c !== "VPN");
+                                            }
+                                            updated[index].connectivity = currentConn;
+                                            setVmSpecifications(updated);
+                                          }}
+                                        />
+                                      </div>
+
+                                      <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                        <div className="space-y-0.5">
+                                          <Label className="text-sm font-bold text-slate-700">Public IP Required</Label>
+                                          <p className="text-[10px] text-slate-400">Direct internet exposure</p>
+                                        </div>
+                                        <Switch
+                                          checked={spec.connectivity?.includes("INTERNET")}
+                                          onCheckedChange={(checked) => {
+                                            const updated = [...vmSpecifications];
+                                            let currentConn = [...(updated[index].connectivity || [])];
+                                            if (checked) {
+                                              if (!currentConn.includes("INTERNET")) currentConn.push("INTERNET");
+                                            } else {
+                                              currentConn = currentConn.filter(c => c !== "INTERNET");
+                                            }
+                                            updated[index].connectivity = currentConn;
+                                            setVmSpecifications(updated);
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                    {spec.connectivity.includes("VPN") && (
+                                      <div className="mt-3 space-y-2">
+                                        <Label className="text-sm font-bold text-slate-700">VPN Details *</Label>
+                                        <Input
+                                          placeholder="Please describe your VPN requirement and who needs access..."
+                                          value={spec.vpnDetails || ""}
+                                          onChange={(e) => {
+                                            const updated = [...vmSpecifications];
+                                            updated[index].vpnDetails = e.target.value;
+                                            setVmSpecifications(updated);
+                                          }}
+                                          required
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                                    <Label className="text-sm font-bold text-slate-700">Firewall Rules</Label>
+                                    <div className="space-y-3">
+                                      {(spec.firewallRules || []).map((rule: any, ruleIdx: number) => (
+                                        <div key={ruleIdx} className="grid grid-cols-12 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 relative group">
+                                          <div className="col-span-12 md:col-span-3 space-y-1.5">
+                                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Port</Label>
+                                            <Input
+                                              placeholder="Port"
+                                              value={rule.port || ""}
+                                              onChange={(e) => {
+                                                const updated = [...vmSpecifications];
+                                                updated[index].firewallRules[ruleIdx].port = parseInt(e.target.value) || 0;
+                                                setVmSpecifications(updated);
+                                              }}
+                                              type="number"
+                                              className="h-9 no-spinner"
+                                            />
+                                          </div>
+                                          <div className="col-span-12 md:col-span-3 space-y-1.5">
+                                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Protocol</Label>
+                                            <Select
+                                              value={rule.protocol}
+                                              onValueChange={(v) => {
+                                                const updated = [...vmSpecifications];
+                                                updated[index].firewallRules[ruleIdx].protocol = v;
+                                                setVmSpecifications(updated);
+                                              }}
+                                            >
+                                              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="TCP">TCP</SelectItem>
+                                                <SelectItem value="UDP">UDP</SelectItem>
+                                                <SelectItem value="OTHER">Other</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                          <div className="col-span-12 md:col-span-5 space-y-1.5">
+                                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Purpose</Label>
+                                            <Input
+                                              placeholder="Description"
+                                              value={rule.purpose || ""}
+                                              onChange={(e) => {
+                                                const updated = [...vmSpecifications];
+                                                updated[index].firewallRules[ruleIdx].purpose = e.target.value;
+                                                setVmSpecifications(updated);
+                                              }}
+                                              className="h-9"
+                                            />
+                                          </div>
+                                          <div className="col-span-12 md:col-span-1 flex items-end justify-end">
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-9 w-9 text-red-500 hover:bg-red-50"
+                                              onClick={() => {
+                                                const updated = [...vmSpecifications];
+                                                updated[index].firewallRules = spec.firewallRules.filter((_: any, idx: number) => idx !== ruleIdx);
+                                                setVmSpecifications(updated);
+                                              }}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full border-dashed border-2 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700 h-10"
+                                        onClick={() => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].firewallRules = [...(spec.firewallRules || []), { port: 80, protocol: "TCP", purpose: "" }];
+                                          setVmSpecifications(updated);
+                                        }}
+                                      >
+                                        <Plus className="w-4 h-4 mr-2" /> Add Firewall Rule
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                                    <Label className="text-sm font-bold text-slate-700">Additional Storage</Label>
+                                    <div className="space-y-4">
+                                      {(spec.additionalStorage || []).map((disk: any, diskIdx: number) => (
+                                        <div key={diskIdx} className="flex gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 items-end">
+                                          <div className="w-32 space-y-1.5">
+                                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Size (GB)</Label>
+                                            <Input
+                                              placeholder="Size"
+                                              type="number"
+                                              value={disk.sizeGb || ""}
+                                              onChange={(e) => {
+                                                const updated = [...vmSpecifications];
+                                                updated[index].additionalStorage[diskIdx].sizeGb = parseInt(e.target.value) || 0;
+                                                setVmSpecifications(updated);
+                                              }}
+                                              className="no-spinner"
+                                            />
+                                          </div>
+                                          <div className="flex-1 space-y-1.5">
+                                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Mount Point/Purpose</Label>
+                                            <Input
+                                              placeholder="e.g. /var/lib/mysql"
+                                              value={disk.purpose || ""}
+                                              onChange={(e) => {
+                                                const updated = [...vmSpecifications];
+                                                updated[index].additionalStorage[diskIdx].purpose = e.target.value;
+                                                setVmSpecifications(updated);
+                                              }}
+                                            />
+                                          </div>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="text-red-500 hover:bg-red-50"
+                                            onClick={() => {
+                                              const updated = [...vmSpecifications];
+                                              updated[index].additionalStorage = spec.additionalStorage.filter((_: any, idx: number) => idx !== diskIdx);
+                                              setVmSpecifications(updated);
+                                            }}
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </Button>
+                                        </div>
+                                      ))}
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full border-dashed border-2 h-10"
+                                        onClick={() => {
+                                          const updated = [...vmSpecifications];
+                                          updated[index].additionalStorage = [...(spec.additionalStorage || []), { sizeGb: 0, purpose: "" }];
+                                          setVmSpecifications(updated);
+                                        }}
+                                      >
+                                        <Plus className="w-4 h-4 mr-2" /> Add Data Disk
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </CardContent>
+                    </Card>
+                  ) : requestType === "K8S_NAMESPACE" ? (<>
+                    <Card className="shadow-md border-indigo-200 bg-indigo-50/20">
+                      <CardHeader className="bg-indigo-50/50 border-b border-indigo-100 flex flex-row items-center justify-between">
+                        <div className="flex items-center gap-2 text-indigo-600">
+                          <Code className="w-5 h-5" />
+                          <CardTitle className="text-lg">Kubernetes Node Specifications</CardTitle>
+                        </div>
+                        <Button
+                          type="button"
+                          onClick={() => setK8sNodeGroups([...k8sNodeGroups, { role: "WORKER", nodeCount: 1, vcpu: 2, ramGb: 4, storageGb: 50 }])}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 h-8 px-3 rounded-lg"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Add Node Group
+                        </Button>
+                      </CardHeader>
+                      <CardContent className="space-y-4 pt-6">
+                        {k8sNodeGroups.length === 0 ? (
+                          <div className="text-center py-6 text-sm text-slate-500 italic bg-white rounded-lg border border-slate-100">
+                            No node groups defined. Please add at least one group.
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            {k8sNodeGroups.map((group, index) => (
+                              <div key={index} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4 relative">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (k8sNodeGroups.length <= 1) {
+                                      toast.error("At least one node group is required");
+                                      return;
+                                    }
+                                    setK8sNodeGroups(k8sNodeGroups.filter((_, idx) => idx !== index));
+                                  }}
+                                  className="absolute top-4 right-4 text-red-500 hover:text-red-700 transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs text-slate-500 font-bold uppercase">Node Role</Label>
+                                    <Select
+                                      value={group.role}
+                                      onValueChange={(val) => {
+                                        const updated = [...k8sNodeGroups];
+                                        updated[index].role = val;
+                                        setK8sNodeGroups(updated);
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-9">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="MASTER">Master Node</SelectItem>
+                                        <SelectItem value="WORKER">Worker Node</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs text-slate-500 font-bold uppercase">Node Count</Label>
+                                    <Input
+                                      type="number"
+                                      value={group.nodeCount}
+                                      onChange={(e) => {
+                                        const updated = [...k8sNodeGroups];
+                                        updated[index].nodeCount = parseInt(e.target.value) || 1;
+                                        setK8sNodeGroups(updated);
+                                      }}
+                                      min="1"
+                                      max="20"
+                                      className="h-9"
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs text-slate-500 font-bold uppercase">vCPU Cores</Label>
+                                    <Input
+                                      type="number"
+                                      value={group.vcpu}
+                                      onChange={(e) => {
+                                        const updated = [...k8sNodeGroups];
+                                        updated[index].vcpu = parseInt(e.target.value) || 1;
+                                        setK8sNodeGroups(updated);
+                                      }}
+                                      min="1"
+                                      max="64"
+                                      className="h-9"
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs text-slate-500 font-bold uppercase">RAM (GB)</Label>
+                                    <Input
+                                      type="number"
+                                      value={group.ramGb}
+                                      onChange={(e) => {
+                                        const updated = [...k8sNodeGroups];
+                                        updated[index].ramGb = parseInt(e.target.value) || 1;
+                                        setK8sNodeGroups(updated);
+                                      }}
+                                      min="1"
+                                      max="256"
+                                      className="h-9"
+                                    />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label className="text-xs text-slate-500 font-bold uppercase">Storage (GB)</Label>
+                                    <Input
+                                      type="number"
+                                      value={group.storageGb}
+                                      onChange={(e) => {
+                                        const updated = [...k8sNodeGroups];
+                                        updated[index].storageGb = parseInt(e.target.value) || 1;
+                                        setK8sNodeGroups(updated);
+                                      }}
+                                      min="10"
+                                      max="2000"
+                                      className="h-9"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card className="shadow-md border-slate-200 mt-6">
+                      <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                        <div className="flex items-center gap-2 text-indigo-600">
+                          <Layers className="w-5 h-5" />
+                          <CardTitle className="text-lg">Operating System Details</CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
+                        <div className="space-y-2">
+                          <Label>Operating System Name *</Label>
+                          <Input
+                            name="osName"
+                            placeholder="e.g. Ubuntu, Rocky Linux"
+                            value={osName}
+                            onChange={(e) => setOsName(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>OS Version *</Label>
+                          <Input
+                            name="osVersion"
+                            placeholder="e.g. 22.04 LTS, 9.0"
+                            value={osVersion}
+                            onChange={(e) => setOsVersion(e.target.value)}
+                            required
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>) : (
+                    <Card className="shadow-md border-slate-200">
+                      <CardHeader className="bg-slate-50/50 border-b border-slate-100 flex flex-row items-center justify-between">
+                        <div className="flex items-center gap-2 text-indigo-600">
+                          <Cpu className="w-5 h-5" />
+                          <CardTitle className="text-lg">Resource Allocation</CardTitle>
+                        </div>
+                        <div className="flex items-center gap-3 bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100">
+                          <Label htmlFor="quantity" className="text-xs font-bold text-indigo-700 uppercase tracking-wider">Quantity:</Label>
+                          <Input
+                            name="quantity"
+                            type="number"
+                            value={quantity}
+                            onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                            className="w-12 h-7 bg-white border-indigo-200 text-center p-0 no-spinner font-bold"
+                            min="1"
+                            max="20"
+                          />
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-8 pt-8">
+                        {/* Access Request Read-Only Specs Card */}
+                        {(requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") && accessTargetVmId && (
+                          <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl mb-6">
+                            <h4 className="text-xs font-bold text-emerald-800 mb-2 uppercase tracking-wide">VM Specifications (Read-Only)</h4>
+                            <p className="text-xs text-slate-500 mb-3">Access will be configured for the VM with the following specifications:</p>
+                            <div className="grid grid-cols-3 gap-4 text-center">
+                              <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                                <div className="text-[10px] text-slate-500 uppercase font-semibold">vCPU Cores</div>
+                                <div className="text-sm font-bold text-slate-800">{vcpuValue} Cores</div>
+                              </div>
+                              <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                                <div className="text-[10px] text-slate-500 uppercase font-semibold">Memory (RAM)</div>
+                                <div className="text-sm font-bold text-slate-800">{ramValue} GB</div>
+                              </div>
+                              <div className="bg-white p-2 rounded-lg border border-emerald-100">
+                                <div className="text-[10px] text-slate-500 uppercase font-semibold">Disk Storage</div>
+                                <div className="text-sm font-bold text-slate-800">{storageValue} GB</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* vCPU */}
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">vCPU Cores</Label>
+                            {vcpuValue === "other" && <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500 font-medium">Custom</span>}
+                          </div>
+                          <RadioGroup value={vcpuValue} onValueChange={setVcpuValue} className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            {[1, 2, 4, 8].map((n) => (
+                              <div key={n} className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", vcpuValue === n.toString() ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                                <RadioGroupItem value={n.toString()} id={`cpu-${n}`} className="sr-only" />
+                                <Label htmlFor={`cpu-${n}`} className="cursor-pointer text-center">
+                                  <div className="text-xl font-bold">{n}</div>
+                                  <div className="text-[10px] text-slate-500 uppercase">Cores</div>
+                                </Label>
+                              </div>
+                            ))}
+                            <div className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", vcpuValue === "other" ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                              <RadioGroupItem value="other" id="cpu-other" className="sr-only" />
+                              <Label htmlFor="cpu-other" className="cursor-pointer text-center">
+                                <div className="text-xl font-bold leading-none">?</div>
+                                <div className="text-[10px] text-slate-500 uppercase mt-1">Other</div>
+                              </Label>
+                            </div>
+                          </RadioGroup>
+                          {vcpuValue === "other" && <Input name="customVcpu" placeholder="Enter number of cores" type="number" defaultValue={getDefaultValue(prefillData?.vcpu?.toString(), "")} className="mt-2" />}
+                        </div>
+
+                        {/* RAM */}
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Memory (RAM GB)</Label>
+                          </div>
+                          <RadioGroup value={ramValue} onValueChange={setRamValue} className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            {[4, 8, 16, 32].map((n) => (
+                              <div key={n} className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", ramValue === n.toString() ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                                <RadioGroupItem value={n.toString()} id={`ram-${n}`} className="sr-only" />
+                                <Label htmlFor={`ram-${n}`} className="cursor-pointer text-center">
+                                  <div className="text-xl font-bold">{n}</div>
+                                  <div className="text-[10px] text-slate-500 uppercase">GB</div>
+                                </Label>
+                              </div>
+                            ))}
+                            <div className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", ramValue === "other" ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                              <RadioGroupItem value="other" id="ram-other" className="sr-only" />
+                              <Label htmlFor="ram-other" className="cursor-pointer text-center">
+                                <div className="text-xl font-bold leading-none">?</div>
+                                <div className="text-[10px] text-slate-500 uppercase mt-1">Other</div>
+                              </Label>
+                            </div>
+                          </RadioGroup>
+                          {ramValue === "other" && <Input name="customRam" placeholder="Enter RAM in GB" type="number" defaultValue={getDefaultValue(prefillData?.ramGb?.toString(), "")} className="mt-2" />}
+                        </div>
+
+                        {/* Storage */}
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Primary OS Disk</Label>
+                          </div>
+                          <RadioGroup value={storageValue} onValueChange={setStorageValue} className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            {[50, 100, 250, 500].map((n) => (
+                              <div key={n} className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", storageValue === n.toString() ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                                <RadioGroupItem value={n.toString()} id={`st-${n}`} className="sr-only" />
+                                <Label htmlFor={`st-${n}`} className="cursor-pointer text-center">
+                                  <div className="text-xl font-bold">{n}</div>
+                                  <div className="text-[10px] text-slate-500 uppercase">GB</div>
+                                </Label>
+                              </div>
+                            ))}
+                            <div className={cn("relative flex items-center justify-center border-2 rounded-xl p-4 cursor-pointer transition-all", storageValue === "other" ? "border-blue-600 bg-blue-50/50" : "border-slate-200 hover:border-slate-300")}>
+                              <RadioGroupItem value="other" id="st-other" className="sr-only" />
+                              <Label htmlFor="st-other" className="cursor-pointer text-center">
+                                <div className="text-xl font-bold leading-none">?</div>
+                                <div className="text-[10px] text-slate-500 uppercase mt-1">Other</div>
+                              </Label>
+                            </div>
+                          </RadioGroup>
+                          {storageValue === "other" && <Input name="customStorage" placeholder="Enter OS Disk GB" type="number" defaultValue={getDefaultValue(prefillData?.storageGb?.toString(), "")} className="mt-2" />}
+                        </div>
+
+                        {/* OS Details */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                          <div className="space-y-2">
+                            <Label>Operating System Name *</Label>
+                            <Input
+                              name="osName"
+                              placeholder="e.g. Ubuntu, Windows Server"
+                              value={osName}
+                              onChange={(e) => setOsName(e.target.value)}
+                              required
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>OS Version *</Label>
+                            <Input
+                              name="osVersion"
+                              placeholder="e.g. 22.04 LTS, 2022"
+                              value={osVersion}
+                              onChange={(e) => setOsVersion(e.target.value)}
+                              required
+                            />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </motion.div>
+              )}
+
+              {currentStep === 3 && (requestType !== "NEW_VM") && (
+                <motion.div
+                  key="step3"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-6"
+                >
+                  <Card className="shadow-md border-slate-200">
+                    <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                      <div className="flex items-center gap-2 text-emerald-600">
+                        <Network className="w-5 h-5" />
+                        <CardTitle className="text-lg">Network & Security</CardTitle>
                       </div>
-                      <div className="flex-1 space-y-1.5">
-                        <Label className="text-[10px] uppercase text-slate-400 font-bold">Mount Point/Purpose</Label>
-                        <Input placeholder="e.g. /var/lib/mysql" value={disk.purpose} onChange={(e) => {
-                          const d = [...additionalDisks];
-                          d[i].purpose = e.target.value;
-                          setAdditionalDisks(d);
-                        }} />
+                    </CardHeader>
+                    <CardContent className="space-y-8 pt-6">
+                      <div className="space-y-4 col-span-2">
+                        <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Connectivity</Label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
+                          <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <div className="space-y-0.5">
+                              <Label className="text-sm font-bold text-slate-700">VPN Required</Label>
+                              <p className="text-[10px] text-slate-400">Secure external VPN connectivity</p>
+                            </div>
+                            <Switch
+                              checked={networkAccess.includes("VPN")}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setNetworkAccess([...networkAccess.filter(n => n !== "VPN"), "VPN"]);
+                                } else {
+                                  setNetworkAccess(networkAccess.filter(n => n !== "VPN"));
+                                }
+                              }}
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <div className="space-y-0.5">
+                              <Label className="text-sm font-bold text-slate-700">Public IP Required</Label>
+                              <p className="text-[10px] text-slate-400">Direct internet exposure</p>
+                            </div>
+                            <Switch
+                              checked={networkAccess.includes("INTERNET")}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setNetworkAccess([...networkAccess.filter(n => n !== "INTERNET"), "INTERNET"]);
+                                } else {
+                                  setNetworkAccess(networkAccess.filter(n => n !== "INTERNET"));
+                                }
+                              }}
+                            />
+                          </div>
+                        </div>
+                        {networkAccess.includes("VPN") && (
+                          <div className="mt-4 space-y-2">
+                            <Label className="text-sm font-bold text-slate-700">VPN Details *</Label>
+                            <Input
+                              name="vpnDetails"
+                              placeholder="Describe who needs access and what resources are required via VPN..."
+                              value={vpnDetails}
+                              onChange={(e) => setVpnDetails(e.target.value)}
+                              required
+                            />
+                          </div>
+                        )}
                       </div>
-                      <Button type="button" variant="ghost" size="icon" className="text-red-500 hover:bg-red-50" onClick={() => setAdditionalDisks(additionalDisks.filter((_, idx) => idx !== i))}>
-                        <Trash2 className="w-4 h-4" />
+
+                      <div className="space-y-4">
+                        <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Firewall Rules</Label>
+                        <div className="space-y-3">
+                          {firewallPorts.map((port, i) => (
+                            <div key={i} className="grid grid-cols-12 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 relative group">
+                              <div className="col-span-12 md:col-span-3 space-y-1.5">
+                                <Label className="text-[10px] uppercase text-slate-400 font-bold">Port</Label>
+                                <Input placeholder="Port" value={port.port} onChange={(e) => {
+                                  const newPorts = [...firewallPorts];
+                                  newPorts[i].port = parseInt(e.target.value);
+                                  setFirewallPorts(newPorts);
+                                }} type="number" className="h-9 no-spinner" />
+                              </div>
+                              <div className="col-span-12 md:col-span-3 space-y-1.5">
+                                <Label className="text-[10px] uppercase text-slate-400 font-bold">Protocol</Label>
+                                <Select value={port.protocol} onValueChange={(v) => {
+                                  const newPorts = [...firewallPorts];
+                                  newPorts[i].protocol = v as Protocol;
+                                  setFirewallPorts(newPorts);
+                                }}>
+                                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="TCP">TCP</SelectItem>
+                                    <SelectItem value="UDP">UDP</SelectItem>
+                                    <SelectItem value="OTHER">Other</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="col-span-12 md:col-span-5 space-y-1.5">
+                                <Label className="text-[10px] uppercase text-slate-400 font-bold">Purpose</Label>
+                                <Input placeholder="Description" value={port.purpose} onChange={(e) => {
+                                  const newPorts = [...firewallPorts];
+                                  newPorts[i].purpose = e.target.value;
+                                  setFirewallPorts(newPorts);
+                                }} className="h-9" />
+                              </div>
+                              <div className="col-span-12 md:col-span-1 flex items-end justify-end">
+                                <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-red-500 hover:bg-red-50" onClick={() => setFirewallPorts(firewallPorts.filter((_, idx) => idx !== i))}>
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                          <Button type="button" variant="outline" size="sm" className="w-full border-dashed border-2 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700 h-10" onClick={() => setFirewallPorts([...firewallPorts, { port: 80, protocol: Protocol.TCP, purpose: "" }])}>
+                            <Plus className="w-4 h-4 mr-2" /> Add Firewall Rule
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 pt-6 border-t border-slate-100">
+                        <Label className="text-sm font-bold text-slate-700 uppercase tracking-tight">Host Details</Label>
+                        {requestType === "K8S_NAMESPACE" ? (
+                          <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                              <Label>Proposed Subdomains *</Label>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSubdomainList([...subdomainList, ""])}
+                                className="h-8 border-dashed hover:bg-slate-50"
+                              >
+                                <Plus className="h-3.5 w-3.5 mr-1" /> Add Subdomain
+                              </Button>
+                            </div>
+                            <div className="space-y-3">
+                              {subdomainList.map((sub, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                  <div className="bg-slate-100 px-3 py-2 rounded-lg text-slate-500 text-sm font-medium border border-slate-200">https://</div>
+                                  <Input
+                                    value={sub}
+                                    onChange={(e) => {
+                                      const newList = [...subdomainList];
+                                      newList[idx] = e.target.value;
+                                      setSubdomainList(newList);
+                                      setSubdomain(newList.filter(s => s.trim() !== "").join(","));
+                                    }}
+                                    placeholder="app-name.dghs.gov.bd"
+                                    required={idx === 0}
+                                    className="flex-1"
+                                  />
+                                  {idx > 0 && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => {
+                                        const newList = subdomainList.filter((_, i) => i !== idx);
+                                        setSubdomainList(newList);
+                                        setSubdomain(newList.filter(s => s.trim() !== "").join(","));
+                                      }}
+                                      className="text-red-500 hover:bg-red-50"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            {hasDuplicateSubdomains() && (
+                              <p className="text-xs text-red-500 font-bold flex items-center gap-1 mt-1">
+                                <Trash2 className="w-3.5 h-3.5 text-red-500" /> Warning: Duplicate subdomains are entered!
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <Label>Proposed Subdomain *</Label>
+                            <div className="flex items-center gap-2">
+                              <div className="bg-slate-100 px-3 py-2 rounded-lg text-slate-500 text-sm font-medium border border-slate-200">https://</div>
+                              <Input
+                                name="subdomain"
+                                placeholder="app-name.dghs.gov.bd"
+                                value={subdomain}
+                                onChange={(e) => setSubdomain(e.target.value)}
+                                required
+                                className="flex-1"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Additional Disks */}
+                  <Card className="shadow-md border-slate-200">
+                    <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                      <div className="flex items-center gap-2 text-blue-600">
+                        <Layers className="w-5 h-5" />
+                        <CardTitle className="text-lg">Additional Storage</CardTitle>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4 pt-6">
+                      {additionalDisks.map((disk, i) => (
+                        <div key={i} className="flex gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 items-end">
+                          <div className="w-32 space-y-1.5">
+                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Size (GB)</Label>
+                            <Input placeholder="Size" type="number" value={disk.sizeGb} onChange={(e) => {
+                              const d = [...additionalDisks];
+                              d[i].sizeGb = parseInt(e.target.value);
+                              setAdditionalDisks(d);
+                            }} className="no-spinner" />
+                          </div>
+                          <div className="flex-1 space-y-1.5">
+                            <Label className="text-[10px] uppercase text-slate-400 font-bold">Mount Point/Purpose</Label>
+                            <Input placeholder="e.g. /var/lib/mysql" value={disk.purpose} onChange={(e) => {
+                              const d = [...additionalDisks];
+                              d[i].purpose = e.target.value;
+                              setAdditionalDisks(d);
+                            }} />
+                          </div>
+                          <Button type="button" variant="ghost" size="icon" className="text-red-500 hover:bg-red-50" onClick={() => setAdditionalDisks(additionalDisks.filter((_, idx) => idx !== i))}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button type="button" variant="outline" size="sm" className="w-full border-dashed border-2 h-10" onClick={() => setAdditionalDisks([...additionalDisks, { sequence: additionalDisks.length + 1, sizeGb: 0, purpose: "" }])}>
+                        <Plus className="w-4 h-4 mr-2" /> Add Data Disk
                       </Button>
-                    </div>
-                  ))}
-                  <Button type="button" variant="outline" size="sm" className="w-full border-dashed border-2 h-10" onClick={() => setAdditionalDisks([...additionalDisks, { sequence: additionalDisks.length + 1, sizeGb: 0, purpose: "" }])}>
-                    <Plus className="w-4 h-4 mr-2" /> Add Data Disk
-                  </Button>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )}
 
-          {currentStep === 4 && (
-            <motion.div
-              key="step4"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-6"
-            >
-              {/* Request Summary Preview */}
-              {requestType === "NEW_VM" ? (
-                <Card className="shadow-lg border-blue-200 bg-blue-50/20 overflow-hidden">
-                  <CardHeader className="bg-blue-600 py-3">
-                    <CardTitle className="text-sm text-white flex items-center gap-2">
-                      <Info className="w-4 h-4" /> Review Your VM Specifications ({vmSpecifications.length})
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-3">
-                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm mb-2">
-                      <p className="text-[10px] text-slate-400 uppercase font-bold">System Name</p>
-                      <p className="text-sm font-bold text-blue-900 truncate">{systemName || "N/A"}</p>
-                    </div>
-                    {vmSpecifications.map((spec, i) => (
-                      <div key={i} className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm grid grid-cols-2 md:grid-cols-5 gap-4">
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">VM {i + 1} Stack</p>
-                          <p className="text-sm font-bold text-blue-900 truncate">{spec.stack || "N/A"}</p>
+              {currentStep === 4 && (
+                <motion.div
+                  key="step4"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-6"
+                >
+                  {/* Request Summary Preview */}
+                  {requestType === "NEW_VM" ? (
+                    <Card className="shadow-lg border-blue-200 bg-blue-50/20 overflow-hidden">
+                      <CardHeader className="bg-blue-600 py-3">
+                        <CardTitle className="text-sm text-white flex items-center gap-2">
+                          <Info className="w-4 h-4" /> Review Your VM Specifications ({vmSpecifications.length})
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 space-y-3">
+                        <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm mb-2">
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">System Name</p>
+                          <p className="text-sm font-bold text-blue-900 truncate">{systemName || "N/A"}</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Compute Resources</p>
-                          <p className="text-sm font-bold text-blue-900">{spec.vcpu} Cores / {spec.ramGb} GB RAM</p>
+                        {vmSpecifications.map((spec, i) => (
+                          <div key={i} className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm grid grid-cols-2 md:grid-cols-5 gap-4">
+                            <div>
+                              <p className="text-[10px] text-slate-400 uppercase font-bold">VM {i + 1} Stack</p>
+                              <p className="text-sm font-bold text-blue-900 truncate">{spec.stack || "N/A"}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-400 uppercase font-bold">Compute Resources</p>
+                              <p className="text-sm font-bold text-blue-900">{spec.vcpu} Cores / {spec.ramGb} GB RAM</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-400 uppercase font-bold">OS Version & Storage</p>
+                              <p className="text-sm font-bold text-blue-900">{spec.storageGb} GB ({spec.osVersion || "N/A"})</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-400 uppercase font-bold">Environment</p>
+                              <p className="text-sm font-bold text-blue-900">{spec.environment}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-400 uppercase font-bold">Network & Storage</p>
+                              <p className="text-sm font-bold text-blue-900">
+                                {spec.connectivity?.includes("INTERNET") ? "Public IP" : "VPN"} / {spec.firewallRules?.length || 0} Firewall / {spec.additionalStorage?.length || 0} Disks
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  ) : requestType === "K8S_NAMESPACE" ? (
+                    <Card className="shadow-lg border-indigo-200 bg-indigo-50/20 overflow-hidden">
+                      <CardHeader className="bg-indigo-600 py-3">
+                        <CardTitle className="text-sm text-white flex items-center gap-2">
+                          <Info className="w-4 h-4" /> Review Your Kubernetes Request
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 space-y-3">
+                        <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4 mb-2">
+                          <div>
+                            <p className="text-[10px] text-slate-400 uppercase font-bold">System Name</p>
+                            <p className="text-sm font-bold text-indigo-900 truncate">{systemName || "N/A"}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 uppercase font-bold">Subdomain</p>
+                            <p className="text-sm font-bold text-indigo-900 truncate">{subdomain || "N/A"}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 uppercase font-bold">Environment</p>
+                            <p className="text-sm font-bold text-indigo-900">{environment}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-slate-400 uppercase font-bold">Node Groups</p>
+                            <p className="text-sm font-bold text-indigo-900">{k8sNodeGroups.length} Groups</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">OS Version & Storage</p>
-                          <p className="text-sm font-bold text-blue-900">{spec.storageGb} GB ({spec.osVersion || "N/A"})</p>
+                        {k8sNodeGroups.map((group, i) => (
+                          <div key={i} className="bg-white p-4 rounded-xl border border-indigo-100 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div>
+                              <p className="text-[10px] text-slate-400 uppercase font-bold">Node Group {i + 1} Role</p>
+                              <p className="text-sm font-bold text-slate-800">{group.role}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-400 uppercase font-bold">Node Count</p>
+                              <p className="text-sm font-bold text-slate-800">{group.nodeCount}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-400 uppercase font-bold">Compute Resource Per Node</p>
+                              <p className="text-sm font-bold text-slate-800">{group.vcpu} Cores / {group.ramGb} GB RAM</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-400 uppercase font-bold">Storage Per Node</p>
+                              <p className="text-sm font-bold text-slate-800">{group.storageGb} GB</p>
+                            </div>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card className="shadow-lg border-blue-200 bg-blue-50/20 overflow-hidden">
+                      <CardHeader className="bg-blue-600 py-3">
+                        <CardTitle className="text-sm text-white flex items-center gap-2">
+                          <Info className="w-4 h-4" /> Review Your Request
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                        <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">System</p>
+                          <p className="text-sm font-bold text-blue-900 truncate" title={systemName}>{systemName || "N/A"}</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Environment</p>
-                          <p className="text-sm font-bold text-blue-900">{spec.environment}</p>
+                        <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Resources</p>
+                          <p className="text-sm font-bold text-blue-900">{vcpuValue === 'other' ? 'Custom' : vcpuValue}v / {ramValue === 'other' ? 'Custom' : ramValue}GB</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Network & Storage</p>
-                          <p className="text-sm font-bold text-blue-900">
-                            {spec.connectivity?.includes("INTERNET") ? "Public IP" : "VPN"} / {spec.firewallRules?.length || 0} Firewall / {spec.additionalStorage?.length || 0} Disks
+                        <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">OS/Disk</p>
+                          <p className="text-sm font-bold text-blue-900 truncate" title={`${storageValue}GB ${osName}`}>
+                            {storageValue === 'other' ? 'Custom' : storageValue}GB {osName}
                           </p>
                         </div>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              ) : requestType === "K8S_NAMESPACE" ? (
-                <Card className="shadow-lg border-indigo-200 bg-indigo-50/20 overflow-hidden">
-                  <CardHeader className="bg-indigo-600 py-3">
-                    <CardTitle className="text-sm text-white flex items-center gap-2">
-                      <Info className="w-4 h-4" /> Review Your Kubernetes Request
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-3">
-                    <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4 mb-2">
-                      <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">System Name</p>
-                        <p className="text-sm font-bold text-indigo-900 truncate">{systemName || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">Subdomain</p>
-                        <p className="text-sm font-bold text-indigo-900 truncate">{subdomain || "N/A"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">Environment</p>
-                        <p className="text-sm font-bold text-indigo-900">{environment}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">Node Groups</p>
-                        <p className="text-sm font-bold text-indigo-900">{k8sNodeGroups.length} Groups</p>
-                      </div>
-                    </div>
-                    {k8sNodeGroups.map((group, i) => (
-                      <div key={i} className="bg-white p-4 rounded-xl border border-indigo-100 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Node Group {i + 1} Role</p>
-                          <p className="text-sm font-bold text-slate-800">{group.role}</p>
+                        <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Subdomain</p>
+                          <p className="text-sm font-bold text-blue-900 truncate" title={subdomain}>{subdomain || "N/A"}</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Node Count</p>
-                          <p className="text-sm font-bold text-slate-800">{group.nodeCount}</p>
+                        <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Env</p>
+                          <p className="text-sm font-bold text-blue-900">{environment}</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Compute Resource Per Node</p>
-                          <p className="text-sm font-bold text-slate-800">{group.vcpu} Cores / {group.ramGb} GB RAM</p>
+                        <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Network</p>
+                          <p className="text-sm font-bold text-blue-900">{firewallPorts.length} Rules</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 uppercase font-bold">Storage Per Node</p>
-                          <p className="text-sm font-bold text-slate-800">{group.storageGb} GB</p>
-                        </div>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              ) : (
-                <Card className="shadow-lg border-blue-200 bg-blue-50/20 overflow-hidden">
-                  <CardHeader className="bg-blue-600 py-3">
-                    <CardTitle className="text-sm text-white flex items-center gap-2">
-                      <Info className="w-4 h-4" /> Review Your Request
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                      <p className="text-[10px] text-slate-400 uppercase font-bold">System</p>
-                      <p className="text-sm font-bold text-blue-900 truncate" title={systemName}>{systemName || "N/A"}</p>
-                    </div>
-                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                      <p className="text-[10px] text-slate-400 uppercase font-bold">Resources</p>
-                      <p className="text-sm font-bold text-blue-900">{vcpuValue === 'other' ? 'Custom' : vcpuValue}v / {ramValue === 'other' ? 'Custom' : ramValue}GB</p>
-                    </div>
-                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                      <p className="text-[10px] text-slate-400 uppercase font-bold">OS/Disk</p>
-                      <p className="text-sm font-bold text-blue-900 truncate" title={`${storageValue}GB ${osName}`}>
-                        {storageValue === 'other' ? 'Custom' : storageValue}GB {osName}
-                      </p>
-                    </div>
-                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                      <p className="text-[10px] text-slate-400 uppercase font-bold">Subdomain</p>
-                      <p className="text-sm font-bold text-blue-900 truncate" title={subdomain}>{subdomain || "N/A"}</p>
-                    </div>
-                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                      <p className="text-[10px] text-slate-400 uppercase font-bold">Env</p>
-                      <p className="text-sm font-bold text-blue-900">{environment}</p>
-                    </div>
-                    <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
-                      <p className="text-[10px] text-slate-400 uppercase font-bold">Network</p>
-                      <p className="text-sm font-bold text-blue-900">{firewallPorts.length} Rules</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                      </CardContent>
+                    </Card>
+                  )}
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Contacts */}
-                <Card className="shadow-md border-slate-200">
-                  <CardHeader className="bg-slate-50/50 border-b border-slate-100">
-                    <div className="flex items-center gap-2 text-blue-600">
-                      <Users className="w-5 h-5" />
-                      <CardTitle className="text-lg">Contact Persons</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-6 pt-6">
-                    <div className="space-y-4">
-                      <Label className="font-bold text-slate-700">Developer (Primary Contact)</Label>
-                      <div className="grid grid-cols-1 gap-3">
-                        <Input name="developerName" placeholder="Name" defaultValue={getDefaultValue(prefillData?.developer?.name || (isDeveloper ? session?.user?.name : ""), "")} disabled={isDeveloper} />
-                        <Input name="developerEmail" type="email" placeholder="Email" defaultValue={getDefaultValue(prefillData?.developer?.email || (isDeveloper ? session?.user?.email : ""), "")} disabled={isDeveloper} />
-                        <Input name="developerContact" placeholder="Contact Number" defaultValue={getDefaultValue(prefillData?.developer?.contact || (isDeveloper ? session?.user?.contact : ""), "")} disabled={isDeveloper} />
-                      </div>
-                    </div>
-                    <div className="space-y-4 border-t border-slate-100 pt-6">
-                      <Label className="font-bold text-slate-700">Alternate Contact (Optional)</Label>
-                      <div className="grid grid-cols-1 gap-3">
-                        <Input name="alternativePersonName" placeholder="Name" defaultValue={getDefaultValue(prefillData?.alternativePerson?.name, "")} />
-                        <Input name="alternativePersonEmail" type="email" placeholder="Email" defaultValue={getDefaultValue(prefillData?.alternativePerson?.email, "")} />
-                        <Input name="alternativePersonContact" placeholder="Contact Number" defaultValue={getDefaultValue(prefillData?.alternativePerson?.contact, "")} />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Compliance */}
-                <Card className="shadow-md border-slate-200">
-                  <CardHeader className="bg-slate-50/50 border-b border-slate-100">
-                    <div className="flex items-center gap-2 text-red-600">
-                      <ShieldCheck className="w-5 h-5" />
-                      <CardTitle className="text-lg">Compliance Documents</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-6 pt-6">
-                    <div className="space-y-3">
-                      <Label>Security Assessment Report (PDF/Images)</Label>
-                      {existingAttachments.securityReport && (
-                        <div className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs">
-                          <span className="truncate flex-1">{existingAttachments.securityReport.fileName}</span>
-                          <button type="button" onClick={() => {
-                            const id = existingAttachments.securityReport?.id;
-                            if (id) setRemovedAttachments(prev => [...prev, id]);
-                            setExistingAttachments(prev => ({ ...prev, securityReport: undefined }));
-                          }} className="text-red-500 font-bold ml-2">Remove</button>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Contacts */}
+                    <Card className="shadow-md border-slate-200">
+                      <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                        <div className="flex items-center gap-2 text-blue-600">
+                          <Users className="w-5 h-5" />
+                          <CardTitle className="text-lg">Contact Persons</CardTitle>
                         </div>
-                      )}
-                      <div className="flex items-center gap-2 border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                        <Upload className="w-5 h-5 text-slate-400" />
-                        <input type="file" className="text-xs flex-1" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setSecurityReport(e.target.files?.[0] || null)} />
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 border-t border-slate-100 pt-6">
-                      <Label>Resource Justification Letter</Label>
-                      {existingAttachments.justification && (
-                        <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200 text-xs">
-                          <span className="truncate flex-1">{existingAttachments.justification.fileName}</span>
-                          <button type="button" onClick={() => {
-                            const id = existingAttachments.justification?.id;
-                            if (id) setRemovedAttachments(prev => [...prev, id]);
-                            setExistingAttachments(prev => ({ ...prev, justification: undefined }));
-                          }} className="text-red-500 font-bold ml-2">Remove</button>
+                      </CardHeader>
+                      <CardContent className="space-y-6 pt-6">
+                        <div className="space-y-4">
+                          <Label className="font-bold text-slate-700">Developer (Primary Contact)</Label>
+                          <div className="grid grid-cols-1 gap-3">
+                            <Input name="developerName" placeholder="Name" defaultValue={getDefaultValue(prefillData?.developer?.name || (isDeveloper ? session?.user?.name : ""), "")} disabled={isDeveloper} />
+                            <Input name="developerEmail" type="email" placeholder="Email" defaultValue={getDefaultValue(prefillData?.developer?.email || (isDeveloper ? session?.user?.email : ""), "")} disabled={isDeveloper} />
+                            <Input name="developerContact" placeholder="Contact Number" defaultValue={getDefaultValue(prefillData?.developer?.contact || (isDeveloper ? session?.user?.contact : ""), "")} disabled={isDeveloper} />
+                          </div>
                         </div>
-                      )}
-                      <div className="flex items-center gap-2 border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                        <Upload className="w-5 h-5 text-slate-400" />
-                        <input type="file" className="text-xs flex-1" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setJustificationDoc(e.target.files?.[0] || null)} />
-                      </div>
-                    </div>
+                        <div className="space-y-4 border-t border-slate-100 pt-6">
+                          <Label className="font-bold text-slate-700">Alternate Contact (Optional)</Label>
+                          <div className="grid grid-cols-1 gap-3">
+                            <Input name="alternativePersonName" placeholder="Name" defaultValue={getDefaultValue(prefillData?.alternativePerson?.name, "")} />
+                            <Input name="alternativePersonEmail" type="email" placeholder="Email" defaultValue={getDefaultValue(prefillData?.alternativePerson?.email, "")} />
+                            <Input name="alternativePersonContact" placeholder="Contact Number" defaultValue={getDefaultValue(prefillData?.alternativePerson?.contact, "")} />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
 
-                    <div className="pt-4 flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      <div className="space-y-0.5">
-                        <Label>Automated Renewal</Label>
-                        <p className="text-[10px] text-slate-500 italic">Automated renewal — Notify 1 month before expiry. Without renewal, VM will remain active for 6 months.</p>
-                      </div>
-                      <Switch name="renewalRequired" checked={renewalRequired} onCheckedChange={setRenewalRequired} />
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                    {/* Compliance */}
+                    <Card className="shadow-md border-slate-200">
+                      <CardHeader className="bg-slate-50/50 border-b border-slate-100">
+                        <div className="flex items-center gap-2 text-red-600">
+                          <ShieldCheck className="w-5 h-5" />
+                          <CardTitle className="text-lg">Compliance Documents</CardTitle>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-6 pt-6">
+                        <div className="space-y-3">
+                          <Label>Security Assessment Report (PDF/Images)</Label>
+                          {existingAttachments.securityReport && (
+                            <div className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs">
+                              <span className="truncate flex-1">{existingAttachments.securityReport.fileName}</span>
+                              <button type="button" onClick={() => {
+                                const id = existingAttachments.securityReport?.id;
+                                if (id) setRemovedAttachments(prev => [...prev, id]);
+                                setExistingAttachments(prev => ({ ...prev, securityReport: undefined }));
+                              }} className="text-red-500 font-bold ml-2">Remove</button>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                            <Upload className="w-5 h-5 text-slate-400" />
+                            <input type="file" className="text-xs flex-1" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setSecurityReport(e.target.files?.[0] || null)} />
+                          </div>
+                        </div>
 
-              {/* Terms */}
-              <Card className="shadow-md border-slate-200 overflow-hidden">
-                  <div className="bg-slate-900 px-6 py-3">
-                    <CardTitle className="text-sm text-white flex items-center gap-2">
-                      📜 Terms of Agreement
-                    </CardTitle>
+                        <div className="space-y-3 border-t border-slate-100 pt-6">
+                          <Label>Software Requirements Specification (SRS) including Architecture*</Label>
+                          {existingAttachments.justification && (
+                            <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200 text-xs">
+                              <span className="truncate flex-1">{existingAttachments.justification.fileName}</span>
+                              <button type="button" onClick={() => {
+                                const id = existingAttachments.justification?.id;
+                                if (id) setRemovedAttachments(prev => [...prev, id]);
+                                setExistingAttachments(prev => ({ ...prev, justification: undefined }));
+                              }} className="text-red-500 font-bold ml-2">Remove</button>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                            <Upload className="w-5 h-5 text-slate-400" />
+                            <input type="file" className="text-xs flex-1" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setJustificationDoc(e.target.files?.[0] || null)} />
+                          </div>
+                        </div>
+
+                        <div className="pt-4 flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
+                          <div className="space-y-0.5">
+                            <Label>Automated Renewal</Label>
+                            <p className="text-[10px] text-slate-500 italic">Automated renewal — Notify 1 month before expiry. Without renewal, VM will remain active for 6 months.</p>
+                          </div>
+                          <Switch name="renewalRequired" checked={renewalRequired} onCheckedChange={setRenewalRequired} />
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
-                  <CardContent className="p-6 space-y-4">
-                    <div className="max-h-40 overflow-y-auto bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs text-slate-600 leading-relaxed">
-                      <div dangerouslySetInnerHTML={{ __html: TERMS_CONTENT }} />
+
+                  {/* Terms */}
+                  <Card className="shadow-md border-slate-200 overflow-hidden">
+                    <div className="bg-slate-900 px-6 py-3">
+                      <CardTitle className="text-sm text-white flex items-center gap-2">
+                        📜 Terms of Agreement
+                      </CardTitle>
                     </div>
-                    <div className="flex items-center gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
-                      <Checkbox id="termsAccepted" checked={termsAccepted} onCheckedChange={(c) => setTermsAccepted(!!c)} />
-                      <Label htmlFor="termsAccepted" className="text-sm font-semibold text-blue-900 cursor-pointer select-none">
-                        I acknowledge and agree to the DGHS Data Center policies *
-                      </Label>
-                    </div>
-                  </CardContent>
-                </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                    <CardContent className="p-6 space-y-4">
+                      <div className="max-h-40 overflow-y-auto bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs text-slate-600 leading-relaxed">
+                        <div dangerouslySetInnerHTML={{ __html: TERMS_CONTENT }} />
+                      </div>
+                      <div className="flex items-center gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                        <Checkbox id="termsAccepted" checked={termsAccepted} onCheckedChange={(c) => setTermsAccepted(!!c)} />
+                        <Label htmlFor="termsAccepted" className="text-sm font-semibold text-blue-900 cursor-pointer select-none">
+                          I acknowledge and agree to the DGHS Data Center policies *
+                        </Label>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-        {/* Action Bar */}
-        <div className="fixed bottom-0 left-0 lg:left-64 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-50">
-          <div className="max-w-6xl mx-auto flex justify-between items-center gap-4">
-            <Button
-              variant="ghost"
-              size="lg"
-              className="text-slate-500 hover:text-slate-900 font-bold"
-              disabled={currentStep === (isEditOrCopy ? 1 : 0) || isSubmitting}
-              type="button"
-              onClick={prevStep}
-            >
-              <ChevronLeft className="w-5 h-5 mr-1" /> Back
-            </Button>
-
-            <div className="flex items-center gap-4">
-              <Button
-                variant="outline"
-                size="lg"
-                className="hidden sm:flex border-slate-200 hover:bg-slate-50 text-slate-600 font-bold"
-                disabled={isSubmitting}
-                type="button"
-                onClick={() => handleSubmit("draft")}
-              >
-                Save Draft
-              </Button>
-
-              {currentStep < totalSteps ? (
+            {/* Action Bar */}
+            <div className="fixed bottom-0 left-0 lg:left-64 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 p-4 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-50">
+              <div className="max-w-6xl mx-auto flex justify-between items-center gap-4">
                 <Button
-                  size="sm"
-                  className="bg-blue-600 hover:bg-blue-700 px-6 min-w-[100px] shadow-lg shadow-blue-200 font-bold"
-                  disabled={isSubmitting || isAutoSaving}
+                  variant="ghost"
+                  size="lg"
+                  className="text-slate-500 hover:text-slate-900 font-bold"
+                  disabled={currentStep === (isEditOrCopy ? 1 : 0) || isSubmitting}
                   type="button"
-                  onClick={nextStep}
+                  onClick={prevStep}
                 >
-                  {isAutoSaving ? "Saving..." : "Continue"} <ChevronRight className="w-5 h-5 ml-1" />
+                  <ChevronLeft className="w-5 h-5 mr-1" /> Back
                 </Button>
-              ) : (
-                <div className="flex items-center gap-3 w-full sm:w-auto">
-                  {!isDeveloper ? (
+
+                <div className="flex items-center gap-4">
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="hidden sm:flex border-slate-200 hover:bg-slate-50 text-slate-600 font-bold"
+                    disabled={isSubmitting}
+                    type="button"
+                    onClick={() => handleSubmit("draft")}
+                  >
+                    Save Draft
+                  </Button>
+
+                  {currentStep < totalSteps ? (
                     <Button
                       size="sm"
-                      className={cn(
-                        "px-10 min-w-[220px] transition-all duration-300 shadow-xl font-bold",
-                        termsAccepted ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" : "bg-slate-400 cursor-not-allowed opacity-50"
-                      )}
-                      disabled={isSubmitting || !termsAccepted}
+                      className="bg-blue-600 hover:bg-blue-700 px-6 min-w-[100px] shadow-lg shadow-blue-200 font-bold"
+                      disabled={isSubmitting || isAutoSaving}
                       type="button"
-                      onClick={() => handleSubmit("submit")}
+                      onClick={nextStep}
                     >
-                      {isSubmitting ? "Processing..." : "Submit Request"}
+                      {isAutoSaving ? "Saving..." : "Continue"} <ChevronRight className="w-5 h-5 ml-1" />
                     </Button>
                   ) : (
-                    <Button
-                      size="lg"
-                      className="flex-1 sm:flex-none bg-amber-600 hover:bg-amber-700 px-10 min-w-[220px] shadow-xl font-bold text-white"
-                      disabled={isSubmitting}
-                      type="button"
-                      onClick={() => handleSubmit("draft")}
-                    >
-                      {isSubmitting ? "Processing..." : "Finish & Save Draft"}
-                    </Button>
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                      {!isDeveloper ? (
+                        <Button
+                          size="sm"
+                          className={cn(
+                            "px-10 min-w-[220px] transition-all duration-300 shadow-xl font-bold",
+                            termsAccepted ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" : "bg-slate-400 cursor-not-allowed opacity-50"
+                          )}
+                          disabled={isSubmitting || !termsAccepted}
+                          type="button"
+                          onClick={() => handleSubmit("submit")}
+                        >
+                          {isSubmitting ? "Processing..." : "Submit Request"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="lg"
+                          className="flex-1 sm:flex-none bg-amber-600 hover:bg-amber-700 px-10 min-w-[220px] shadow-xl font-bold text-white"
+                          disabled={isSubmitting}
+                          type="button"
+                          onClick={() => handleSubmit("draft")}
+                        >
+                          {isSubmitting ? "Processing..." : "Finish & Save Draft"}
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-        </div>
           </form>
         </>
       )}

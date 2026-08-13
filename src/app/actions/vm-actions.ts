@@ -475,11 +475,116 @@ export async function fetchAllVms(page: number = 1, pageSize: number = 20, statu
 export async function deleteVm(id: string) {
   const session = await getServerSession(authOptions);
   if (!session?.user || !isAdmin(session.user.roles)) {
-    throw new Error("Unauthorized");
+    throw new Error("Unauthorized: Only administrators can delete VM instances");
   }
 
-  await prisma.vmInstance.delete({ where: { id } });
+  const vm = await prisma.vmInstance.findUnique({
+    where: { id },
+    include: {
+      currentSpec: true,
+      specHistory: true,
+    }
+  });
+
+  if (!vm) {
+    throw new Error("VM not found");
+  }
+
+  const actorId = session.user.id;
+
+  await prisma.$transaction(async (tx: any) => {
+    // 1. Break cyclic foreign key between VmInstance and currentSpec
+    await tx.vmInstance.update({
+      where: { id },
+      data: { currentSpecId: null },
+    });
+
+    // 2. Delete credentials and credential access logs
+    await tx.credentialAccessLog.deleteMany({ where: { vmInstanceId: id } });
+    await tx.vmCredential.deleteMany({ where: { vmInstanceId: id } });
+
+    // 3. Delete VM tags
+    await tx.vmTag.deleteMany({ where: { vmInstanceId: id } });
+
+    // 4. Delete access assignments & request resources
+    await tx.vpnAssignment.deleteMany({ where: { vmId: id } });
+    await tx.horizonAssignment.deleteMany({ where: { vmId: id } });
+    await tx.horizonAssignment.deleteMany({ where: { vmInstanceId: id } });
+    await tx.requestResource.deleteMany({ where: { vmId: id } });
+
+    // 5. Unlink from audit logs
+    await tx.auditLog.updateMany({
+      where: { vmId: id },
+      data: { vmId: null },
+    });
+
+    // 6. Delete customization history & requests referencing this VM
+    await tx.customizationHistory.deleteMany({ where: { vmId: id } });
+    
+    // Find customization requests for this VM
+    const customReqs = await tx.customizationRequest.findMany({
+      where: { targetVmId: id },
+      select: { id: true },
+    });
+    for (const cr of customReqs) {
+      await tx.additionalDiskInput.deleteMany({ where: { customizationId: cr.id } });
+      await tx.firewallPortInput.deleteMany({ where: { customizationId: cr.id } });
+      await tx.networkAccessInput.deleteMany({ where: { customizationId: cr.id } });
+      await tx.approval.deleteMany({ where: { customizationRequestId: cr.id } });
+      await tx.customizationRequest.delete({ where: { id: cr.id } });
+    }
+
+    // 7. Nullify foreign key references in Request
+    await tx.request.updateMany({
+      where: { targetVmId: id },
+      data: { targetVmId: null },
+    });
+    await tx.request.updateMany({
+      where: { sourceVmId: id },
+      data: { sourceVmId: null },
+    });
+    await tx.request.updateMany({
+      where: { upgradeVmId: id },
+      data: { upgradeVmId: null },
+    });
+    await tx.request.updateMany({
+      where: { accessTargetVmId: id },
+      data: { accessTargetVmId: null },
+    });
+
+    // 8. Delete nested spec records (disks, firewall ports, network access) and VmSpec records
+    const specs = await tx.vmSpec.findMany({
+      where: { vmInstanceId: id },
+      select: { id: true },
+    });
+    for (const s of specs) {
+      await tx.vmSpecDisk.deleteMany({ where: { specId: s.id } });
+      await tx.vmSpecFirewallPort.deleteMany({ where: { specId: s.id } });
+      await tx.vmSpecNetworkAccess.deleteMany({ where: { specId: s.id } });
+    }
+    await tx.vmSpec.deleteMany({ where: { vmInstanceId: id } });
+
+    // 9. Finally delete the VM instance
+    await tx.vmInstance.delete({ where: { id } });
+
+    // 10. Create audit log for VM deletion
+    await tx.auditLog.create({
+      data: {
+        actorId,
+        action: "DELETE_VM",
+        entityType: "VmInstance",
+        entityId: id,
+        details: JSON.stringify({
+          hostname: vm.hostname,
+          ipAddress: vm.ipAddress,
+          systemName: vm.systemName,
+        }),
+      },
+    });
+  }, { timeout: 30000 });
+
   revalidatePath("/inventory/vms");
+  return { success: true };
 }
 
 export async function renewVmRequest(vmId: string) {

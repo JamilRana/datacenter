@@ -46,18 +46,18 @@ export function RequestList({ requests: initialRequests }: RequestListProps) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this draft?")) return;
+    if (!confirm("Are you sure you want to delete this request?")) return;
 
     try {
       const res = await deleteRequest(id);
-      if (res.success) {
+      if (res?.success) {
         setRequests(prev => prev.filter(r => r.id !== id));
-        toast.success("Draft deleted successfully");
+        toast.success("Request deleted successfully");
       } else {
-        toast.error("Failed to delete draft");
+        toast.error("Failed to delete request");
       }
-    } catch {
-      toast.error("Network error");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete request");
     }
   };
 

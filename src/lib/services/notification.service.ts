@@ -2,6 +2,7 @@ import prisma from "@/lib/prisma";
 import { NotificationType, UserRole } from "@/lib/types/enums";
 import { sendApprovalNotification, sendStatusUpdateNotification } from "@/lib/email";
 import { getWorkflowConfig } from "@/lib/workflow";
+import { getAppUrl } from "@/lib/utils";
 
 export class NotificationService {
   /**
@@ -95,13 +96,16 @@ export class NotificationService {
       }
     }
 
+    const typeParam = entityType === "CUSTOMIZATION" ? "customization" : "request";
+    const relativeLink = `/approvals/${requestId}?type=${typeParam}`;
+    const fullActionUrl = `${getAppUrl()}${relativeLink}`;
+
     for (const approver of approvers) {
-      const typeParam = entityType === "CUSTOMIZATION" ? "customization" : "request";
       await this.createNotification(
         approver.id,
         NotificationType.APPROVAL_REQUIRED,
         `Request "${systemName}" requires your Level ${level} approval`,
-        `/approvals/${requestId}?type=${typeParam}`
+        relativeLink
       );
 
       if (approver.email) {
@@ -110,7 +114,10 @@ export class NotificationService {
           approver.name || "Approver",
           systemName,
           `PENDING_L${level}`,
-          level
+          level,
+          undefined,
+          fullActionUrl,
+          requestId
         );
       }
     }
@@ -137,6 +144,8 @@ export class NotificationService {
 
       const displayStatus = status.replace(/_/g, " ");
       const message = `Your request "${systemName}" has been deployed/provisioned (Status: ${displayStatus}).`;
+      const relativeLink = `/requests/${request.id}/view`;
+      const fullActionUrl = `${getAppUrl()}${relativeLink}`;
 
       // 1. Notify requester
       if (requester) {
@@ -144,7 +153,7 @@ export class NotificationService {
           requester.id,
           NotificationType.STATUS_UPDATE,
           message,
-          `/requests/${request.id}/view`
+          relativeLink
         );
 
         if (requester.email) {
@@ -152,7 +161,10 @@ export class NotificationService {
             requester.email,
             requester.name || "Requester",
             systemName,
-            status
+            status,
+            undefined,
+            fullActionUrl,
+            request.id
           );
         }
       }
@@ -163,7 +175,7 @@ export class NotificationService {
           developer.id,
           NotificationType.STATUS_UPDATE,
           `Request "${systemName}" you are associated with has been deployed/provisioned (Status: ${displayStatus}).`,
-          `/requests/${request.id}/view`
+          relativeLink
         );
 
         if (developer.email) {
@@ -171,7 +183,10 @@ export class NotificationService {
             developer.email,
             developer.name || "Developer",
             systemName,
-            status
+            status,
+            undefined,
+            fullActionUrl,
+            request.id
           );
         }
       } else if (request.developerEmail) {
@@ -180,7 +195,10 @@ export class NotificationService {
           request.developerEmail,
           request.developerName || "Developer",
           systemName,
-          status
+          status,
+          undefined,
+          fullActionUrl,
+          request.id
         );
       }
     } catch (error) {
@@ -197,13 +215,14 @@ export class NotificationService {
       select: { email: true, name: true },
     });
 
-    const link = requestId ? `/requests/${requestId}/view` : "/requests";
+    const relativeLink = requestId ? `/requests/${requestId}/view` : "/requests";
+    const fullActionUrl = `${getAppUrl()}${relativeLink}`;
 
     await this.createNotification(
       userId,
       NotificationType.STATUS_UPDATE,
       `Your request "${systemName}" status updated to: ${status.replace(/_/g, " ")}`,
-      link
+      relativeLink
     );
 
     if (user?.email) {
@@ -212,7 +231,9 @@ export class NotificationService {
         user.name || "Requester",
         systemName,
         status,
-        comments
+        comments,
+        fullActionUrl,
+        requestId
       );
     }
   }
@@ -232,12 +253,15 @@ export class NotificationService {
       },
     });
 
+    const relativeLink = `/approvals/${requestId}?type=request`;
+    const fullActionUrl = `${getAppUrl()}${relativeLink}`;
+
     for (const user of dcopsUsers) {
       await this.createNotification(
         user.id,
         NotificationType.EXECUTION_READY,
         `Request "${systemName}" has been APPROVED and is ready for execution.`,
-        `/inventory/vms`
+        relativeLink
       );
 
       if (user.email) {
@@ -247,7 +271,9 @@ export class NotificationService {
           systemName,
           "APPROVED",
           0,
-          "Request approved and ready for execution"
+          "Request approved and ready for execution",
+          fullActionUrl,
+          requestId
         );
       }
     }

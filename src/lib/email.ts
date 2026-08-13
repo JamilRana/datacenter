@@ -162,10 +162,13 @@ export function getApprovalEmailHtml(
   systemName: string,
   status: string,
   level: number,
-  comments?: string
+  comments?: string,
+  actionUrl?: string,
+  requestId?: string
 ): string {
   const escapedName = escapeHtml(recipientName);
   const escapedSystem = escapeHtml(systemName);
+  const escapedRequestId = requestId ? escapeHtml(requestId) : null;
   const escapedComments = comments ? escapeHtml(comments) : null;
 
   const statusColors: Record<string, string> = {
@@ -188,6 +191,12 @@ export function getApprovalEmailHtml(
     
     <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e2e8f0;">
       <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        ${escapedRequestId ? `
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">Request ID:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace;">${escapedRequestId}</td>
+        </tr>
+        ` : ''}
         <tr>
           <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">System Name:</td>
           <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${escapedSystem}</td>
@@ -217,7 +226,7 @@ export function getApprovalEmailHtml(
     `;
   }
 
-  const portalUrl = `${DEFAULT_PORTAL_URL}/approvals`;
+  const portalUrl = actionUrl || (requestId ? `${DEFAULT_PORTAL_URL}/approvals/${requestId}?type=request` : `${DEFAULT_PORTAL_URL}/approvals`);
   content += `
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
       <tr>
@@ -240,10 +249,13 @@ export function getStatusUpdateEmailHtml(
   recipientName: string,
   systemName: string,
   newStatus: string,
-  comments?: string
+  comments?: string,
+  actionUrl?: string,
+  requestId?: string
 ): string {
   const escapedName = escapeHtml(recipientName);
   const escapedSystem = escapeHtml(systemName);
+  const escapedRequestId = requestId ? escapeHtml(requestId) : null;
   const escapedComments = comments ? escapeHtml(comments) : null;
 
   const statusInfo: Record<string, { color: string; message: string }> = {
@@ -268,6 +280,12 @@ export function getStatusUpdateEmailHtml(
     
     <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e2e8f0;">
       <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        ${escapedRequestId ? `
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">Request ID:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace;">${escapedRequestId}</td>
+        </tr>
+        ` : ''}
         <tr>
           <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">System Name:</td>
           <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${escapedSystem}</td>
@@ -293,12 +311,12 @@ export function getStatusUpdateEmailHtml(
     `;
   }
 
-  const actionUrl = `${DEFAULT_PORTAL_URL}/requests`;
+  const finalActionUrl = actionUrl || (requestId ? `${DEFAULT_PORTAL_URL}/requests/${requestId}/view` : `${DEFAULT_PORTAL_URL}/requests`);
   content += `
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
       <tr>
         <td>
-          <a href="${actionUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500;">
+          <a href="${finalActionUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500;">
             View Details
           </a>
         </td>
@@ -315,10 +333,13 @@ export function getStatusUpdateEmailHtml(
 export function getExecutionEmailHtml(
   recipientName: string,
   systemName: string,
-  vmDetails?: { ip?: string; hostname?: string }
+  vmDetails?: { ip?: string; hostname?: string },
+  actionUrl?: string,
+  requestId?: string
 ): string {
   const escapedName = escapeHtml(recipientName);
   const escapedSystem = escapeHtml(systemName);
+  const escapedRequestId = requestId ? escapeHtml(requestId) : null;
   const escapedHostname = vmDetails?.hostname ? escapeHtml(vmDetails.hostname) : null;
   const escapedIp = vmDetails?.ip ? escapeHtml(vmDetails.ip) : null;
 
@@ -331,6 +352,12 @@ export function getExecutionEmailHtml(
     <div style="background-color: #ecfdf5; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #a7f3d0;">
       <h3 style="margin: 0 0 16px 0; color: #065f46; font-size: 16px; font-weight: 600;">VM Details</h3>
       <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        ${escapedRequestId ? `
+        <tr>
+          <td style="padding: 8px 0; color: #047857; font-size: 13px; width: 120px;">Request ID:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace;">${escapedRequestId}</td>
+        </tr>
+        ` : ''}
         <tr>
           <td style="padding: 8px 0; color: #047857; font-size: 13px; width: 120px;">Hostname:</td>
           <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${escapedHostname || escapedSystem}</td>
@@ -345,17 +372,17 @@ export function getExecutionEmailHtml(
     </div>
     
     <p style="margin: 20px 0; color: #64748b; font-size: 13px;">
-      You can now access and manage your VM through the inventory section.
+      You can now access and manage your VM through the portal.
     </p>
   `;
 
-  const inventoryUrl = `${DEFAULT_PORTAL_URL}/inventory/vms`;
+  const finalUrl = actionUrl || (requestId ? `${DEFAULT_PORTAL_URL}/requests/${requestId}/view` : `${DEFAULT_PORTAL_URL}/inventory/vms`);
   content += `
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
       <tr>
         <td>
-          <a href="${inventoryUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500;">
-            View in Inventory
+          <a href="${finalUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500;">
+            View in Portal
           </a>
         </td>
       </tr>
@@ -468,10 +495,12 @@ export async function sendApprovalNotification(
   systemName: string,
   status: string,
   level: number,
-  comments?: string
+  comments?: string,
+  actionUrl?: string,
+  requestId?: string
 ): Promise<{ success: boolean; error?: string }> {
   const subject = `Approval Required: ${systemName} (Level ${level})`;
-  const html = getApprovalEmailHtml(recipientName, systemName, status, level, comments);
+  const html = getApprovalEmailHtml(recipientName, systemName, status, level, comments, actionUrl, requestId);
   
   return sendEmail({ to, subject, html });
 }
@@ -484,10 +513,12 @@ export async function sendStatusUpdateNotification(
   recipientName: string,
   systemName: string,
   newStatus: string,
-  comments?: string
+  comments?: string,
+  actionUrl?: string,
+  requestId?: string
 ): Promise<{ success: boolean; error?: string }> {
   const subject = `Request ${newStatus.replace(/_/g, " ")}: ${systemName}`;
-  const html = getStatusUpdateEmailHtml(recipientName, systemName, newStatus, comments);
+  const html = getStatusUpdateEmailHtml(recipientName, systemName, newStatus, comments, actionUrl, requestId);
   
   return sendEmail({ to, subject, html });
 }
@@ -499,10 +530,12 @@ export async function sendProvisioningNotification(
   to: string,
   recipientName: string,
   systemName: string,
-  vmDetails?: { ip?: string; hostname?: string }
+  vmDetails?: { ip?: string; hostname?: string },
+  actionUrl?: string,
+  requestId?: string
 ): Promise<{ success: boolean; error?: string }> {
   const subject = `VM Ready: ${systemName}`;
-  const html = getExecutionEmailHtml(recipientName, systemName, vmDetails);
+  const html = getExecutionEmailHtml(recipientName, systemName, vmDetails, actionUrl, requestId);
   
   return sendEmail({ to, subject, html });
 }

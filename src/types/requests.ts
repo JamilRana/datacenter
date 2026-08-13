@@ -145,6 +145,8 @@ export interface detailsRequest {
   targetVm?: VmInstance | null;
   tags?: { tag: { id: string; name: string; description: string | null } }[];
   k8sRequestNodeGroups?: K8sRequestNodeGroup[] | null;
+  k8sClusters?: any[] | null;
+  requestResources?: any[] | null;
   vmSpecifications?: VmSpecification[] | null;
 }
 

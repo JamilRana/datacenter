@@ -568,7 +568,7 @@ export default function HorizonPage() {
               <Input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. John Doe"
+                placeholder="e.g. Example"
                 className="border-slate-200 focus:border-indigo-500"
               />
             </div>
@@ -578,7 +578,7 @@ export default function HorizonPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. john@dghs.gov.bd"
+                placeholder="e.g. example@dghs.gov.bd"
                 className="border-slate-200 focus:border-indigo-500"
               />
             </div>
@@ -629,7 +629,7 @@ export default function HorizonPage() {
               <Input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. John Doe"
+                placeholder="e.g. Example"
                 className="border-slate-200 focus:border-indigo-500"
               />
             </div>
@@ -639,7 +639,7 @@ export default function HorizonPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. john@dghs.gov.bd"
+                placeholder="e.g. example@dghs.gov.bd"
                 className="border-slate-200 focus:border-indigo-500"
               />
             </div>

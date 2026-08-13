@@ -867,7 +867,7 @@ export function RequestDetails({
                       <div>
                         <p className="text-sm font-medium text-slate-700">{attachment.fileName}</p>
                         <p className="text-xs text-slate-400">
-                          {attachment.attachmentType.replace(/_/g, " ")} • {attachment.user?.name || "Unknown"}
+                          {attachment.attachmentType === "JUSTIFICATION" ? "Software Requirements Specification (SRS)" : attachment.attachmentType.replace(/_/g, " ")} • {attachment.user?.name || "Unknown"}
                         </p>
                       </div>
                     </div>
