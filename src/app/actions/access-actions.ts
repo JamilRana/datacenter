@@ -371,6 +371,9 @@ export async function provisionAccessRequest(
       });
     });
 
+    const { NotificationService } = await import("@/lib/services/notification.service");
+    await NotificationService.notifyDeployment(requestId, "PROVISIONED");
+
     return { success: true, message: "Access successfully provisioned!" };
   } catch (error: any) {
     console.error("Error provisioning access:", error);
@@ -510,6 +513,9 @@ export async function provisionVpnForRequest(
       });
     });
 
+    const { NotificationService } = await import("@/lib/services/notification.service");
+    await NotificationService.notifyDeployment(requestId, "PROVISIONED");
+
     revalidatePath(`/approvals/${requestId}`);
     return { success: true, message: `VPN access successfully provisioned for user ${data.username}` };
   } catch (error: any) {
@@ -642,6 +648,9 @@ export async function provisionHorizonForRequest(
         }
       });
     });
+
+    const { NotificationService } = await import("@/lib/services/notification.service");
+    await NotificationService.notifyDeployment(requestId, "PROVISIONED");
 
     revalidatePath(`/approvals/${requestId}`);
     return { success: true, message: `Horizon access successfully provisioned for user ${data.username}` };

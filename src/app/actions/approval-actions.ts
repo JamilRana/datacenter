@@ -140,17 +140,49 @@ export async function handleApprovalDecision(
 
   if (!approvalRecord) {
     return { success: false, error: "Approval record not found or already processed", code: "NOT_FOUND" };
+  }  const resolvedApprovalId = approvalRecord.id;
+
+  const entityType = approvalRecord.entityType;
+  const entityId = approvalRecord.requestId || approvalRecord.customizationRequestId;
+
+  if (!entityId) {
+    return { success: false, error: "Linked entity not found for this approval record." };
   }
 
-  const resolvedApprovalId = approvalRecord.id;
+  let systemName = "Request";
+  let requesterId: string | null = null;
+  let requestType = "NEW_VM";
+
+  if (entityType === "REQUEST") {
+    const req = await prisma.request.findUnique({
+      where: { id: entityId },
+      select: { systemName: true, requestType: true, requesterId: true }
+    });
+    if (req) {
+      systemName = req.systemName;
+      requestType = req.requestType;
+      requesterId = req.requesterId;
+    }
+  } else {
+    const cust = await prisma.customizationRequest.findUnique({
+      where: { id: entityId },
+      include: { targetVm: { select: { hostname: true } } }
+    });
+    if (cust) {
+      systemName = cust.targetVm?.hostname || "Resource Customization";
+      requestType = "CUSTOMIZED";
+      requesterId = cust.requesterId;
+    }
+  }
+
+  // Validation
+  if ((decision === ApprovalDecision.REJECTED || decision === ApprovalDecision.RETURNED) && !comments?.trim()) {
+    return { success: false, error: "Comments are mandatory for rejections or returns" };
+  }
 
   const result = await prisma.$transaction(async (tx: any) => {
     const approval = await tx.approval.findUnique({
-      where: { id: resolvedApprovalId },
-      include: { 
-        request: { include: { requester: true, vmInstances: true, targetVm: true } },
-        customizationRequest: { include: { requester: true, targetVm: true } }
-      }
+      where: { id: resolvedApprovalId }
     });
 
     if (!approval) return { success: false, error: "Approval record not found during transaction" };
@@ -181,32 +213,6 @@ export async function handleApprovalDecision(
           error: `Cannot approve: Previous level(s) have not been approved yet. Level ${approval.level} can only act after all lower levels have approved.` 
         };
       }
-    }
-
-    const entityType = approval.entityType;
-    
-    let entityId: string;
-    let systemName: string;
-    let requesterId: string | null;
-    let requestType: string = "NEW_VM";
-
-    if (entityType === "REQUEST" && approval.request) {
-      entityId = approval.request.id;
-      systemName = approval.request.systemName;
-      requestType = approval.request.requestType;
-      requesterId = approval.request.requesterId;
-    } else if (entityType === "CUSTOMIZATION" && approval.customizationRequest) {
-      entityId = approval.customizationRequest.id;
-      systemName = approval.customizationRequest.targetVm?.hostname || "Resource Customization";
-      requestType = "CUSTOMIZED";
-      requesterId = approval.customizationRequest.requesterId;
-    } else {
-      return { success: false, error: "Linked entity not found for this approval record." };
-    }
-
-    // Validation
-    if ((decision === ApprovalDecision.REJECTED || decision === ApprovalDecision.RETURNED) && !comments?.trim()) {
-      return { success: false, error: "Comments are mandatory for rejections or returns" };
     }
 
     // Update Approval Record
@@ -335,7 +341,7 @@ export async function handleApprovalDecision(
       // Reject all pending approvals for this request
       await tx.approval.updateMany({
         where: {
-          requestId: entityId,
+          ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
           decision: ApprovalDecision.PENDING,
         },
         data: {
@@ -349,75 +355,64 @@ export async function handleApprovalDecision(
       
       // Get current level config to check if it's final
       const currentLevelConfig = workflow.levels.find(l => l.level === approval.level);
-      const isCurrentLevelFinal = currentLevelConfig?.isFinal || false;
       
-      // Get next level in workflow
-      const nextLevel = await getNextLevel(approval.level, workflow);
-      
-      if (!nextLevel) {
-        // No more levels - this is the final approval
-        // If current level is marked as final, set to APPROVED (or APPROVED for DCOPS to provision)
-        if (isCurrentLevelFinal && currentLevelConfig?.role === "DC_OPS") {
-          nextStatus = RequestStatus.APPROVED;
-        } else if (isCurrentLevelFinal) {
-          nextStatus = RequestStatus.APPROVED;
-        } else {
-          // Fallback - should not happen if workflow is configured correctly
-          nextStatus = RequestStatus.APPROVED;
-        }
+      if (currentLevelConfig?.isFinal) {
+        nextStatus = RequestStatus.APPROVED;
       } else {
-        // There's a next level - check if it's DC_OPS
-        if (nextLevel.role === "DC_OPS") {
-          // Final approval before DC_OPS - set to APPROVED so DCOPS can provision
-          nextStatus = RequestStatus.APPROVED;
-          
-          // Create a pending approval for DC_OPS so it appears in DCOPS dashboard
-          const dcOpsUsers = await tx.user.findMany({
-            where: { 
-              isActive: true,
-              roles: { some: { role: { name: "DC_OPS" } } }
-            }
-          });
-          
-          for (const dcOpsUser of dcOpsUsers) {
-            await tx.approval.create({
-              data: {
-                entityType,
-                level: nextLevel.level,
-                approverId: dcOpsUser.id,
-                decision: ApprovalDecision.PENDING,
-                comments: `Ready for provisioning after final approval at level ${approval.level}`,
-                ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
-              },
-            });
-          }
-          nextLevelToNotify = nextLevel.level;
-        } else {
-          // Next is another approver level - create pending approval for them
-          const nextApprover = await tx.user.findFirst({
-            where: { 
-              isActive: true,
-              roles: { some: { role: { name: nextLevel.role } } }
-            }
-          });
-          
-          if (nextApprover) {
-            await tx.approval.create({
-              data: {
-                entityType,
-                level: nextLevel.level,
-                approverId: nextApprover.id,
-                decision: ApprovalDecision.PENDING,
-                comments: `Auto-escalated from level ${approval.level}: ${comments || "Approved"}`,
-                ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
-              },
-            });
-            nextLevelToNotify = nextLevel.level;
-            nextStatus = getStatusForLevel(nextLevel.level);
-          } else {
-            // No approver found - finalize the request
+        const nextLevel = await getNextLevel(approval.level, workflow);
+        if (nextLevel) {
+          if (nextLevel.role === "DC_OPS") {
             nextStatus = RequestStatus.APPROVED;
+            
+            // Create a pending approval for DC_OPS so it appears in DCOPS dashboard
+            const dcOpsUsers = await tx.user.findMany({
+              where: { 
+                isActive: true,
+                roles: { some: { role: { name: "DC_OPS" } } }
+              }
+            });
+            
+            for (const dcOpsUser of dcOpsUsers) {
+              await tx.approval.create({
+                data: {
+                  entityType,
+                  level: nextLevel.level,
+                  approverId: dcOpsUser.id,
+                  decision: ApprovalDecision.PENDING,
+                  comments: `Ready for provisioning after final approval at level ${approval.level}`,
+                  ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
+                },
+              });
+            }
+            nextLevelToNotify = nextLevel.level;
+          } else {
+            const nextApprover = await tx.user.findFirst({
+              where: { 
+                isActive: true,
+                roles: { some: { role: { name: nextLevel.role } } }
+              }
+            });
+            
+            if (nextApprover) {
+              await tx.approval.create({
+                data: {
+                  entityType,
+                  level: nextLevel.level,
+                  approverId: nextApprover.id,
+                  decision: ApprovalDecision.PENDING,
+                  comments: `Auto-escalated from level ${approval.level}: ${comments || "Approved"}`,
+                  ...(entityType === "REQUEST" ? { requestId: entityId } : { customizationRequestId: entityId }),
+                },
+              });
+              nextLevelToNotify = nextLevel.level;
+              nextStatus = getStatusForLevel(nextLevel.level);
+            } else {
+              // No approver found - finalize the request
+              nextStatus = RequestStatus.APPROVED;
+            }
           }
+        } else {
+          nextStatus = RequestStatus.APPROVED;
         }
       }
     } else {
@@ -447,6 +442,15 @@ export async function handleApprovalDecision(
       },
     });
 
+    return { success: true, data: { status: nextStatus, action: decision, nextLevel: nextLevelToNotify, forwardedToLevel: forwardToLevel } };
+  }, { timeout: 30000 });
+
+  // Post-commit notifications and invalidation (Safe post-commit execution)
+  if (result.success && result.data) {
+    const data = result.data;
+    const action = data.action;
+    const nextStatus = data.status;
+
     // 8. Notifications
     if (requesterId && (decision === ApprovalDecision.REJECTED || nextStatus === "APPROVED")) {
       await NotificationService.notifyRequester(
@@ -455,49 +459,30 @@ export async function handleApprovalDecision(
         decision === ApprovalDecision.REJECTED ? "REJECTED" : "APPROVED",
         entityId,
         comments || undefined
-      );
+      ).catch(err => console.error("[Post-commit Notification] Failed to notify requester:", err));
     }
 
     if (nextStatus === "APPROVED") {
-      await NotificationService.notifyDCOps(entityId, systemName);
+      await NotificationService.notifyDCOps(entityId, systemName).catch(err =>
+        console.error("[Post-commit Notification] Failed to notify DC Ops:", err)
+      );
     }
 
-    await invalidateCache('admin_dashboard_data');
-    return { success: true, data: { status: nextStatus, action: decision, nextLevel: nextLevelToNotify, forwardedToLevel: forwardToLevel } };
-  }, { timeout: 30000 });
-
-  // Post-commit: Notify target approver
-  if (result.success && result.data) {
-    const data = result.data;
-    const action = data.action;
-
-    const entityType = approvalRecord.entityType;
-    const entityId = approvalRecord.requestId || approvalRecord.customizationRequestId;
-    
-    if (entityId) {
-      let systemName = "Request";
-      if (entityType === "REQUEST") {
-        const req = await prisma.request.findUnique({
-          where: { id: entityId },
-          select: { systemName: true }
-        });
-        if (req) systemName = req.systemName;
-      } else {
-        const cust = await prisma.customizationRequest.findUnique({
-          where: { id: entityId },
-          include: { targetVm: { select: { hostname: true } } }
-        });
-        if (cust) systemName = cust.targetVm?.hostname || "Resource Customization";
+    if (action === "FORWARDED" || action === "FORWARDED_TO_DCOPS") {
+      if (data.forwardedToLevel) {
+        await NotificationService.notifyApprovers(entityId, systemName, data.forwardedToLevel, entityType).catch(err =>
+          console.error("[Post-commit Notification] Failed to notify forwarded approver:", err)
+        );
       }
-
-      if (action === "FORWARDED" || action === "FORWARDED_TO_DCOPS") {
-        if (data.forwardedToLevel) {
-          await NotificationService.notifyApprovers(entityId, systemName, data.forwardedToLevel, entityType);
-        }
-      } else if (action === "APPROVED" && data.nextLevel) {
-        await NotificationService.notifyApprovers(entityId, systemName, data.nextLevel, entityType);
-      }
+    } else if (action === "APPROVED" && data.nextLevel) {
+      await NotificationService.notifyApprovers(entityId, systemName, data.nextLevel, entityType).catch(err =>
+        console.error("[Post-commit Notification] Failed to notify next level approver:", err)
+      );
     }
+
+    await invalidateCache('admin_dashboard_data').catch(err =>
+      console.error("[Post-commit Cache Invalidation] Failed:", err)
+    );
   }
 
   return result;

@@ -1,6 +1,17 @@
 import prisma from "@/lib/prisma";
 import { NotificationType, UserRole } from "@/lib/types/enums";
-import { sendApprovalNotification, sendStatusUpdateNotification } from "@/lib/email";
+import {
+  sendApprovalNotification,
+  sendStatusUpdateNotification,
+  sendDeploymentSuccessNotification,
+  sendK8sNamespaceDeploymentNotification,
+  sendVpnAccessDeploymentNotification,
+  sendHorizonAccessDeploymentNotification,
+  VMNotificationDetails,
+  K8sNamespaceNotificationDetails,
+  VpnNotificationDetails,
+  HorizonNotificationDetails
+} from "@/lib/email";
 import { getWorkflowConfig } from "@/lib/workflow";
 import { getAppUrl } from "@/lib/utils";
 
@@ -133,6 +144,17 @@ export class NotificationService {
         include: {
           requester: { select: { id: true, email: true, name: true } },
           developer: { select: { id: true, email: true, name: true } },
+          vmInstances: {
+            include: {
+              currentSpec: true
+            }
+          },
+          k8sClusters: {
+            include: {
+              namespace: true,
+              nodeGroups: true
+            }
+          }
         },
       });
 
@@ -147,6 +169,167 @@ export class NotificationService {
       const relativeLink = `/requests/${request.id}/view`;
       const fullActionUrl = `${getAppUrl()}${relativeLink}`;
 
+      const vmsDetails: VMNotificationDetails[] = (request.vmInstances || []).map((vm: any) => ({
+        hostname: vm.hostname || "—",
+        ipAddress: vm.ipAddress || undefined,
+        publicIpAddress: vm.publicIpAddress || undefined,
+        subdomain: vm.subdomain || undefined,
+        vcpu: vm.currentSpec?.vcpu || 0,
+        ramGb: vm.currentSpec?.ramGb || 0,
+        storageGb: vm.currentSpec?.storageGb || 0,
+        osName: vm.currentSpec?.osName || undefined,
+        osVersion: vm.currentSpec?.osVersion || undefined,
+      }));
+
+      let vpnDetails: VpnNotificationDetails | undefined;
+      let horizonDetails: HorizonNotificationDetails | undefined;
+      let k8sNamespaceDetails: K8sNamespaceNotificationDetails | undefined;
+
+      if (request.requestType === "VPN_ACCESS") {
+        const vpnAssignments = await prisma.vpnAssignment.findMany({
+          where: {
+            OR: [
+              { vm: { requestId: requestId } },
+              { namespace: { requestResources: { some: { requestId: requestId } } } }
+            ]
+          },
+          include: {
+            vpnUser: true,
+            vm: true,
+            namespace: true
+          }
+        });
+
+        if (vpnAssignments.length > 0) {
+          const first = vpnAssignments[0];
+          const user = first.vpnUser;
+          if (user) {
+            const assignedResources: string[] = [];
+            for (const ass of vpnAssignments) {
+              if (ass.vm?.hostname) assignedResources.push(`VM: ${ass.vm.hostname}`);
+              if (ass.namespace?.name) assignedResources.push(`Namespace: ${ass.namespace.name}`);
+            }
+            vpnDetails = {
+              username: user.username,
+              fullName: user.fullName,
+              vpnProfile: user.vpnProfile,
+              vpnIp: user.vpnIp,
+              assignedResources,
+              expiresAt: first.expiresAt ? first.expiresAt.toLocaleDateString() : undefined,
+              notes: first.notes || undefined
+            };
+          }
+        }
+      }
+
+      if (request.requestType === "HORIZON_ACCESS") {
+        const horizonAssignments = await prisma.horizonAssignment.findMany({
+          where: {
+            OR: [
+              { vm: { requestId: requestId } },
+              { namespace: { requestResources: { some: { requestId: requestId } } } }
+            ]
+          },
+          include: {
+            horizonUser: true,
+            vm: true,
+            namespace: true
+          }
+        });
+
+        if (horizonAssignments.length > 0) {
+          const first = horizonAssignments[0];
+          const user = first.horizonUser;
+          if (user) {
+            const assignedResources: string[] = [];
+            for (const ass of horizonAssignments) {
+              if (ass.vm?.hostname) assignedResources.push(`VM: ${ass.vm.hostname}`);
+              if (ass.namespace?.name) assignedResources.push(`Namespace: ${ass.namespace.name}`);
+            }
+            horizonDetails = {
+              username: user.username,
+              fullName: user.fullName,
+              assignedIp: first.assignedIp || undefined,
+              assignedResources,
+              notes: first.notes || undefined
+            };
+          }
+        }
+      }
+
+      if (request.requestType === "K8S_NAMESPACE" && request.k8sClusters.length > 0) {
+        const cluster = request.k8sClusters[0];
+        const namespace = cluster.namespace;
+        if (namespace) {
+          k8sNamespaceDetails = {
+            namespaceName: namespace.name,
+            supervisorIp: namespace.supervisorIp,
+            clusterName: cluster.clusterName,
+            nodeGroups: cluster.nodeGroups.map((g: any) => ({
+              role: g.role,
+              nodeCount: g.nodeCount,
+              vcpu: g.vcpu,
+              ramGb: g.ramGb
+            }))
+          };
+        }
+      }
+
+      // Helper function to dispatch the correct email
+      const sendDetailedEmail = async (email: string, name: string) => {
+        if (k8sNamespaceDetails) {
+          await sendK8sNamespaceDeploymentNotification(
+            email,
+            name,
+            systemName,
+            status,
+            k8sNamespaceDetails,
+            fullActionUrl,
+            request.id
+          );
+        } else if (vpnDetails) {
+          await sendVpnAccessDeploymentNotification(
+            email,
+            name,
+            systemName,
+            status,
+            vpnDetails,
+            fullActionUrl,
+            request.id
+          );
+        } else if (horizonDetails) {
+          await sendHorizonAccessDeploymentNotification(
+            email,
+            name,
+            systemName,
+            status,
+            horizonDetails,
+            fullActionUrl,
+            request.id
+          );
+        } else if (vmsDetails.length > 0) {
+          await sendDeploymentSuccessNotification(
+            email,
+            name,
+            systemName,
+            status,
+            vmsDetails,
+            fullActionUrl,
+            request.id
+          );
+        } else {
+          await sendStatusUpdateNotification(
+            email,
+            name,
+            systemName,
+            status,
+            undefined,
+            fullActionUrl,
+            request.id
+          );
+        }
+      };
+
       // 1. Notify requester
       if (requester) {
         await this.createNotification(
@@ -157,15 +340,7 @@ export class NotificationService {
         );
 
         if (requester.email) {
-          await sendStatusUpdateNotification(
-            requester.email,
-            requester.name || "Requester",
-            systemName,
-            status,
-            undefined,
-            fullActionUrl,
-            request.id
-          );
+          await sendDetailedEmail(requester.email, requester.name || "Requester");
         }
       }
 
@@ -179,27 +354,11 @@ export class NotificationService {
         );
 
         if (developer.email) {
-          await sendStatusUpdateNotification(
-            developer.email,
-            developer.name || "Developer",
-            systemName,
-            status,
-            undefined,
-            fullActionUrl,
-            request.id
-          );
+          await sendDetailedEmail(developer.email, developer.name || "Developer");
         }
       } else if (request.developerEmail) {
         // Fallback for guest/external developer
-        await sendStatusUpdateNotification(
-          request.developerEmail,
-          request.developerName || "Developer",
-          systemName,
-          status,
-          undefined,
-          fullActionUrl,
-          request.id
-        );
+        await sendDetailedEmail(request.developerEmail, request.developerName || "Developer");
       }
     } catch (error) {
       console.error("[NotificationService] Failed to send deployment notifications:", error);

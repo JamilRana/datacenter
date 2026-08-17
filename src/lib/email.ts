@@ -583,3 +583,418 @@ export async function sendOtpEmail(
   
   return sendEmail({ to, subject, html });
 }
+
+export interface VMNotificationDetails {
+  hostname: string;
+  ipAddress?: string;
+  publicIpAddress?: string;
+  subdomain?: string;
+  vcpu: number;
+  ramGb: number;
+  storageGb: number;
+  osName?: string;
+  osVersion?: string;
+}
+
+export function getDeploymentSuccessEmailHtml(
+  recipientName: string,
+  systemName: string,
+  status: string,
+  vms: VMNotificationDetails[],
+  actionUrl: string,
+  requestId: string
+): string {
+  const escapedName = escapeHtml(recipientName);
+  const escapedSystem = escapeHtml(systemName);
+  const escapedRequestId = escapeHtml(requestId);
+  const displayStatus = status.replace(/_/g, " ");
+
+  let content = `
+    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
+    <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+      Great news! The resource provisioning for your request <strong>"${escapedSystem}"</strong> has been completed (Status: <span style="color: #10b981; font-weight: 600;">${displayStatus}</span>).
+    </p>
+
+    <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e2e8f0;">
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">Request ID:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace;">${escapedRequestId}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">System Name:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 500;">${escapedSystem}</td>
+        </tr>
+      </table>
+    </div>
+
+    <h3 style="margin: 24px 0 12px 0; color: #0f172a; font-size: 16px; font-weight: 600;">Provisioned Virtual Machines (${vms.length})</h3>
+    <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 24px;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+        <thead>
+          <tr style="background-color: #f1f5f9; text-align: left;">
+            <th style="padding: 12px; font-size: 12px; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">Hostname</th>
+            <th style="padding: 12px; font-size: 12px; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">IP Addresses</th>
+            <th style="padding: 12px; font-size: 12px; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">Specs</th>
+            <th style="padding: 12px; font-size: 12px; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0;">OS</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  for (const vm of vms) {
+    const escapedHostname = escapeHtml(vm.hostname);
+    const escapedIp = vm.ipAddress ? escapeHtml(vm.ipAddress) : "—";
+    const escapedPublicIp = vm.publicIpAddress ? escapeHtml(vm.publicIpAddress) : null;
+    const escapedSubdomain = vm.subdomain ? escapeHtml(vm.subdomain) : null;
+    const escapedOs = vm.osName ? `${escapeHtml(vm.osName)}${vm.osVersion ? ` ${escapeHtml(vm.osVersion)}` : ""}` : "—";
+    const specString = `${vm.vcpu} vCPU / ${vm.ramGb} GB RAM / ${vm.storageGb} GB Disk`;
+
+    let ipDetailsHtml = `<span style="font-family: monospace; font-size: 13px; font-weight: 500; color: #1e293b;">${escapedIp}</span>`;
+    if (escapedPublicIp) {
+      ipDetailsHtml += `<br/><span style="font-size: 11px; color: #64748b;">Public: ${escapedPublicIp}</span>`;
+    }
+    if (escapedSubdomain) {
+      ipDetailsHtml += `<br/><span style="font-size: 11px; color: #4f46e5; font-weight: 500;">${escapedSubdomain}</span>`;
+    }
+
+    content += `
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 12px; font-size: 13px; font-weight: 600; color: #0f172a; vertical-align: top; border-right: 1px solid #f1f5f9;">${escapedHostname}</td>
+            <td style="padding: 12px; font-size: 13px; color: #334155; vertical-align: top; line-height: 1.4; border-right: 1px solid #f1f5f9;">${ipDetailsHtml}</td>
+            <td style="padding: 12px; font-size: 12px; color: #475569; vertical-align: top; border-right: 1px solid #f1f5f9;">${specString}</td>
+            <td style="padding: 12px; font-size: 12px; color: #475569; vertical-align: top;">${escapedOs}</td>
+          </tr>
+    `;
+  }
+
+  content += `
+        </tbody>
+      </table>
+    </div>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
+      <tr>
+        <td>
+          <a href="${actionUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2);">
+            View in Portal
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return getEmailTemplate(content, `VM Provisioned - ${escapedSystem}`);
+}
+
+export async function sendDeploymentSuccessNotification(
+  to: string,
+  recipientName: string,
+  systemName: string,
+  status: string,
+  vms: VMNotificationDetails[],
+  actionUrl: string,
+  requestId: string
+): Promise<{ success: boolean; error?: string }> {
+  const subject = `Provisioned Resources Ready: ${systemName}`;
+  const html = getDeploymentSuccessEmailHtml(recipientName, systemName, status, vms, actionUrl, requestId);
+  
+  return sendEmail({ to, subject, html });
+}
+
+export interface K8sNamespaceNotificationDetails {
+  namespaceName: string;
+  supervisorIp: string;
+  clusterName: string;
+  nodeGroups: {
+    role: string;
+    nodeCount: number;
+    vcpu: number;
+    ramGb: number;
+  }[];
+}
+
+export interface VpnNotificationDetails {
+  username: string;
+  fullName: string;
+  vpnProfile: string;
+  vpnIp: string;
+  assignedResources: string[];
+  expiresAt?: string;
+  notes?: string;
+}
+
+export interface HorizonNotificationDetails {
+  username: string;
+  fullName: string;
+  assignedIp?: string;
+  assignedResources: string[];
+  notes?: string;
+}
+
+export function getK8sNamespaceDeploymentEmailHtml(
+  recipientName: string,
+  systemName: string,
+  status: string,
+  details: K8sNamespaceNotificationDetails,
+  actionUrl: string,
+  requestId: string
+): string {
+  const escapedName = escapeHtml(recipientName);
+  const escapedSystem = escapeHtml(systemName);
+  const escapedRequestId = escapeHtml(requestId);
+  const displayStatus = status.replace(/_/g, " ");
+
+  let content = `
+    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
+    <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+      Great news! The Kubernetes namespace provisioning for your request <strong>"${escapedSystem}"</strong> has been completed (Status: <span style="color: #10b981; font-weight: 600;">${displayStatus}</span>).
+    </p>
+
+    <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e2e8f0;">
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">Request ID:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace;">${escapedRequestId}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">Namespace Name:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600;">${escapeHtml(details.namespaceName)}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">Supervisor IP:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-family: monospace;">${escapeHtml(details.supervisorIp)}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 120px;">Cluster Name:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px;">${escapeHtml(details.clusterName)}</td>
+        </tr>
+      </table>
+    </div>
+
+    <h3 style="margin: 24px 0 12px 0; color: #0f172a; font-size: 16px; font-weight: 600;">Cluster Node Groups (${details.nodeGroups.length})</h3>
+    <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 24px;">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+        <thead>
+          <tr style="background-color: #f1f5f9; text-align: left;">
+            <th style="padding: 12px; font-size: 12px; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">Role</th>
+            <th style="padding: 12px; font-size: 12px; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;">Node Count</th>
+            <th style="padding: 12px; font-size: 12px; font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0;">Resource Spec per Node</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  for (const group of details.nodeGroups) {
+    const specString = `${group.vcpu} vCPU / ${group.ramGb} GB RAM`;
+    content += `
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 12px; font-size: 13px; font-weight: 600; color: #0f172a; vertical-align: top; border-right: 1px solid #f1f5f9;">${escapeHtml(group.role)}</td>
+            <td style="padding: 12px; font-size: 13px; color: #334155; vertical-align: top; border-right: 1px solid #f1f5f9;">${group.nodeCount}</td>
+            <td style="padding: 12px; font-size: 13px; color: #475569; vertical-align: top;">${specString}</td>
+          </tr>
+    `;
+  }
+
+  content += `
+        </tbody>
+      </table>
+    </div>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
+      <tr>
+        <td>
+          <a href="${actionUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2);">
+            View in Portal
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return getEmailTemplate(content, `K8s Namespace Provisioned - ${escapedSystem}`);
+}
+
+export function getVpnAccessDeploymentEmailHtml(
+  recipientName: string,
+  systemName: string,
+  status: string,
+  details: VpnNotificationDetails,
+  actionUrl: string,
+  requestId: string
+): string {
+  const escapedName = escapeHtml(recipientName);
+  const escapedSystem = escapeHtml(systemName);
+  const escapedRequestId = escapeHtml(requestId);
+  const displayStatus = status.replace(/_/g, " ");
+
+  const resourcesHtml = details.assignedResources.map(r => `<li>${escapeHtml(r)}</li>`).join("");
+
+  let content = `
+    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
+    <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+      Your VPN Access request for <strong>"${escapedSystem}"</strong> has been successfully provisioned (Status: <span style="color: #10b981; font-weight: 600;">${displayStatus}</span>).
+    </p>
+
+    <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e2e8f0;">
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 140px;">Request ID:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace;">${escapedRequestId}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 140px;">VPN Username:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace;">${escapeHtml(details.username)}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 140px;">Assigned VPN IP:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace; color: #4f46e5;">${escapeHtml(details.vpnIp)}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 140px;">VPN Connection Profile:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px;">${escapeHtml(details.vpnProfile)}</td>
+        </tr>
+        ${details.expiresAt ? `
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 140px;">Access Expiration:</td>
+          <td style="padding: 8px 0; color: #ef4444; font-size: 14px; font-weight: 500;">${escapeHtml(details.expiresAt)}</td>
+        </tr>
+        ` : ""}
+      </table>
+    </div>
+
+    <h3 style="margin: 24px 0 12px 0; color: #0f172a; font-size: 16px; font-weight: 600;">Assigned Resources</h3>
+    <ul style="margin: 0 0 20px 0; padding-left: 20px; color: #475569; font-size: 14px; line-height: 1.6;">
+      ${resourcesHtml || "<li>No target resources assigned specifically.</li>"}
+    </ul>
+
+    ${details.notes ? `
+    <div style="background-color: #f1f5f9; border-radius: 6px; padding: 12px; margin-top: 15px; border-left: 4px solid #94a3b8;">
+      <p style="margin: 0; color: #475569; font-size: 13px; font-style: italic;">
+        <strong>Provisioner Notes:</strong> ${escapeHtml(details.notes)}
+      </p>
+    </div>
+    ` : ""}
+
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
+      <tr>
+        <td>
+          <a href="${actionUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2);">
+            View in Portal
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return getEmailTemplate(content, `VPN Access Provisioned - ${escapedSystem}`);
+}
+
+export function getHorizonAccessDeploymentEmailHtml(
+  recipientName: string,
+  systemName: string,
+  status: string,
+  details: HorizonNotificationDetails,
+  actionUrl: string,
+  requestId: string
+): string {
+  const escapedName = escapeHtml(recipientName);
+  const escapedSystem = escapeHtml(systemName);
+  const escapedRequestId = escapeHtml(requestId);
+  const displayStatus = status.replace(/_/g, " ");
+
+  const resourcesHtml = details.assignedResources.map(r => `<li>${escapeHtml(r)}</li>`).join("");
+
+  let content = `
+    <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
+    <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+      Your VMware Horizon access request for <strong>"${escapedSystem}"</strong> has been successfully provisioned (Status: <span style="color: #10b981; font-weight: 600;">${displayStatus}</span>).
+    </p>
+
+    <div style="background-color: #f8fafc; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e2e8f0;">
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 140px;">Request ID:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace;">${escapedRequestId}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 140px;">Horizon Username:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace;">${escapeHtml(details.username)}</td>
+        </tr>
+        ${details.assignedIp ? `
+        <tr>
+          <td style="padding: 8px 0; color: #64748b; font-size: 13px; width: 140px;">Assigned Access IP:</td>
+          <td style="padding: 8px 0; color: #1e293b; font-size: 14px; font-weight: 600; font-family: monospace; color: #4f46e5;">${escapeHtml(details.assignedIp)}</td>
+        </tr>
+        ` : ""}
+      </table>
+    </div>
+
+    <h3 style="margin: 24px 0 12px 0; color: #0f172a; font-size: 16px; font-weight: 600;">Assigned Target Resources</h3>
+    <ul style="margin: 0 0 20px 0; padding-left: 20px; color: #475569; font-size: 14px; line-height: 1.6;">
+      ${resourcesHtml || "<li>No target resources assigned specifically.</li>"}
+    </ul>
+
+    ${details.notes ? `
+    <div style="background-color: #f1f5f9; border-radius: 6px; padding: 12px; margin-top: 15px; border-left: 4px solid #94a3b8;">
+      <p style="margin: 0; color: #475569; font-size: 13px; font-style: italic;">
+        <strong>Provisioner Notes:</strong> ${escapeHtml(details.notes)}
+      </p>
+    </div>
+    ` : ""}
+
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
+      <tr>
+        <td>
+          <a href="${actionUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2);">
+            View in Portal
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return getEmailTemplate(content, `Horizon Access Provisioned - ${escapedSystem}`);
+}
+
+export async function sendK8sNamespaceDeploymentNotification(
+  to: string,
+  recipientName: string,
+  systemName: string,
+  status: string,
+  details: K8sNamespaceNotificationDetails,
+  actionUrl: string,
+  requestId: string
+): Promise<{ success: boolean; error?: string }> {
+  const subject = `Kubernetes Namespace Ready: ${systemName}`;
+  const html = getK8sNamespaceDeploymentEmailHtml(recipientName, systemName, status, details, actionUrl, requestId);
+  return sendEmail({ to, subject, html });
+}
+
+export async function sendVpnAccessDeploymentNotification(
+  to: string,
+  recipientName: string,
+  systemName: string,
+  status: string,
+  details: VpnNotificationDetails,
+  actionUrl: string,
+  requestId: string
+): Promise<{ success: boolean; error?: string }> {
+  const subject = `VPN Connection Credentials: ${systemName}`;
+  const html = getVpnAccessDeploymentEmailHtml(recipientName, systemName, status, details, actionUrl, requestId);
+  return sendEmail({ to, subject, html });
+}
+
+export async function sendHorizonAccessDeploymentNotification(
+  to: string,
+  recipientName: string,
+  systemName: string,
+  status: string,
+  details: HorizonNotificationDetails,
+  actionUrl: string,
+  requestId: string
+): Promise<{ success: boolean; error?: string }> {
+  const subject = `VMware Horizon Access Ready: ${systemName}`;
+  const html = getHorizonAccessDeploymentEmailHtml(recipientName, systemName, status, details, actionUrl, requestId);
+  return sendEmail({ to, subject, html });
+}

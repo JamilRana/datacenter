@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Building,
   Calendar,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -17,37 +18,69 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { SoftwareLicense } from "@/types/inventory";
 import { fetchLicenseDetailsWithAssets } from "@/app/actions/license-actions";
+import { Skeleton } from "@/components/ui/skeleton";
 
 
 import { use } from "react";
 
 export default function LicenseDetailPage({ params }: { params: Promise<{ id: string }> }) {
-
    const unwrappedParams = use(params);
    const id = unwrappedParams.id;
-   const { data: session } = useSession();
-   const [license, setLicense] = useState<SoftwareLicense>();
+   const { data: session, status } = useSession();
+   const [license, setLicense] = useState<SoftwareLicense | null>(null);
+   const [isAuthorized, setIsAuthorized] = useState(false);
+   const [loading, setLoading] = useState(true);
 
-  if (!session?.user) redirect("/auth");
+   useEffect(() => {
+     if (status === "loading") return;
+     if (status === "unauthenticated" || !session?.user) {
+       redirect("/auth");
+       return;
+     }
+     if (!session.user.roles.includes(ROLES.ADMIN)) {
+       redirect("/inventory/vms");
+       return;
+     }
+     setIsAuthorized(true);
+   }, [session, status]);
 
-  if (!session.user.roles.includes(ROLES.ADMIN)) {
-     redirect("/inventory/vms");
-  }
-  useEffect(() => {
-    const getLicense = async (licenseId: string) => {
-      try {
-        const res = await fetchLicenseDetailsWithAssets(licenseId);
-        if (!res) return;
-        setLicense(res as unknown as SoftwareLicense);
-      } catch (err) {
-        console.error(err);
-      }
-    };
+   useEffect(() => {
+     const getLicense = async (licenseId: string) => {
+       try {
+         const res = await fetchLicenseDetailsWithAssets(licenseId);
+         if (!res) {
+           setLicense(null);
+           return;
+         }
+         setLicense(res as unknown as SoftwareLicense);
+       } catch (err) {
+         console.error(err);
+       } finally {
+         setLoading(false);
+       }
+     };
 
-    if (session) {
-      getLicense(id);
-    }
-  }, [session, id]);
+     if (isAuthorized) {
+       getLicense(id);
+     }
+   }, [isAuthorized, id]);
+
+   if (status === "loading" || !isAuthorized || loading) {
+     return <Skeleton className="h-screen w-full" />;
+   }
+
+   if (!license) {
+     return (
+       <div className="flex flex-col items-center justify-center min-h-screen text-slate-500 bg-slate-50/20">
+         <AlertTriangle className="h-10 w-10 text-orange-500 mb-3" />
+         <p className="font-bold text-slate-800 text-lg">License Not Found</p>
+         <p className="text-xs text-slate-500 mt-1">The requested license record could not be found or has been deleted.</p>
+         <Button asChild className="mt-6 font-bold uppercase tracking-wider text-xs">
+           <Link href="/inventory/licenses">Back to Licenses</Link>
+         </Button>
+       </div>
+     );
+   }
 
 
   return (

@@ -301,7 +301,7 @@ d:\datacenter\
 
 4. **Redis-Backed Caching** — Read-through cache with configurable TTL; graceful fallback when Redis is unavailable.
 
-5. **MinIO Object Storage** — S3-compatible file storage for attachments (security reports, justification documents).
+5. **MinIO Object Storage** — S3-compatible file storage for attachments (security reports, Software Requirements Specification (SRS) documents).
 
 6. **Role-Based Dashboard Registry** — Dashboard widgets are registered per role and rendered conditionally.
 
@@ -395,7 +395,7 @@ Core entity for all infrastructure requests.
 | `renewalRequired` | Boolean | Whether renewal is needed |
 | `renewalPeriodMonths` | Int? | Renewal period in months |
 | `vaReportSubmitted` | Boolean | Vulnerability assessment report uploaded |
-| `justificationSubmitted` | Boolean | Justification document uploaded |
+| `justificationSubmitted` | Boolean | Software Requirements Specification (SRS) document uploaded |
 | `credentialsDelivered` | Boolean | Whether VM credentials were delivered |
 | `sourceVmId` | String? | Source VM for clone operations |
 | `targetVmId` | String? | Target VM for decommission |
@@ -986,7 +986,7 @@ PDF, DOC, DOCX, XLS, XLSX, PNG, JPG, JPEG, GIF, TXT, ZIP, RAR
 | Type | Purpose |
 |---|---|
 | `SECURITY_REPORT` | Vulnerability assessment report |
-| `JUSTIFICATION` | Justification document for the request |
+| `JUSTIFICATION` | Software Requirements Specification (SRS) document for the request |
 
 ---
 
@@ -1318,7 +1318,7 @@ These endpoints can be called by an external cron scheduler (e.g., `crontab`, cl
 | `LicenseProvider` | `REQUESTER`, `PARTNER`, `OPEN_SOURCE` |
 | `SSLProvider` | `REQUESTER`, `MIS` |
 | `Raid` | `RAID0`, `RAID1`, `RAID5`, `RAID10`, `NONE` |
-| `AttachmentType` | `SECURITY_REPORT`, `JUSTIFICATION` |
+| `AttachmentType` | `SECURITY_REPORT`, `JUSTIFICATION` (representing Software Requirements Specification (SRS)) |
 | `AssetType` | `SERVER`, `ROUTER`, `SWITCH`, `FIREWALL`, `STORAGE`, `UPS`, `CONSOLE_SERVER`, `OTHER` |
 
 ---

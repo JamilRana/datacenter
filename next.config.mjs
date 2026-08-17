@@ -1,6 +1,5 @@
 import crypto from 'crypto';
 
-/** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   poweredByHeader: false,

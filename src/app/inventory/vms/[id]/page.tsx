@@ -29,6 +29,7 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
   const { data: session } = useSession();
   const [vm, setVm] = useState<SerializedVmInstanceDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthorized, setIsAuthorized] = useState(false);
   const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
   const [isDecommissionModalOpen, setIsDecommissionModalOpen] = useState(false);
   const [hasPendingCustomization, setHasPendingCustomization] = useState(false);
@@ -45,14 +46,21 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
     }
   }, [vm]);
 
-  if (!session?.user) redirect("/auth");
+  useEffect(() => {
+    if (status === "loading") return;
+    if (status === "unauthenticated" || !session?.user) {
+      redirect("/auth");
+      return;
+    }
+    setIsAuthorized(true);
+  }, [session, status]);
 
   useEffect(() => {
     const fetchVm = async () => {
       try {
         const [vmData, pendingCheck] = await Promise.all([
           fetchVmDetailsSerialized(id),
-          getPendingCustomizationForVm(id, session.user.id)
+          getPendingCustomizationForVm(id, session?.user?.id || "")
         ]);
         if (!vmData) notFound();
         setVm(vmData);
@@ -63,8 +71,10 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
         setIsLoading(false);
       }
     };
-    fetchVm();
-  }, [id, session, isCustomizeModalOpen, isDecommissionModalOpen]);
+    if (isAuthorized && session?.user) {
+      fetchVm();
+    }
+  }, [id, session, isAuthorized, isCustomizeModalOpen, isDecommissionModalOpen]);
 
   const handleRename = async () => {
     if (!newSystemName.trim() || !vm) return;
@@ -362,8 +372,8 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
             vmId={vm.id}
             ownerId={vm.owner?.id || null}
             currentUser={{
-              id: session.user.id,
-              roles: session.user.roles || [],
+              id: session?.user?.id || "",
+              roles: session?.user?.roles || [],
             }}
           />
 
@@ -373,7 +383,7 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
             entityType="VM"
             assignedTags={vm.tags || []}
             currentUser={{
-              roles: session.user.roles || [],
+              roles: session?.user?.roles || [],
             }}
           />
 

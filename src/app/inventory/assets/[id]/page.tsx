@@ -25,25 +25,33 @@ import { fetchAssetDetailsWithLicenses } from "@/app/actions/asset-actions";
 import { fetchAssetUtilization } from "@/app/actions/analytics-actions";
 import { AssetUtilization } from "@/lib/analytics/assetUtilization";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import { use } from "react";
 
 export default function AssetDetailPage({ params }: { params: Promise<{ id: string }> }) {
    const unwrappedParams = use(params);
    const id = unwrappedParams.id;
-   const { data: session } = useSession();
+   const { data: session, status } = useSession();
    const [asset, setAsset] = useState<Asset & { licenses: SoftwareLicense[] } | null>(null);
    const [utilization, setUtilization] = useState<AssetUtilization | null>(null);
    const [loading, setLoading] = useState(true);
+   const [isAuthorized, setIsAuthorized] = useState(false);
    
-   if (!session?.user) redirect("/auth");
-
-   const userRoles = session.user.roles || [];
-   const isAdmin = userRoles.some(r => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
-   
-   if (!isAdmin) {
-     redirect("/inventory/vms");
-   }
+   useEffect(() => {
+     if (status === "loading") return;
+     if (status === "unauthenticated" || !session?.user) {
+       redirect("/auth");
+       return;
+     }
+     const userRoles = session.user.roles || [];
+     const isAdmin = userRoles.some(r => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
+     if (!isAdmin) {
+       redirect("/inventory/vms");
+       return;
+     }
+     setIsAuthorized(true);
+   }, [session, status]);
 
    useEffect(() => {
      const getAsset = async (assetId: string) => {
@@ -62,10 +70,14 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
        }
      };
 
-     if (session) {
+     if (isAuthorized) {
        getAsset(id);
      }
-   }, [session, id]);
+   }, [isAuthorized, id]);
+
+   if (status === "loading" || !isAuthorized || loading) {
+     return <Skeleton className="h-screen w-full" />;
+   }
 
   if (!asset || loading) {
     return (
