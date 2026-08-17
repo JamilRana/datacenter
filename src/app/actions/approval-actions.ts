@@ -5,9 +5,9 @@
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
-import { 
+import {
   Prisma,
-  ApprovalDecision, 
+  ApprovalDecision,
   RequestStatus,
   RequestType,
   VmStatus,
@@ -17,9 +17,9 @@ import { RoleService } from "@/lib/services/role.service";
 import { NotificationService } from "@/lib/services/notification.service";
 import { UserRole } from "@/lib/types/enums";
 import { ApiResponse } from "@/types";
-import { 
-  getWorkflowConfig, 
-  getStatusForLevel, 
+import {
+  getWorkflowConfig,
+  getStatusForLevel,
   getNextLevel,
   WorkflowConfig
 } from "@/lib/workflow";
@@ -36,7 +36,7 @@ export async function generateApprovals(
   skipNotification: boolean = false
 ) {
   const workflow = await getWorkflowConfig(requestType);
-  
+
   // Rule: Only create Level 1 approval initially
   const firstLevel = workflow.levels.find(l => l.level === 1);
   if (!firstLevel) return;
@@ -67,10 +67,10 @@ export async function generateApprovals(
 
     if (!skipNotification) {
       // Notify Level 1 approvers
-      const systemName = entityType === "REQUEST" 
+      const systemName = entityType === "REQUEST"
         ? (await tx.request.findUnique({ where: { id: entityId }, select: { systemName: true } }))?.systemName || "New Request"
         : "Customization Request";
-        
+
       await NotificationService.notifyApprovers(entityId, systemName, 1, entityType);
     }
   }
@@ -89,8 +89,8 @@ async function getNextStatusFromApprovals(
 ): Promise<string> {
   const pendingApprovals = await tx.approval.findMany({
     where: {
-      ...(entityType === "REQUEST" 
-        ? { requestId: entityId } 
+      ...(entityType === "REQUEST"
+        ? { requestId: entityId }
         : { customizationRequestId: entityId }),
       decision: ApprovalDecision.PENDING,
     },
@@ -120,7 +120,7 @@ export async function handleApprovalDecision(
     where: {
       OR: [
         { id: approvalId },
-        { 
+        {
           AND: [
             { requestId: approvalId },
             { approverId: session.user.id },
@@ -140,7 +140,7 @@ export async function handleApprovalDecision(
 
   if (!approvalRecord) {
     return { success: false, error: "Approval record not found or already processed", code: "NOT_FOUND" };
-  }  const resolvedApprovalId = approvalRecord.id;
+  } const resolvedApprovalId = approvalRecord.id;
 
   const entityType = approvalRecord.entityType;
   const entityId = approvalRecord.requestId || approvalRecord.customizationRequestId;
@@ -202,15 +202,15 @@ export async function handleApprovalDecision(
           level: { lt: approval.level },
         },
       });
-      
+
       const allPreviousApproved = previousLevelApprovals.every(
         (a: any) => a.decision === ApprovalDecision.APPROVED
       );
-      
+
       if (!allPreviousApproved) {
-        return { 
-          success: false, 
-          error: `Cannot approve: Previous level(s) have not been approved yet. Level ${approval.level} can only act after all lower levels have approved.` 
+        return {
+          success: false,
+          error: `Cannot approve: Previous level(s) have not been approved yet. Level ${approval.level} can only act after all lower levels have approved.`
         };
       }
     }
@@ -253,7 +253,7 @@ export async function handleApprovalDecision(
     if (forwardToLevel && decision === ApprovalDecision.APPROVED) {
       const workflow = await getWorkflowConfig(requestType);
       const nextLevel = workflow.levels.find(l => l.level === forwardToLevel);
-      
+
       if (!nextLevel) {
         return { success: false, error: `No workflow level found for level ${forwardToLevel}` };
       }
@@ -270,15 +270,15 @@ export async function handleApprovalDecision(
             details: JSON.stringify({ comments, forwardFromLevel: approval.level }),
           },
         });
-        
+
         // Create pending approval for DC_OPS
         const dcOpsUsers = await tx.user.findMany({
-          where: { 
+          where: {
             isActive: true,
             roles: { some: { role: { name: "DC_OPS" } } }
           }
         });
-        
+
         for (const dcOpsUser of dcOpsUsers) {
           await tx.approval.create({
             data: {
@@ -291,17 +291,17 @@ export async function handleApprovalDecision(
             },
           });
         }
-        
+
         return { success: true, data: { status: RequestStatus.APPROVED, action: "FORWARDED_TO_DCOPS", forwardedToLevel: forwardToLevel } };
       }
 
       const nextApprover = await tx.user.findFirst({
-        where: { 
+        where: {
           isActive: true,
           roles: { some: { role: { name: nextLevel.role } } }
         }
       });
-      
+
       if (!nextApprover) {
         return { success: false, error: `No approver found for role: ${nextLevel.role}` };
       }
@@ -333,11 +333,11 @@ export async function handleApprovalDecision(
     // 6. Handle APPROVED - check if there's a next level in workflow
     let nextStatus: string;
     let nextLevelToNotify: number | undefined;
-    
+
     if (decision === ApprovalDecision.REJECTED) {
       // Per USER request: After rejection, status should be DRAFT so requester can resubmit after editing
       nextStatus = RequestStatus.DRAFT;
-      
+
       // Reject all pending approvals for this request
       await tx.approval.updateMany({
         where: {
@@ -352,10 +352,10 @@ export async function handleApprovalDecision(
       });
     } else if (decision === ApprovalDecision.APPROVED) {
       const workflow = await getWorkflowConfig(requestType);
-      
+
       // Get current level config to check if it's final
       const currentLevelConfig = workflow.levels.find(l => l.level === approval.level);
-      
+
       if (currentLevelConfig?.isFinal) {
         nextStatus = RequestStatus.APPROVED;
       } else {
@@ -363,15 +363,15 @@ export async function handleApprovalDecision(
         if (nextLevel) {
           if (nextLevel.role === "DC_OPS") {
             nextStatus = RequestStatus.APPROVED;
-            
+
             // Create a pending approval for DC_OPS so it appears in DCOPS dashboard
             const dcOpsUsers = await tx.user.findMany({
-              where: { 
+              where: {
                 isActive: true,
                 roles: { some: { role: { name: "DC_OPS" } } }
               }
             });
-            
+
             for (const dcOpsUser of dcOpsUsers) {
               await tx.approval.create({
                 data: {
@@ -387,12 +387,12 @@ export async function handleApprovalDecision(
             nextLevelToNotify = nextLevel.level;
           } else {
             const nextApprover = await tx.user.findFirst({
-              where: { 
+              where: {
                 isActive: true,
                 roles: { some: { role: { name: nextLevel.role } } }
               }
             });
-            
+
             if (nextApprover) {
               await tx.approval.create({
                 data: {
@@ -445,44 +445,65 @@ export async function handleApprovalDecision(
     return { success: true, data: { status: nextStatus, action: decision, nextLevel: nextLevelToNotify, forwardedToLevel: forwardToLevel } };
   }, { timeout: 30000 });
 
-  // Post-commit notifications and invalidation (Safe post-commit execution)
+  // Post-commit notifications and invalidation (Safe post-commit background execution)
   if (result.success && result.data) {
     const data = result.data;
     const action = data.action;
     const nextStatus = data.status;
 
-    // 8. Notifications
-    if (requesterId && (decision === ApprovalDecision.REJECTED || nextStatus === "APPROVED")) {
-      await NotificationService.notifyRequester(
-        requesterId, 
-        systemName, 
-        decision === ApprovalDecision.REJECTED ? "REJECTED" : "APPROVED",
-        entityId,
-        comments || undefined
-      ).catch(err => console.error("[Post-commit Notification] Failed to notify requester:", err));
-    }
+    // Dispatch all notifications and cache updates concurrently in the background
+    // so that the server action returns result to the UI instantly.
+    (async () => {
+      try {
+        const promises: Promise<any>[] = [];
 
-    if (nextStatus === "APPROVED") {
-      await NotificationService.notifyDCOps(entityId, systemName).catch(err =>
-        console.error("[Post-commit Notification] Failed to notify DC Ops:", err)
-      );
-    }
+        if (requesterId && decision === ApprovalDecision.REJECTED) {
+          promises.push(
+            NotificationService.notifyRequester(
+              requesterId,
+              systemName,
+              "REJECTED",
+              entityId,
+              comments || undefined
+            ).catch(err => console.error("[Post-commit Notification] Failed to notify requester:", err))
+          );
+        }
 
-    if (action === "FORWARDED" || action === "FORWARDED_TO_DCOPS") {
-      if (data.forwardedToLevel) {
-        await NotificationService.notifyApprovers(entityId, systemName, data.forwardedToLevel, entityType).catch(err =>
-          console.error("[Post-commit Notification] Failed to notify forwarded approver:", err)
+        if (nextStatus === "APPROVED") {
+          promises.push(
+            NotificationService.notifyDCOps(entityId, systemName).catch(err =>
+              console.error("[Post-commit Notification] Failed to notify DC Ops:", err)
+            )
+          );
+        }
+
+        if (action === "FORWARDED" || action === "FORWARDED_TO_DCOPS") {
+          if (data.forwardedToLevel) {
+            promises.push(
+              NotificationService.notifyApprovers(entityId, systemName, data.forwardedToLevel, entityType).catch(err =>
+                console.error("[Post-commit Notification] Failed to notify forwarded approver:", err)
+              )
+            );
+          }
+        } else if (action === "APPROVED" && data.nextLevel) {
+          promises.push(
+            NotificationService.notifyApprovers(entityId, systemName, data.nextLevel, entityType).catch(err =>
+              console.error("[Post-commit Notification] Failed to notify next level approver:", err)
+            )
+          );
+        }
+
+        promises.push(
+          invalidateCache('admin_dashboard_data').catch(err =>
+            console.error("[Post-commit Cache Invalidation] Failed:", err)
+          )
         );
-      }
-    } else if (action === "APPROVED" && data.nextLevel) {
-      await NotificationService.notifyApprovers(entityId, systemName, data.nextLevel, entityType).catch(err =>
-        console.error("[Post-commit Notification] Failed to notify next level approver:", err)
-      );
-    }
 
-    await invalidateCache('admin_dashboard_data').catch(err =>
-      console.error("[Post-commit Cache Invalidation] Failed:", err)
-    );
+        await Promise.all(promises);
+      } catch (err) {
+        console.error("[Post-commit Background Operations] Failed:", err);
+      }
+    })();
   }
 
   return result;
@@ -528,15 +549,15 @@ export async function executeRequest(requestId: string, notes?: string): Promise
 
   const customization = !request
     ? await prisma.customizationRequest.findUnique({
-        where: { id: requestId },
-        include: {
-          targetVm: { include: { currentSpec: true } },
-          requester: true,
-          additionalDisks: true,
-          firewallPorts: true,
-          networkAccess: true,
-        },
-      })
+      where: { id: requestId },
+      include: {
+        targetVm: { include: { currentSpec: true } },
+        requester: true,
+        additionalDisks: true,
+        firewallPorts: true,
+        networkAccess: true,
+      },
+    })
     : null;
 
   if (!request && !customization) {
@@ -558,8 +579,8 @@ export async function executeRequest(requestId: string, notes?: string): Promise
         const vms = request.vmInstances.length > 0
           ? request.vmInstances
           : request.targetVm
-          ? [request.targetVm]
-          : [];
+            ? [request.targetVm]
+            : [];
 
         if (vms.length === 0) {
           return { success: false, error: "No VMs found to decommission" };
@@ -624,7 +645,7 @@ export async function executeRequest(requestId: string, notes?: string): Promise
         // Resolve new specifications
         const vcpu = request.upgradeCpu ?? latestSpec?.vcpu ?? 2;
         const ramGb = request.upgradeRamGb ?? latestSpec?.ramGb ?? 4;
-        
+
         // Storage is additive
         const currentStorage = latestSpec?.storageGb ?? 50;
         const storageGb = currentStorage + (request.upgradeStorageGb ?? 0);
@@ -672,7 +693,7 @@ export async function executeRequest(requestId: string, notes?: string): Promise
 
         await tx.vmInstance.update({
           where: { id: request.targetVmId },
-          data: { 
+          data: {
             currentSpecId: newSpec.id,
             status: VmStatus.ACTIVE,
           },
@@ -745,7 +766,7 @@ export async function executeRequest(requestId: string, notes?: string): Promise
 
       await tx.vmInstance.update({
         where: { id: customization.targetVmId! },
-        data: { 
+        data: {
           currentSpecId: newSpec.id,
           status: VmStatus.ACTIVE,
         },
@@ -773,20 +794,26 @@ export async function executeRequest(requestId: string, notes?: string): Promise
   }, { timeout: 15000 });
 
   if (result.success) {
-    if (request) {
-      const isDecom = request.requestType === RequestType.DECOMMISSION;
-      await NotificationService.notifyDeployment(requestId, isDecom ? "DECOMMISSIONED" : "PROVISIONED");
-    } else if (customization) {
-      const vmHostname = customization.targetVm?.hostname || "VM";
-      if (customization.requesterId) {
-        await NotificationService.notifyRequester(
-          customization.requesterId,
-          vmHostname,
-          "CUSTOMIZATION_APPLIED",
-          customization.id
-        );
+    (async () => {
+      try {
+        if (request) {
+          const isDecom = request.requestType === RequestType.DECOMMISSION;
+          await NotificationService.notifyDeployment(requestId, isDecom ? "DECOMMISSIONED" : "PROVISIONED");
+        } else if (customization) {
+          const vmHostname = customization.targetVm?.hostname || "VM";
+          if (customization.requesterId) {
+            await NotificationService.notifyRequester(
+              customization.requesterId,
+              vmHostname,
+              "CUSTOMIZATION_APPLIED",
+              customization.id
+            );
+          }
+        }
+      } catch (err) {
+        console.error("[Post-execute Background Notification] Failed:", err);
       }
-    }
+    })();
   }
 
   return result;
@@ -1006,323 +1033,323 @@ export async function provisionVMs(
     // Increase timeout for VM provisioning (30 seconds)
     const result = await prisma.$transaction(
       async (tx: any) => {
-      // Fetch the request with full VM specifications and relations
-      const request = await tx.request.findUnique({
-        where: { id: requestId },
-        include: {
-          vmInstances: true,
-          vmSpecifications: {
-            include: {
-              connectivity: true,
-              firewallRules: true,
-              additionalStorage: true
-            }
+        // Fetch the request with full VM specifications and relations
+        const request = await tx.request.findUnique({
+          where: { id: requestId },
+          include: {
+            vmInstances: true,
+            vmSpecifications: {
+              include: {
+                connectivity: true,
+                firewallRules: true,
+                additionalStorage: true
+              }
+            },
+            requester: true,
+            additionalDisks: true,
+            firewallPorts: true,
+            networkAccess: true,
           },
-          requester: true,
-          additionalDisks: true,
-          firewallPorts: true,
-          networkAccess: true,
-        },
-      });
-
-      if (!request) {
-        return { success: false, message: "Request not found" };
-      }
-
-      if (request.status !== RequestStatus.APPROVED && request.status !== RequestStatus.PARTIALLY_PROVISIONED) {
-        return { success: false, message: `Cannot provision VM for request with status: ${request.status}` };
-      }
-
-      const totalQuantity = request.quantity || (request.vmSpecifications?.length || 1);
-      const existingCount = request.vmInstances.length;
-      const totalAfterProvision = existingCount + vms.length;
-
-      if (totalAfterProvision > totalQuantity) {
-        return {
-          success: false,
-          message: `Cannot provision ${vms.length} VMs. Only ${totalQuantity - existingCount} VMs remaining.`,
-        };
-      }
-
-      const provisionedVms = [];
-      const validationErrors: { index: number; field: string; message: string }[] = [];
-
-      // Validate and create VMs
-      for (let i = 0; i < vms.length; i++) {
-        const vm = vms[i];
-        
-        const trimmedHostname = vm.hostname.trim();
-        const trimmedIpAddress = vm.ipAddress.trim();
-
-        // Check hostname is not empty
-        if (!trimmedHostname) {
-          validationErrors.push({
-            index: i,
-            field: "hostname",
-            message: "Hostname is required",
-          });
-          continue;
-        }
-
-        // Check IP is not empty
-        if (!trimmedIpAddress) {
-          validationErrors.push({
-            index: i,
-            field: "ipAddress",
-            message: "Private IP is required",
-          });
-          continue;
-        }
-
-        // Check hostname uniqueness
-        const existingHostname = await tx.vmInstance.findUnique({
-          where: { hostname: trimmedHostname },
         });
-        if (existingHostname) {
-          validationErrors.push({
-            index: i,
-            field: "hostname",
-            message: `Hostname '${trimmedHostname}' is already in use`,
-          });
-          continue;
+
+        if (!request) {
+          return { success: false, message: "Request not found" };
         }
 
-        // Check IP uniqueness
-        const existingIp = await tx.vmInstance.findUnique({
-          where: { ipAddress: trimmedIpAddress },
-        });
-        if (existingIp) {
-          validationErrors.push({
-            index: i,
-            field: "ipAddress",
-            message: `IP address '${trimmedIpAddress}' is already in use`,
-          });
-          continue;
+        if (request.status !== RequestStatus.APPROVED && request.status !== RequestStatus.PARTIALLY_PROVISIONED) {
+          return { success: false, message: `Cannot provision VM for request with status: ${request.status}` };
         }
 
-        // Check sequence number uniqueness within request
-        const existingSeq = await tx.vmInstance.findUnique({
-          where: {
-            requestId_sequenceNumber: {
+        const totalQuantity = request.quantity || (request.vmSpecifications?.length || 1);
+        const existingCount = request.vmInstances.length;
+        const totalAfterProvision = existingCount + vms.length;
+
+        if (totalAfterProvision > totalQuantity) {
+          return {
+            success: false,
+            message: `Cannot provision ${vms.length} VMs. Only ${totalQuantity - existingCount} VMs remaining.`,
+          };
+        }
+
+        const provisionedVms = [];
+        const validationErrors: { index: number; field: string; message: string }[] = [];
+
+        // Validate and create VMs
+        for (let i = 0; i < vms.length; i++) {
+          const vm = vms[i];
+
+          const trimmedHostname = vm.hostname.trim();
+          const trimmedIpAddress = vm.ipAddress.trim();
+
+          // Check hostname is not empty
+          if (!trimmedHostname) {
+            validationErrors.push({
+              index: i,
+              field: "hostname",
+              message: "Hostname is required",
+            });
+            continue;
+          }
+
+          // Check IP is not empty
+          if (!trimmedIpAddress) {
+            validationErrors.push({
+              index: i,
+              field: "ipAddress",
+              message: "Private IP is required",
+            });
+            continue;
+          }
+
+          // Check hostname uniqueness
+          const existingHostname = await tx.vmInstance.findUnique({
+            where: { hostname: trimmedHostname },
+          });
+          if (existingHostname) {
+            validationErrors.push({
+              index: i,
+              field: "hostname",
+              message: `Hostname '${trimmedHostname}' is already in use`,
+            });
+            continue;
+          }
+
+          // Check IP uniqueness
+          const existingIp = await tx.vmInstance.findUnique({
+            where: { ipAddress: trimmedIpAddress },
+          });
+          if (existingIp) {
+            validationErrors.push({
+              index: i,
+              field: "ipAddress",
+              message: `IP address '${trimmedIpAddress}' is already in use`,
+            });
+            continue;
+          }
+
+          // Check sequence number uniqueness within request
+          const existingSeq = await tx.vmInstance.findUnique({
+            where: {
+              requestId_sequenceNumber: {
+                requestId,
+                sequenceNumber: vm.sequenceNumber,
+              },
+            },
+          });
+          if (existingSeq) {
+            validationErrors.push({
+              index: i,
+              field: "sequenceNumber",
+              message: `Sequence number ${vm.sequenceNumber} already exists`,
+            });
+            continue;
+          }
+
+          // Resolve specific specification for this VM if available
+          let matchedSpec: any = null;
+          if (vm.vmSpecificationId) {
+            matchedSpec = request.vmSpecifications?.find((s: any) => s.id === vm.vmSpecificationId);
+          } else if (request.vmSpecifications && request.vmSpecifications.length > 0) {
+            const targetIndex = (vm.sequenceNumber - 1) % request.vmSpecifications.length;
+            matchedSpec = request.vmSpecifications[targetIndex];
+          }
+
+          const vcpu = matchedSpec?.vcpu ?? request.vcpu ?? 1;
+          const ramGb = matchedSpec?.ramGb ?? request.ramGb ?? 2;
+          const storageGb = matchedSpec?.storageGb ?? request.storageGb ?? 50;
+          const osVersion = matchedSpec?.osVersion ?? request.osVersion ?? null;
+          const osName = request.osName ?? (osVersion ? osVersion.split(" ")[0] : "Linux");
+          const stack = matchedSpec?.stack ?? request.systemName ?? null;
+          const environment = matchedSpec?.environment ?? request.environment;
+
+          const specDisks = matchedSpec?.additionalStorage && matchedSpec.additionalStorage.length > 0
+            ? matchedSpec.additionalStorage.map((d: any) => ({
+              sizeGb: d.sizeGb,
+              purpose: d.purpose || null,
+              sequence: d.sequence
+            }))
+            : request.additionalDisks.map((d: any) => ({
+              sizeGb: d.sizeGb,
+              purpose: d.purpose || null,
+              sequence: d.sequence
+            }));
+
+          const specFirewalls = matchedSpec?.firewallRules && matchedSpec.firewallRules.length > 0
+            ? matchedSpec.firewallRules.map((p: any) => ({
+              port: p.port,
+              protocol: p.protocol,
+              purpose: p.purpose || "",
+              source: p.source || null
+            }))
+            : request.firewallPorts.map((p: any) => ({
+              port: p.port,
+              protocol: p.protocol,
+              purpose: p.purpose || "",
+              source: p.source || null
+            }));
+
+          const specConnectivity = matchedSpec?.connectivity && matchedSpec.connectivity.length > 0
+            ? matchedSpec.connectivity.map((a: any) => ({
+              accessType: a.accessType
+            }))
+            : request.networkAccess.map((a: any) => ({
+              accessType: a.accessType
+            }));
+
+          const isVpnRequiredForThisVm = vm.vpnRequired ?? (
+            matchedSpec?.connectivity?.some((c: any) => c.accessType === "VPN") ||
+            request.vpnRequired ||
+            false
+          );
+
+          // Create VM instance
+          const vmInstance = await tx.vmInstance.create({
+            data: {
               requestId,
               sequenceNumber: vm.sequenceNumber,
+              hostname: trimmedHostname,
+              ipAddress: trimmedIpAddress,
+              publicIpAddress: vm.publicIpAddress,
+              subdomain: vm.subdomain || matchedSpec?.subdomain || request.subdomain || null,
+              ownerId: requesterId,
+              status: VmStatus.ACTIVE,
+              provisionedAt: new Date(),
+              renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 6)),
+              environment: environment,
+              systemName: stack || request.systemName,
+              hostAssetId: vm.hostAssetId || null,
+              vpnRequired: isVpnRequiredForThisVm,
+              cloneOfRequestId: request.requestType === RequestType.CLONE_VM ? requestId : null,
             },
-          },
-        });
-        if (existingSeq) {
-          validationErrors.push({
-            index: i,
-            field: "sequenceNumber",
-            message: `Sequence number ${vm.sequenceNumber} already exists`,
           });
-          continue;
-        }
 
-        // Resolve specific specification for this VM if available
-        let matchedSpec: any = null;
-        if (vm.vmSpecificationId) {
-          matchedSpec = request.vmSpecifications?.find((s: any) => s.id === vm.vmSpecificationId);
-        } else if (request.vmSpecifications && request.vmSpecifications.length > 0) {
-          const targetIndex = (vm.sequenceNumber - 1) % request.vmSpecifications.length;
-          matchedSpec = request.vmSpecifications[targetIndex];
-        }
-
-        const vcpu = matchedSpec?.vcpu ?? request.vcpu ?? 1;
-        const ramGb = matchedSpec?.ramGb ?? request.ramGb ?? 2;
-        const storageGb = matchedSpec?.storageGb ?? request.storageGb ?? 50;
-        const osVersion = matchedSpec?.osVersion ?? request.osVersion ?? null;
-        const osName = request.osName ?? (osVersion ? osVersion.split(" ")[0] : "Linux");
-        const stack = matchedSpec?.stack ?? request.systemName ?? null;
-        const environment = matchedSpec?.environment ?? request.environment;
-
-        const specDisks = matchedSpec?.additionalStorage && matchedSpec.additionalStorage.length > 0
-          ? matchedSpec.additionalStorage.map((d: any) => ({
-              sizeGb: d.sizeGb,
-              purpose: d.purpose || null,
-              sequence: d.sequence
-            }))
-          : request.additionalDisks.map((d: any) => ({
-              sizeGb: d.sizeGb,
-              purpose: d.purpose || null,
-              sequence: d.sequence
-            }));
-
-        const specFirewalls = matchedSpec?.firewallRules && matchedSpec.firewallRules.length > 0
-          ? matchedSpec.firewallRules.map((p: any) => ({
-              port: p.port,
-              protocol: p.protocol,
-              purpose: p.purpose || "",
-              source: p.source || null
-            }))
-          : request.firewallPorts.map((p: any) => ({
-              port: p.port,
-              protocol: p.protocol,
-              purpose: p.purpose || "",
-              source: p.source || null
-            }));
-
-        const specConnectivity = matchedSpec?.connectivity && matchedSpec.connectivity.length > 0
-          ? matchedSpec.connectivity.map((a: any) => ({
-              accessType: a.accessType
-            }))
-          : request.networkAccess.map((a: any) => ({
-              accessType: a.accessType
-            }));
-
-        const isVpnRequiredForThisVm = vm.vpnRequired ?? (
-          matchedSpec?.connectivity?.some((c: any) => c.accessType === "VPN") ||
-          request.vpnRequired ||
-          false
-        );
-
-        // Create VM instance
-        const vmInstance = await tx.vmInstance.create({
-          data: {
-            requestId,
-            sequenceNumber: vm.sequenceNumber,
-            hostname: trimmedHostname,
-            ipAddress: trimmedIpAddress,
-            publicIpAddress: vm.publicIpAddress,
-            subdomain: vm.subdomain || matchedSpec?.subdomain || request.subdomain || null,
-            ownerId: requesterId,
-            status: VmStatus.ACTIVE,
-            provisionedAt: new Date(),
-            renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 6)),
-            environment: environment,
-            systemName: stack || request.systemName,
-            hostAssetId: vm.hostAssetId || null,
-            vpnRequired: isVpnRequiredForThisVm,
-            cloneOfRequestId: request.requestType === RequestType.CLONE_VM ? requestId : null,
-          },
-        });
-
-        // Create initial spec from specific spec or request
-        const spec = await tx.vmSpec.create({
-          data: {
-            vmInstanceId: vmInstance.id,
-            vcpu,
-            ramGb,
-            storageGb,
-            osName,
-            osVersion,
-            effectiveFrom: new Date(),
-            sourceRequestId: request.id,
-            additionalDisks: {
-              create: specDisks
-            },
-            firewallPorts: {
-              create: specFirewalls
-            },
-            networkAccess: {
-              create: specConnectivity
+          // Create initial spec from specific spec or request
+          const spec = await tx.vmSpec.create({
+            data: {
+              vmInstanceId: vmInstance.id,
+              vcpu,
+              ramGb,
+              storageGb,
+              osName,
+              osVersion,
+              effectiveFrom: new Date(),
+              sourceRequestId: request.id,
+              additionalDisks: {
+                create: specDisks
+              },
+              firewallPorts: {
+                create: specFirewalls
+              },
+              networkAccess: {
+                create: specConnectivity
+              }
             }
+          });
+
+          // Link current spec to VM
+          await tx.vmInstance.update({
+            where: { id: vmInstance.id },
+            data: { currentSpecId: spec.id }
+          });
+
+          provisionedVms.push(vmInstance);
+
+          // Create audit log for each VM
+          await tx.auditLog.create({
+            data: {
+              actorId: session.user.id,
+              action: "VM_PROVISIONED",
+              entityType: "REQUEST",
+              entityId: requestId,
+              details: JSON.stringify({
+                vmId: vmInstance.id,
+                hostname: vm.hostname,
+                ipAddress: vm.ipAddress,
+                sequenceNumber: vm.sequenceNumber,
+              }),
+            },
+          });
+        }
+
+        if (validationErrors.length > 0) {
+          return {
+            success: false,
+            message: "Validation failed for some VMs",
+            errors: validationErrors,
+          };
+        }
+
+        // Calculate combined request status
+        const isAllVmsProvisioned = totalAfterProvision >= totalQuantity;
+
+        // Check if VPN is required and whether VPN is already provisioned
+        const isVpnRequired = request.vpnRequired ||
+          request.requestType === RequestType.VPN_ACCESS ||
+          request.vmSpecifications?.some((s: any) => s.connectivity?.some((c: any) => c.accessType === "VPN"));
+
+        const vpnAssignmentsCount = await tx.vpnAssignment.count({
+          where: {
+            OR: [
+              { vm: { requestId: requestId } },
+              { namespace: { requests: { some: { id: requestId } } } }
+            ]
           }
         });
 
-        // Link current spec to VM
-        await tx.vmInstance.update({
-          where: { id: vmInstance.id },
-          data: { currentSpecId: spec.id }
+        // Check if K8s namespace is required and whether it is provisioned
+        const isK8sRequired = request.requestType === RequestType.K8S_NAMESPACE || request.kubernetesOption;
+        const k8sClusterCount = await tx.k8sCluster.count({
+          where: { requestId: requestId }
         });
 
-        provisionedVms.push(vmInstance);
+        let newStatus: RequestStatus;
+        const isAllVpnFulfilled = !isVpnRequired || vpnAssignmentsCount > 0;
+        const isAllK8sFulfilled = !isK8sRequired || k8sClusterCount > 0;
 
-        // Create audit log for each VM
+        if (isAllVmsProvisioned && isAllVpnFulfilled && isAllK8sFulfilled) {
+          newStatus = RequestStatus.PROVISIONED;
+        } else {
+          newStatus = RequestStatus.PARTIALLY_PROVISIONED;
+        }
+
+        await tx.request.update({
+          where: { id: requestId },
+          data: {
+            status: newStatus,
+            provisionedAt: new Date(),
+          },
+        });
+
+        // Create audit log for status change
         await tx.auditLog.create({
           data: {
             actorId: session.user.id,
-            action: "VM_PROVISIONED",
+            action: "REQUEST_PROVISIONED",
             entityType: "REQUEST",
             entityId: requestId,
             details: JSON.stringify({
-              vmId: vmInstance.id,
-              hostname: vm.hostname,
-              ipAddress: vm.ipAddress,
-              sequenceNumber: vm.sequenceNumber,
+              provisionedCount: provisionedVms.length,
+              totalVms: totalQuantity,
+              newStatus,
             }),
           },
         });
-      }
 
-      if (validationErrors.length > 0) {
         return {
-          success: false,
-          message: "Validation failed for some VMs",
-          errors: validationErrors,
+          success: true,
+          message: `Successfully provisioned ${provisionedVms.length} VM${provisionedVms.length !== 1 ? "s" : ""}`,
+          provisionedCount: provisionedVms.length,
+          newStatus,
         };
-      }
+      },
+      { timeout: 30000 }
+    );
 
-      // Calculate combined request status
-      const isAllVmsProvisioned = totalAfterProvision >= totalQuantity;
+    if (result.success && result.newStatus) {
+      await NotificationService.notifyDeployment(requestId, result.newStatus);
+    }
 
-      // Check if VPN is required and whether VPN is already provisioned
-      const isVpnRequired = request.vpnRequired || 
-        request.requestType === RequestType.VPN_ACCESS ||
-        request.vmSpecifications?.some((s: any) => s.connectivity?.some((c: any) => c.accessType === "VPN"));
-      
-      const vpnAssignmentsCount = await tx.vpnAssignment.count({
-        where: {
-          OR: [
-            { vm: { requestId: requestId } },
-            { namespace: { requests: { some: { id: requestId } } } }
-          ]
-        }
-      });
-
-      // Check if K8s namespace is required and whether it is provisioned
-      const isK8sRequired = request.requestType === RequestType.K8S_NAMESPACE || request.kubernetesOption;
-      const k8sClusterCount = await tx.k8sCluster.count({
-        where: { requestId: requestId }
-      });
-
-      let newStatus: RequestStatus;
-      const isAllVpnFulfilled = !isVpnRequired || vpnAssignmentsCount > 0;
-      const isAllK8sFulfilled = !isK8sRequired || k8sClusterCount > 0;
-
-      if (isAllVmsProvisioned && isAllVpnFulfilled && isAllK8sFulfilled) {
-        newStatus = RequestStatus.PROVISIONED;
-      } else {
-        newStatus = RequestStatus.PARTIALLY_PROVISIONED;
-      }
-
-      await tx.request.update({
-        where: { id: requestId },
-        data: {
-          status: newStatus,
-          provisionedAt: new Date(),
-        },
-      });
-
-      // Create audit log for status change
-      await tx.auditLog.create({
-        data: {
-          actorId: session.user.id,
-          action: "REQUEST_PROVISIONED",
-          entityType: "REQUEST",
-          entityId: requestId,
-          details: JSON.stringify({
-            provisionedCount: provisionedVms.length,
-            totalVms: totalQuantity,
-            newStatus,
-          }),
-        },
-      });
-
-      return {
-        success: true,
-        message: `Successfully provisioned ${provisionedVms.length} VM${provisionedVms.length !== 1 ? "s" : ""}`,
-        provisionedCount: provisionedVms.length,
-        newStatus,
-      };
-    },
-    { timeout: 30000 }
-  );
-
-  if (result.success && result.newStatus) {
-    await NotificationService.notifyDeployment(requestId, result.newStatus);
-  }
-
-  return result;
+    return result;
   } catch (error) {
     console.error("Error provisioning VMs:", error);
     return { success: false, message: "Failed to provision VMs" };

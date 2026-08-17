@@ -111,7 +111,7 @@ export class NotificationService {
     const relativeLink = `/approvals/${requestId}?type=${typeParam}`;
     const fullActionUrl = `${getAppUrl()}${relativeLink}`;
 
-    for (const approver of approvers) {
+    const promises = approvers.map(async (approver: any) => {
       await this.createNotification(
         approver.id,
         NotificationType.APPROVAL_REQUIRED,
@@ -131,7 +131,9 @@ export class NotificationService {
           requestId
         );
       }
-    }
+    });
+
+    await Promise.all(promises);
   }
 
   /**
@@ -415,7 +417,7 @@ export class NotificationService {
     const relativeLink = `/approvals/${requestId}?type=request`;
     const fullActionUrl = `${getAppUrl()}${relativeLink}`;
 
-    for (const user of dcopsUsers) {
+    const promises = dcopsUsers.map(async (user: any) => {
       await this.createNotification(
         user.id,
         NotificationType.EXECUTION_READY,
@@ -435,7 +437,9 @@ export class NotificationService {
           requestId
         );
       }
-    }
+    });
+
+    await Promise.all(promises);
   }
 
   /**
