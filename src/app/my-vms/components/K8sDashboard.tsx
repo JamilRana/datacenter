@@ -324,7 +324,11 @@ export function K8sDashboard({
                                   </span>
                                   <span className="flex items-center gap-1">
                                     <Globe className="h-3.5 w-3.5 text-slate-400" />
-                                    Subdomain: <strong className="text-slate-700">{node.subdomain || "Not Configured"}</strong>
+                                    Subdomain: <strong className="text-slate-700">
+                                      {node.subdomain 
+                                        ? (node.subdomain.endsWith(".dghs.gov.bd") ? node.subdomain : `${node.subdomain}.dghs.gov.bd`) 
+                                        : "Not Configured"}
+                                    </strong>
                                   </span>
                                   {node.subdomain && (
                                     <span className="flex items-center gap-1.5">

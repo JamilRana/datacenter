@@ -279,8 +279,16 @@ export default function VmDetailsPage() {
               <div>
                 <span className="text-sm text-slate-500">Subdomain</span>
                 <div className="flex items-center mt-1">
-                  <span className="font-mono">{vmData.subdomain || "—"}</span>
-                  {vmData.subdomain && <CopyButton value={vmData.subdomain} />}
+                  <span className="font-mono">
+                    {vmData.subdomain 
+                      ? (vmData.subdomain.endsWith(".dghs.gov.bd") ? vmData.subdomain : `${vmData.subdomain}.dghs.gov.bd`) 
+                      : "—"}
+                  </span>
+                  {vmData.subdomain && (
+                    <CopyButton 
+                      value={vmData.subdomain.endsWith(".dghs.gov.bd") ? vmData.subdomain : `${vmData.subdomain}.dghs.gov.bd`} 
+                    />
+                  )}
                 </div>
               </div>
               {vmData.vpnRequired && (

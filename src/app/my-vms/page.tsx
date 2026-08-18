@@ -572,7 +572,7 @@ export default function DashboardVmsPage() {
                                 {vm.hostname}
                                 {vm.subdomain && (
                                   <Badge variant="outline" className="text-[10px] py-0 px-1 font-normal text-slate-400 border-slate-200">
-                                    {vm.subdomain}
+                                    {vm.subdomain.endsWith(".dghs.gov.bd") ? vm.subdomain : `${vm.subdomain}.dghs.gov.bd`}
                                   </Badge>
                                 )}
                               </span>
@@ -617,7 +617,7 @@ export default function DashboardVmsPage() {
                               </Button>
                               {vm.ipAddress && (
                                 <Button variant="ghost" size="icon" title="Open Subdomain" asChild className="h-8 w-8 text-slate-400 hover:text-indigo-600">
-                                  <a href={vm.subdomain ? `https://${vm.subdomain}` : '#'} target="_blank" rel="noopener noreferrer">
+                                  <a href={vm.subdomain ? `https://${vm.subdomain.endsWith(".dghs.gov.bd") ? vm.subdomain : `${vm.subdomain}.dghs.gov.bd`}` : '#'} target="_blank" rel="noopener noreferrer">
                                     <ExternalLink className="h-4 w-4" />
                                   </a>
                                 </Button>

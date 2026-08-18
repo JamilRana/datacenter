@@ -123,7 +123,8 @@ export function RequestDetails({
           techStacks.push(spec.stack);
         }
         if (spec.subdomain) {
-          subdomains.push(`${spec.subdomain}.dghs.gov.bd`);
+          const cleanSub = spec.subdomain.endsWith(".dghs.gov.bd") ? spec.subdomain : `${spec.subdomain}.dghs.gov.bd`;
+          subdomains.push(cleanSub);
         }
       });
     } else {
@@ -132,7 +133,10 @@ export function RequestDetails({
       totalStorage = (data.storageGb || 50) * vmCount;
       osText = `${data.osName || ""} ${data.osVersion || ""}`.trim() || "—";
       envs.push(data.environment || "—");
-      if (data.subdomain) subdomains.push(data.subdomain);
+      if (data.subdomain) {
+        const cleanSub = data.subdomain.endsWith(".dghs.gov.bd") ? data.subdomain : `${data.subdomain}.dghs.gov.bd`;
+        subdomains.push(cleanSub);
+      }
     }
   } else if (requestType === "CLONE_VM") {
     vmCount = 1;
@@ -608,7 +612,11 @@ export function RequestDetails({
                         </div>
                         <div>
                           <p className="text-[10px] uppercase text-slate-400 font-bold">Proposed Subdomain</p>
-                          <p className="font-semibold text-slate-800 mt-0.5">{spec.subdomain ? `https://${spec.subdomain}.dghs.gov.bd` : "—"}</p>
+                          <p className="font-semibold text-slate-800 mt-0.5">
+                            {spec.subdomain 
+                              ? `https://${spec.subdomain.endsWith(".dghs.gov.bd") ? spec.subdomain : `${spec.subdomain}.dghs.gov.bd`}` 
+                              : "—"}
+                          </p>
                         </div>
                       </div>
 
@@ -1056,7 +1064,7 @@ export function RequestDetails({
                   <p><span className="text-slate-400">Compute:</span> {spec.vcpu} vCPU / {spec.ramGb} GB RAM</p>
                   <p><span className="text-slate-400">Storage:</span> {spec.storageGb} GB Disk</p>
                   <p><span className="text-slate-400">OS Version:</span> {spec.osVersion || "—"}</p>
-                  <p className="col-span-3"><span className="text-slate-400">Subdomain:</span> {spec.subdomain ? `${spec.subdomain}.dghs.gov.bd` : "—"}</p>
+                  <p className="col-span-3"><span className="text-slate-400">Subdomain:</span> {spec.subdomain ? (spec.subdomain.endsWith(".dghs.gov.bd") ? spec.subdomain : `${spec.subdomain}.dghs.gov.bd`) : "—"}</p>
                   {spec.firewallRules && spec.firewallRules.length > 0 && (
                     <p className="col-span-3"><span className="text-slate-400 font-bold">Firewall Ports:</span> {spec.firewallRules.map((r: any) => `${r.port}/${r.protocol} (${r.purpose})`).join(", ")}</p>
                   )}
@@ -1278,7 +1286,8 @@ function ResourceSummaryCard({ data }: { data: detailsRequest }) {
           techStacks.push(spec.stack);
         }
         if (spec.subdomain) {
-          subdomains.push(`${spec.subdomain}.dghs.gov.bd`);
+          const cleanSub = spec.subdomain.endsWith(".dghs.gov.bd") ? spec.subdomain : `${spec.subdomain}.dghs.gov.bd`;
+          subdomains.push(cleanSub);
         }
         if (spec.connectivity) {
           spec.connectivity.forEach((c: any) => {
