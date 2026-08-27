@@ -1,8 +1,8 @@
 # MIS Datacenter Portal — Complete System Documentation
 
-> **Version:** 0.1.0  
-> **Last Updated:** June 30, 2026  
-> **Platform:** Next.js 14 (App Router) + PostgreSQL + Redis + MinIO  
+> **Version:** 0.2.0  
+> **Last Updated:** August 25, 2026  
+> **Platform:** Next.js 16 (App Router + Turbopack) + PostgreSQL + Redis + MinIO  
 > **Organization:** DGHS (Directorate General of Health Services) — MIS Division  
 > **Production URL:** `http://datacenter.dghs.gov.bd`
 
@@ -16,15 +16,15 @@
 4. [Database Schema](#4-database-schema)
 5. [Authentication & Authorization](#5-authentication--authorization)
 6. [Role-Based Access Control (RBAC)](#6-role-based-access-control-rbac)
-7. [Approval Workflow Engine](#7-approval-workflow-engine)
+7. [Approval Workflow Engine & In-Flight Modifications](#7-approval-workflow-engine--in-flight-modifications)
 8. [Server Actions Reference](#8-server-actions-reference)
 9. [API Routes Reference](#9-api-routes-reference)
-10. [Frontend Pages & Components](#10-frontend-pages--components)
+10. [4-Tier Role-Based Dashboards & Frontend Pages](#10-4-tier-role-based-dashboards--frontend-pages)
 11. [Notification System](#11-notification-system)
-12. [Email Service](#12-email-service)
+12. [Email Service & Final Execution Notifications](#12-email-service--final-execution-notifications)
 13. [File Storage (MinIO)](#13-file-storage-minio)
 14. [Caching & Rate Limiting (Redis)](#14-caching--rate-limiting-redis)
-15. [Audit Logging](#15-audit-logging)
+15. [Audit Logging & History Trail](#15-audit-logging--history-trail)
 16. [Reporting & Analytics](#16-reporting--analytics)
 17. [Export System](#17-export-system)
 18. [Security](#18-security)
@@ -32,6 +32,7 @@
 20. [Environment Configuration](#20-environment-configuration)
 21. [Seed Data & Initial Setup](#21-seed-data--initial-setup)
 22. [Cron Jobs](#22-cron-jobs)
+23. [Live Subsystem Health Monitoring Engine](#23-live-subsystem-health-monitoring-engine)
 
 ---
 
@@ -648,7 +649,7 @@ The proxy network boundary (`src/proxy.ts`) runs on every request and handles:
 
 ---
 
-## 7. Approval Workflow Engine
+## 7. Approval Workflow Engine & In-Flight Modifications
 
 ### Architecture
 
@@ -656,7 +657,7 @@ The workflow engine (`src/lib/workflow.ts`) is a **configurable, multi-level app
 
 ### Default Workflow Configuration
 
-#### Standard Requests (NEW_VM, CLONE_VM, K8S_NAMESPACE, VIRTUAL_IP, CUSTOMIZED, RENEWAL)
+#### Standard Requests (NEW_VM, CLONE_VM, K8S_NAMESPACE, VIRTUAL_IP, CUSTOMIZED, RENEWAL, VPN_ACCESS, HORIZON_ACCESS)
 
 ```
 Level 1: APPROVER_L1 (Section Officer)      → Can forward to L2
@@ -680,8 +681,8 @@ DRAFT → PENDING_L1 → PENDING_L2 → PENDING_L3 → APPROVED → PROVISIONED 
                                               PARTIALLY_PROVISIONED
                     
 Any PENDING_Lx → REJECTED (terminal)
-Any PENDING_Lx → RETURNED (back to requester for modification)
-RETURNED → REQUESTER_APPROVED → PENDING_L1 (re-enter workflow)
+Any PENDING_Lx → RETURNED (back to requester for modification with revision notes)
+RETURNED → (Requester amends & resubmits) → PENDING_L1 (re-enters workflow)
 ```
 
 ### Approval Decisions
@@ -690,8 +691,26 @@ RETURNED → REQUESTER_APPROVED → PENDING_L1 (re-enter workflow)
 |---|---|
 | `APPROVED` | Advances to next level, or marks request as APPROVED if final level |
 | `REJECTED` | Terminates the workflow; request status becomes REJECTED |
-| `RETURNED` | Sends request back to requester for modification |
-| `FORWARDED` | Skips to next approval level (implicit in approval at non-final levels) |
+| `RETURNED` | Sends request back to requester with required revision notes |
+| `FORWARDED` | Skips to next approval level (e.g. L3 forwarding to L4 Director) |
+
+### In-Flight Request Modifications (Approver Quick Adjustments)
+
+In high-throughput environments, minor requested parameter changes (such as downsizing RAM from 64GB to 32GB or pruning 1 test VM out of 3 from a Horizon/VPN access request) should **not** force the request back to `DRAFT` and restart the approval chain.
+
+The platform provides atomic **In-Flight Modifications** during approval review:
+
+1. **Horizon & VPN Resource Pruning**:
+   - Approvers can uncheck/remove individual VMs or namespaces directly from `requestResources`.
+   - The pruned items are removed from the database in an atomic transaction.
+2. **Resource Resizing**:
+   - Approvers can adjust `vcpu`, `ramGb`, `storageGb`, and `quantity` for VM, Upgrade, and K8s requests.
+   - Associated `vmSpecifications` are synchronized simultaneously.
+3. **Audit Diff Recording**:
+   - Computes explicit change diffs (e.g., `RAM: 64GB → 32GB`, `Removed Resources: [winsvr-02]`).
+   - Automatically writes a `REQUEST_MODIFIED_IN_FLIGHT` record in `AuditLog`.
+4. **Requester Notification**:
+   - Dispatches in-app notification and email to the requester stating: *"Your request was approved with modifications by [Approver Name]: [Diff summary]"*.
 
 ### Workflow Functions
 
@@ -706,13 +725,13 @@ RETURNED → REQUESTER_APPROVED → PENDING_L1 (re-enter workflow)
 | `getStatusForLevel(level)` | Map level number to status string |
 | `isFinalLevel(level, workflow)` | Check if this is the final approval |
 | `isExecutionLevel(level, workflow)` | Check if this is a DC_OPS execution level |
-| `createWorkflowLevel(...)` | Create/update a workflow level (upsert) |
-| `deleteWorkflowLevel(...)` | Remove a workflow level |
+| `modifyAndApproveRequest(params)` | Atomically adjust request resources and approve with audit diffs |
+| `updateRequestInFlight(id, mods, notes)` | Save in-flight parameter adjustments without immediate approval |
 | `initializeDefaultWorkflows()` | Seed all default workflow configs |
 
 ### Caching
 
-- Workflow configs are cached in memory with a **5-minute TTL**
+- Workflow configs are cached in memory/Redis with a **5-minute TTL**
 - Cache is automatically invalidated on workflow CRUD operations
 - Fallback to defaults if database is unavailable
 
@@ -720,31 +739,32 @@ RETURNED → REQUESTER_APPROVED → PENDING_L1 (re-enter workflow)
 
 ## 8. Server Actions Reference
 
-The system uses **23 Server Action files** containing all business logic. Here is a summary by domain:
+The system uses **Server Action files** containing all business logic. Here is a summary by domain:
 
 ### Request Management
 
 | File | Key Functions |
 |---|---|
-| `request-actions.ts` (42KB) | `createRequest()`, `updateRequest()`, `submitRequest()`, `getRequests()`, `getRequestById()`, `getRequestsForApproval()` |
-| `clone-actions.ts` (11KB) | `createCloneRequest()`, `getSourceVmDetails()` |
-| `k8s-actions.ts` (9KB) | `createK8sNamespaceRequest()`, `submitK8sRequest()` |
-| `vip-actions.ts` (9KB) | `createVirtualIpRequest()`, `submitVipRequest()` |
-| `decommission-actions.ts` (10KB) | `createDecommissionRequest()`, `executeDecommission()` |
-| `customization-actions.ts` (17KB) | `createCustomizationRequest()`, `submitCustomization()`, `applyCustomization()` |
+| `request-actions.ts` | `createRequest()`, `updateRequest()`, `submitRequest()`, `getRequests()`, `getDetailedRequest()` (with `auditLogs` & `requestResources`), `getRequestsForApproval()` |
+| `clone-actions.ts` | `createCloneRequest()`, `getSourceVmDetails()` |
+| `k8s-actions.ts` | `createK8sNamespaceRequest()`, `submitK8sRequest()`, `executeK8sRequest()` |
+| `access-actions.ts` | `createAccessRequest()`, `executeVpnRequestDirect()`, `executeHorizonRequestDirect()` |
+| `vip-actions.ts` | `createVirtualIpRequest()`, `submitVipRequest()` |
+| `decommission-actions.ts` | `createDecommissionRequest()`, `executeDecommission()` |
+| `customization-actions.ts` | `createCustomizationRequest()`, `submitCustomization()`, `applyCustomization()` |
 
-### Approval Workflow
+### Approval Workflow & In-Flight Modification
 
 | File | Key Functions |
 |---|---|
-| `approval-actions.ts` (36KB) | `approveRequest()`, `rejectRequest()`, `returnRequest()`, `getApprovalQueue()`, `getApprovalDetails()` |
+| `approval-actions.ts` | `handleApprovalDecision()`, `forwardToLevel()`, `modifyAndApproveRequest()`, `updateRequestInFlight()`, `executeRequest()`, `executeRequestWithVmInputs()` |
 
 ### VM Management
 
 | File | Key Functions |
 |---|---|
-| `vm-actions.ts` (17KB) | `provisionVm()`, `getVmDetails()`, `updateVmStatus()`, `getVmsByOwner()` |
-| `vm-management-actions.ts` (10KB) | `suspendVm()`, `reactivateVm()`, `transferOwnership()`, `updateHostMapping()` |
+| `vm-actions.ts` | `provisionVm()`, `getVmDetails()`, `updateVmStatus()`, `getVmsByOwner()` |
+| `vm-management-actions.ts` | `suspendVm()`, `reactivateVm()`, `transferOwnership()`, `updateHostMapping()` |
 
 ### Inventory & Assets
 
@@ -810,6 +830,8 @@ The system uses **23 Server Action files** containing all business logic. Here i
 |---|---|---|---|
 | `GET` | `/api/admin/health` | Admin | System health check (DB, Redis, MinIO) |
 | `GET/PUT` | `/api/admin/settings` | Admin | System settings CRUD |
+| `GET` | `/api/admin/backup` | Admin | Full database backup export (all 44 models) |
+| `POST` | `/api/admin/backup` | Admin | Full database restore with dependency-ordered reinsertion |
 
 ### Profile
 
@@ -826,59 +848,69 @@ The system uses **23 Server Action files** containing all business logic. Here i
 
 ---
 
-## 10. Frontend Pages & Components
+## 10. 4-Tier Role-Based Dashboards & Frontend Pages
 
-### Page Hierarchy
+### 4-Tier Role-Based Actionable Dashboards
+
+The portal features four dedicated, role-tailored dashboard experiences driven by `src/components/dashboard/dashboardRegistry.tsx` and optimized with Redis caching (10-second TTL):
 
 ```
-/auth                     → Login page
-/dashboard                → Role-based dashboard
-/requests                 → Request list (filterable)
-/requests/new             → New request form (multi-type)
-/requests/[id]            → Request detail view
-/requests/customize       → Customization request form
-/requests/decommission    → Decommission request form
-/approvals                → Approval queue
-/approvals/[id]           → Approval detail + decision actions
-/inventory                → Inventory overview with tabs
-/inventory/vms            → VM inventory list
-/inventory/vms/[id]       → VM detail view
-/inventory/assets         → Hardware asset management
-/inventory/assets/new     → New asset form
-/inventory/assets/[id]    → Asset detail/edit
-/inventory/licenses       → Software license management
-/inventory/licenses/[id]  → License detail/edit
-/my-vms                   → User's owned VMs
-/my-vms/[vmId]            → VM detail for owner
-/reports                  → Reports & analytics
-/reports/vm               → VM reports
-/reports/approvals        → Approval reports
-/reports/hardware         → Hardware reports
-/reports/users            → User reports
-/notifications            → Notification center
-/profile                  → User profile management
-/admin                    → Admin dashboard
-/admin/users              → User management
-/admin/workflows          → Approval workflow configuration
-/admin/settings           → System settings
-/admin/email-settings     → SMTP configuration
-/admin/audit              → Audit log viewer
-/admin/audit-logs         → Detailed audit logs
-/unauthorized             → 403 Forbidden page
+                       ┌──────────────────────┐
+                       │   /dashboard Entry   │
+                       └──────────┬───────────┘
+                                  │ (getPrimaryRole)
+        ┌────────────────┬────────┴────────┬────────────────┐
+        ▼                ▼                 ▼                ▼
+┌──────────────┐ ┌──────────────┐  ┌──────────────┐ ┌──────────────┐
+│    ADMIN     │ │    DC_OPS    │  │   APPROVER   │ │  REQUESTER   │
+│  Dashboard   │ │  Dashboard   │  │  Dashboard   │ │  Dashboard   │
+└──────────────┘ └──────────────┘  └──────────────┘ └──────────────┘
 ```
 
-### Application Layout
+#### 1. 👑 Admin Dashboard (`AdminWidgets.tsx`)
+- **Core Mission**: *"Is the whole platform operating correctly, and what needs attention?"*
+- **Top 8 KPI Cards**: Total VMs (Active / Suspended / Retired), Total Requests (This month / Pending), Pending Approvals (L1 / L2 / L3 / L4), Pending DC_OPS Execution, Active Users, Expiring VMs (30d / 60d / 90d), Expiring Licenses (30d / 60d / 90d), Subsystem Alerts count.
+- **Request Lifecycle Pipeline Bar**: Visual 8-stage progress tracker (`Draft → L1 → L2 → L3 → L4 → DC_OPS → Provisioned → Closed`) with clickable filter counts.
+- **Resource Allocation Table**: Total, Allocated, Available, and % Utilization metrics for CPU Cores, RAM (GB/TB), and Block Storage.
+- **Live Subsystem Health Monitor**: Real-time status pills and latency tracking for PostgreSQL, Redis, MinIO, Application Server, and SMTP Mailer.
+- **Attention & Expiry Hub**: Interactive tabbed view for expiring VMs, software licenses, and requests stuck $> 48\text{h}$.
+- **Platform Audit Feed & Administrative Shortcuts**: Quick access to Manage Users, Workflows, Audit Logs, Inventory, Settings, and Email.
 
-- **Sidebar** — Responsive sidebar with role-based navigation items, collapsible on mobile via sheet overlay
-- **Top Bar** — Search, notification bell, user profile dropdown
-- **Top Loader** — Indigo progress bar on route changes (nextjs-toploader)
-- **Toast** — Sonner toast notifications (top-right)
+#### 2. ⚙️ DC_OPS Dashboard (`DcopsWidgets.tsx`)
+- **Core Mission**: *"What infrastructure deployments and operations do I need to execute today?"*
+- **Top 8 Operational KPIs**: Pending Provisioning, Provisioned Today, Active VMs, Available CPU, Available RAM, Available Storage, Expiring VMs (30d), Open Operations.
+- **Infrastructure Execution Queue**: Table of approved requests awaiting deployment with VM counts, waiting time, priority badge (`HIGH` / `NORMAL` / `LOW`), and direct **Execute** buttons.
+- **Multi-VM Provisioning Progress**: Sub-status tracking cards for multi-instance deployments (e.g. `VM 1 ✓ Provisioned`, `VM 2 ● Pending`).
+- **Resource Capacity Gauges**: Visual utilization gauges with over-allocation warnings ($> 85\%$).
+- **Operational Action Alerts**: Critical alerts for storage capacity, license expiration, and aging execution queues.
 
-### UI Component Library (Shadcn/UI)
+#### 3. ✍️ Approver Dashboard (`ApproverWidgets.tsx`)
+- **Core Mission**: *"What requires my decision, and where are the bottlenecks?"*
+- **Top 4 Decision KPIs**: Pending My Approval, Aging Approvals ($> 48\text{h}$), Returned for Revision, Approved This Month.
+- **Pending Decision Queue**: Level-filtered cards with requester details, department, system name, resource snapshot (vCPU, RAM, Disk, VM count, Access type), hours waiting, and **Review & Decide** buttons.
+- **Returned Requests Queue**: Tracks requests returned to requesters awaiting their revisions.
+- **My Approval History**: Decision audit trail for this approver.
 
-18 Radix-based components in `components/ui/`:
+#### 4. 👤 Requester Dashboard (`RequesterWidgets.tsx`)
+- **Core Mission**: *"What is happening with my requests and my provisioned VMs?"*
+- **Action Required Banner**: High-priority alert banner for returned requests with reviewer comments and an instant **Edit & Resubmit** button.
+- **Top 6 KPIs**: My Requests, In Review, Action Required, Approved, Active VMs, Expiring VMs.
+- **Request Status Tracker**: Clickable pipeline chips (`Drafts`, `In Review`, `Returned`, `Approved`, `Provisioned`, `Rejected`).
+- **My Allocated Virtual Machines Table**: Hostnames, IPs, environments, resource specs, and renewal countdown badges.
+- **Quick Resource Shortcuts**: `+ New VM`, `+ K8s Namespace`, `+ Clone VM`, `+ Customization`, `+ Renewal`.
 
-`badge`, `button`, `card`, `checkbox`, `combobox`, `dialog`, `input`, `label`, `pagination`, `progress`, `radio-group`, `select`, `sheet`, `skeleton`, `switch`, `table`, `tabs`, `textarea`
+---
+
+### Request Detail View & Audit History (`RequestDetail.tsx`)
+
+- **Audit Trail & Revision History Section**: Renders chronological events directly on the request detail view:
+  - 🛠️ `REQUEST_MODIFIED_IN_FLIGHT`: Displays visual change diff pills (`RAM: 64GB → 32GB`, `Removed Resources: [winsvr-02]`) and approver justification notes.
+  - ✍️ `APPROVAL_DECISION`: Shows approval decisions, levels, approver name, designation, and comments.
+  - 🚀 `EXECUTE_REQUEST` / `PROVISION_VM`: Shows provisioning execution and actor.
+- **Approval Panel with In-Flight Adjustments (`ApprovalPanel.tsx`)**:
+  - **Adjust & Approve Modal**: Allows approvers to resize CPU/RAM/Disk and uncheck individual VMs from access lists before approving.
+  - **Return for Revision Modal**: Allows approvers to return requests with specific amendment instructions.
+  - **Forward to Director Modal**: Enables escalation to Level 4.
 
 ---
 
@@ -911,7 +943,7 @@ The system uses **23 Server Action files** containing all business logic. Here i
 
 ---
 
-## 12. Email Service
+## 12. Email Service & Final Execution Notifications
 
 ### Architecture
 
@@ -921,16 +953,20 @@ The email service (`src/lib/email.ts`) implements a production-grade SMTP integr
 - **Password Encryption** — SMTP passwords are AES-256-CBC encrypted with configurable key
 - **Retry Logic** — 3 attempts with exponential backoff (1s, 2s, 3s)
 - **Smart Failure** — Retries on transient errors; stops immediately on auth/DNS failures
-- **HTML Templates** — Branded email templates with MIS DC Portal branding
+- **HTML Templates** — Branded email templates with MIS DC Portal styling
 - **XSS Prevention** — All dynamic content is HTML-escaped
 
-### Email Types
+### Execution & Provisioning Deployment Emails
 
-| Template | Function | Purpose |
+Upon final execution by DC_OPS or direct approval actions (`executeRequest`, `executeRequestWithVmInputs`, `executeK8sRequest`, `executeVpnRequestDirect`, `executeHorizonRequestDirect`), the notification service automatically formats and dispatches comprehensive deployment emails to the **Requester** and **Developer**:
+
+| Deployment Type | Notification Function | Content Included |
 |---|---|---|
-| Approval Request | `sendApprovalNotification()` | Request requires approval action |
-| Status Update | `sendStatusUpdateNotification()` | Request status changed |
-| VM Provisioned | `sendProvisioningNotification()` | VM ready with hostname/IP details |
+| **VM Provisioning** | `sendDeploymentSuccessNotification()` | Hostnames, IP addresses, Public IPs, Subdomains, vCPU, RAM, Storage, OS details |
+| **VPN Access** | `sendVpnAccessDeploymentNotification()` | VPN username, Full name, VPN Profile, VPN IP, Assigned VM/Namespace list, Expiry |
+| **Horizon Access** | `sendHorizonAccessDeploymentNotification()` | Horizon username, Full name, Assigned IP, VM/Namespace permissions list |
+| **K8s Namespace** | `sendK8sNamespaceDeploymentNotification()` | Namespace name, Supervisor IP, Cluster name, Node group sizes & specs |
+| **VM Upgrade / Decommission** | `sendStatusUpdateNotification()` | Target VM hostname, upgraded resource specs, execution notes |
 
 ### SMTP Configuration Keys
 
@@ -1022,24 +1058,36 @@ PDF, DOC, DOCX, XLS, XLSX, PNG, JPG, JPEG, GIF, TXT, ZIP, RAR
 
 ---
 
-## 15. Audit Logging
+## 15. Audit Logging & History Trail
 
 ### Fields
 
 | Field | Description |
 |---|---|
 | `actorId` | User who performed the action |
-| `action` | Action type string |
-| `entityType` | Affected entity type (e.g., "Request", "VmInstance") |
+| `action` | Action type string (e.g. `REQUEST_MODIFIED_IN_FLIGHT`, `APPROVAL_APPROVED_L1`, `EXECUTE_REQUEST`) |
+| `entityType` | Affected entity type (e.g., `REQUEST`, `CUSTOMIZATION`, `VM_INSTANCE`, `USER`) |
 | `entityId` | Affected entity ID |
-| `details` | JSON blob with action-specific metadata |
+| `details` | Structured JSON containing before/after diffs, approver notes, and parameters |
 | `vmId` | Related VM (optional) |
 | `timestamp` | When the action occurred |
+
+### Audited Actions & Diffs
+
+| Action | When Triggered | Metadata Captured |
+|---|---|---|
+| `CREATE_REQUEST` | New request created/submitted | Request type, initial resource specifications, requester |
+| `EDIT_REQUEST` | Requester amends request content | Modified fields, previous vs updated values |
+| `REQUEST_MODIFIED_IN_FLIGHT` | Approver modifies resources before approving | Array of human-readable diffs (`RAM: 64GB → 32GB`, `Removed Resources: [winsvr-02]`), original specs, modified specs, approver justification notes |
+| `APPROVAL_APPROVED_L[n]` | Approver signs off at Level n | Level, approver ID, comments, escalation targets |
+| `APPROVAL_RETURNED` | Approver returns request for revision | Return notes, required amendments, approver ID |
+| `EXECUTE_REQUEST` / `REQUEST_PROVISIONED` | DC_OPS completes provisioning | Provisioned VM counts, IP addresses, execution notes |
+| `CHANGE_PASSWORD` | Administrator changes user credentials | Target user ID, admin ID, timestamp |
 
 ### Indexed For Performance
 
 - `(actorId)`, `(actorId, timestamp)` — User activity queries
-- `(entityType, entityId)` — Entity history queries
+- `(entityType, entityId)` — Entity history queries (used by Request Detail view)
 - `(timestamp)` — Time-range queries
 - `(vmId)` — VM-specific audit trail
 
@@ -1297,7 +1345,34 @@ Scans all software licenses with `expiryDate` and sends alerts for upcoming and 
 
 ### Scheduling
 
-These endpoints can be called by an external cron scheduler (e.g., `crontab`, cloud scheduler) on a daily or weekly basis.
+---
+
+## 23. Live Subsystem Health Monitoring Engine
+
+### Architecture
+
+The platform includes a dedicated, non-blocking health check engine (`src/lib/dashboard/systemHealth.ts`) that executes parallel diagnostic probes on all core infrastructure services:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│             checkSystemHealth() Parallel Probes             │
+└──────────────┬──────────────┬──────────────┬──────────────┬─┘
+               │              │              │              │
+        ┌──────▼──────┐┌──────▼──────┐┌──────▼──────┐┌──────▼──────┐
+        │  PostgreSQL ││ Redis Cache ││ MinIO Store ││ Node App/SMTP│
+        │ `SELECT 1`  ││ `ping()`    ││`listBuckets`││ Heap/Config │
+        └─────────────┘└─────────────┘└─────────────┘└─────────────┘
+```
+
+### Probes & Status Thresholds
+
+| Subsystem | Check Mechanism | Latency / Metrics | Status Output |
+|---|---|---|---|
+| **PostgreSQL Database** | `prisma.$queryRaw\`SELECT 1\`` | Query duration in ms | `healthy` ($< 1500\text{ms}$), `warning` ($> 1500\text{ms}$), `error` |
+| **Redis Cache Cluster** | `redis.ping()` & connection status | Ping round-trip in ms | `healthy` ($< 500\text{ms}$), `warning` (memory fallback), `error` |
+| **MinIO Object Storage** | `minioClient.listBuckets()` | API round-trip in ms | `healthy` ($< 2000\text{ms}$), `warning` (fallback), `error` |
+| **Application Server** | `process.memoryUsage().heapUsed` | Heap memory in MB, Node uptime | `healthy` ($< 1024\text{MB}$), `warning` ($> 1024\text{MB}$) |
+| **SMTP Mailer Service** | `SystemSetting` query & env check | Host configuration check | `healthy` (configured), `warning` (unconfigured) |
 
 ---
 

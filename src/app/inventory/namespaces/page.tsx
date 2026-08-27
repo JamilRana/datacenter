@@ -19,7 +19,8 @@ import {
   ChevronUp, 
   CheckCircle2, 
   XCircle, 
-  Clock 
+  Clock,
+  Network
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -223,6 +224,51 @@ export default function K8sNamespacesInventoryPage() {
                             <span className="font-bold text-slate-800">{request?.requester?.email || "N/A"}</span>
                           </div>
                         </div>
+
+                        {/* Namespace Ingress & Subdomain Routes */}
+                        {ns.subdomains && ns.subdomains.length > 0 && (
+                          <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200">
+                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                              <Globe size={14} className="text-indigo-600" />
+                              Namespace Ingress & Subdomain Routes ({ns.subdomains.length})
+                            </h4>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {ns.subdomains.map((sub: any) => {
+                                const fullDomain = sub.subdomain.includes(".") ? sub.subdomain : `${sub.subdomain}.dghs.gov.bd`;
+                                return (
+                                  <div key={sub.id} className="p-3 bg-slate-50/70 rounded-lg border border-slate-200/80 flex items-center justify-between gap-3">
+                                    <div className="space-y-1 min-w-0 flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <Network className="h-3.5 w-3.5 text-indigo-600 flex-shrink-0" />
+                                        <span className="text-xs font-bold text-slate-800 truncate" title={fullDomain}>
+                                          {sub.subdomain}
+                                        </span>
+                                      </div>
+                                      <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5">
+                                        <span>Ext IP: <strong>{sub.externalIp || "Auto Ingress VIP"}</strong></span>
+                                        <span>Service: <strong>{sub.serviceName || "Root"}:{sub.targetPort || 443}</strong></span>
+                                      </div>
+                                    </div>
+
+                                    <Badge className={`text-[9px] font-bold uppercase tracking-wider ${
+                                      sub.status === "ACTIVE" 
+                                        ? "bg-emerald-100 text-emerald-800 border-none" 
+                                        : sub.status === "REJECTED"
+                                        ? "bg-red-100 text-red-800 border-none"
+                                        : "bg-amber-100 text-amber-800 border-none"
+                                    }`}>
+                                      {sub.status === "ACTIVE" && <CheckCircle2 className="h-2.5 w-2.5 mr-1" />}
+                                      {sub.status === "REJECTED" && <XCircle className="h-2.5 w-2.5 mr-1" />}
+                                      {sub.status === "PENDING" && <Clock className="h-2.5 w-2.5 mr-1" />}
+                                      {sub.status}
+                                    </Badge>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Node Groups */}
                         {cluster.nodeGroups && cluster.nodeGroups.length > 0 ? (

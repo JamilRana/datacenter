@@ -529,6 +529,13 @@ export async function getUserK8sNamespaces() {
     if (isDCOps || isAdmin) {
       namespaces = await prisma.k8sNamespace.findMany({
         include: {
+          subdomains: {
+            include: {
+              requestedBy: { select: { id: true, name: true, email: true } },
+              approvedBy: { select: { id: true, name: true, email: true } }
+            },
+            orderBy: { createdAt: "desc" }
+          },
           clusters: {
             include: {
               nodeGroups: {
@@ -538,7 +545,8 @@ export async function getUserK8sNamespaces() {
               }
             }
           }
-        }
+        },
+        orderBy: { name: "asc" }
       });
     } else {
       namespaces = await prisma.k8sNamespace.findMany({
@@ -552,6 +560,13 @@ export async function getUserK8sNamespaces() {
           }
         },
         include: {
+          subdomains: {
+            include: {
+              requestedBy: { select: { id: true, name: true, email: true } },
+              approvedBy: { select: { id: true, name: true, email: true } }
+            },
+            orderBy: { createdAt: "desc" }
+          },
           clusters: {
             include: {
               nodeGroups: {
@@ -561,13 +576,190 @@ export async function getUserK8sNamespaces() {
               }
             }
           }
-        }
+        },
+        orderBy: { name: "asc" }
       });
     }
 
     return { success: true, namespaces };
   } catch (error) {
     console.error("Error fetching namespaces:", error);
+    return { success: false, message: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+export async function requestK8sSubdomain(data: {
+  namespaceId: string;
+  subdomain: string;
+  externalIp?: string;
+  serviceName?: string;
+  targetPort?: number;
+  purpose?: string;
+}) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) throw new Error("Unauthorized");
+
+    const namespace = await prisma.k8sNamespace.findUnique({
+      where: { id: data.namespaceId },
+      include: {
+        clusters: {
+          include: {
+            request: true
+          }
+        }
+      }
+    });
+
+    if (!namespace) throw new Error("Namespace not found");
+
+    const userRoles = session.user.roles || [];
+    const isOwner = namespace.clusters.some((c: any) => c.request?.requesterId === session.user.id);
+    const isDCOps = userRoles.includes("DC_OPS");
+    const isAdmin = userRoles.includes("ADMIN");
+
+    if (!isOwner && !isDCOps && !isAdmin) {
+      throw new Error("You do not have permission to request subdomains for this namespace");
+    }
+
+    let cleanSubdomain = data.subdomain.trim().toLowerCase();
+    if (!cleanSubdomain) {
+      throw new Error("Subdomain is required");
+    }
+    // Remove https:// or http:// if user pasted a URL
+    cleanSubdomain = cleanSubdomain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+    const newSubdomain = await prisma.k8sSubdomain.create({
+      data: {
+        namespaceId: data.namespaceId,
+        subdomain: cleanSubdomain,
+        externalIp: data.externalIp?.trim() || null,
+        serviceName: data.serviceName?.trim() || null,
+        targetPort: data.targetPort ? Number(data.targetPort) : 443,
+        purpose: data.purpose?.trim() || null,
+        status: "PENDING",
+        requestedById: session.user.id
+      },
+      include: {
+        namespace: true
+      }
+    });
+
+    // Audit Log
+    await prisma.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "REQUEST_K8S_SUBDOMAIN",
+        entityType: "REQUEST",
+        entityId: data.namespaceId,
+        details: JSON.stringify({
+          subdomainId: newSubdomain.id,
+          subdomain: cleanSubdomain,
+          namespace: namespace.name,
+          externalIp: data.externalIp,
+          serviceName: data.serviceName
+        }),
+      }
+    });
+
+    // Notify Approver L1s
+    try {
+      const approvers = await prisma.user.findMany({
+        where: {
+          roles: {
+            some: {
+              role: {
+                name: { in: ["APPROVER_L1", "ADMIN"] }
+              }
+            }
+          }
+        },
+        select: { id: true }
+      });
+
+      for (const approver of approvers) {
+        await prisma.notification.create({
+          data: {
+            userId: approver.id,
+            type: "SUBDOMAIN_REQUEST",
+            message: `New Ingress Subdomain request "${cleanSubdomain}" submitted for namespace "${namespace.name}" by ${session.user.name || "Requester"}.`,
+            link: "/approvals"
+          }
+        });
+      }
+    } catch (notifErr) {
+      console.warn("Failed to dispatch notifications for subdomain request:", notifErr);
+    }
+
+    revalidatePath("/my-vms");
+    revalidatePath("/inventory/namespaces");
+    revalidatePath("/approvals");
+
+    return { 
+      success: true, 
+      message: `Subdomain route "${cleanSubdomain}" submitted for Approver 1 approval.`, 
+      subdomain: newSubdomain 
+    };
+  } catch (error) {
+    console.error("Error requesting K8s subdomain:", error);
+    return { success: false, message: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+export async function deleteK8sSubdomain(subdomainId: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) throw new Error("Unauthorized");
+
+    const subdomain = await prisma.k8sSubdomain.findUnique({
+      where: { id: subdomainId },
+      include: {
+        namespace: {
+          include: {
+            clusters: {
+              include: {
+                request: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!subdomain) throw new Error("Subdomain not found");
+
+    const userRoles = session.user.roles || [];
+    const isRequester = subdomain.requestedById === session.user.id;
+    const isOwner = subdomain.namespace.clusters.some((c: any) => c.request?.requesterId === session.user.id);
+    const isDCOps = userRoles.includes("DC_OPS");
+    const isAdmin = userRoles.includes("ADMIN");
+
+    if (!isRequester && !isOwner && !isDCOps && !isAdmin) {
+      throw new Error("You do not have permission to delete this subdomain");
+    }
+
+    await prisma.k8sSubdomain.delete({
+      where: { id: subdomainId }
+    });
+
+    // Audit Log
+    await prisma.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "DELETE_K8S_SUBDOMAIN",
+        entityType: "REQUEST",
+        entityId: subdomain.namespaceId,
+        details: JSON.stringify({ subdomainId, subdomain: subdomain.subdomain }),
+      }
+    });
+
+    revalidatePath("/my-vms");
+    revalidatePath("/inventory/namespaces");
+    revalidatePath("/approvals");
+
+    return { success: true, message: "Subdomain route removed successfully" };
+  } catch (error) {
+    console.error("Error deleting K8s subdomain:", error);
     return { success: false, message: error instanceof Error ? error.message : "Unknown error" };
   }
 }
@@ -721,9 +913,34 @@ export async function getPendingSubdomains() {
     const isAdmin = userRoles.includes("ADMIN");
 
     if (!isL1 && !isDCOps && !isAdmin) {
-      return { success: true, pendingNodes: [] };
+      return { success: true, pendingSubdomains: [], pendingNodes: [] };
     }
 
+    // 1. Fetch from K8sSubdomain model (new flexible model)
+    const pendingSubdomains = await prisma.k8sSubdomain.findMany({
+      where: {
+        status: "PENDING"
+      },
+      include: {
+        namespace: {
+          include: {
+            clusters: {
+              include: {
+                request: {
+                  include: {
+                    requester: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        requestedBy: true
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    // 2. Legacy fallback from K8sNode model
     const pendingNodes = await prisma.k8sNode.findMany({
       where: {
         subdomainStatus: "PENDING",
@@ -747,14 +964,18 @@ export async function getPendingSubdomains() {
       }
     });
 
-    return { success: true, pendingNodes };
+    return { success: true, pendingSubdomains, pendingNodes };
   } catch (error) {
     console.error("Error fetching pending subdomains:", error);
     return { success: false, message: error instanceof Error ? error.message : "Unknown error" };
   }
 }
 
-export async function approveSubdomain(nodeId: string, decision: "ACTIVE" | "REJECTED") {
+export async function approveSubdomain(
+  subdomainId: string, 
+  decision: "ACTIVE" | "REJECTED",
+  rejectionReason?: string
+) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) throw new Error("Unauthorized");
@@ -765,30 +986,95 @@ export async function approveSubdomain(nodeId: string, decision: "ACTIVE" | "REJ
     const isAdmin = userRoles.includes("ADMIN");
 
     if (!isL1 && !isDCOps && !isAdmin) {
-      throw new Error("You do not have permission to approve subdomains");
+      throw new Error("You do not have permission to approve subdomains. Only Approver 1, DC-Ops, or Admins can approve.");
     }
 
-    await prisma.k8sNode.update({
-      where: { id: nodeId },
-      data: {
-        subdomainStatus: decision
+    // Try finding in K8sSubdomain first
+    const subdomain = await prisma.k8sSubdomain.findUnique({
+      where: { id: subdomainId },
+      include: {
+        namespace: true
       }
     });
 
-    // Audit Log
-    await prisma.auditLog.create({
-      data: {
-        actorId: session.user.id,
-        action: `SUBDOMAIN_${decision}`,
-        entityType: "REQUEST",
-        entityId: nodeId,
-        details: JSON.stringify({ nodeId, decision }),
-      }
+    if (subdomain) {
+      await prisma.k8sSubdomain.update({
+        where: { id: subdomainId },
+        data: {
+          status: decision,
+          approvedById: session.user.id,
+          rejectionReason: decision === "REJECTED" ? (rejectionReason || "Request rejected by Approver 1") : null
+        }
+      });
+
+      // Notification to Requester
+      try {
+        await prisma.notification.create({
+          data: {
+            userId: subdomain.requestedById,
+            type: `SUBDOMAIN_${decision}`,
+            message: `Subdomain route "${subdomain.subdomain}" in namespace "${subdomain.namespace?.name}" has been ${decision.toLowerCase()} directly by Approver 1${rejectionReason ? `: ${rejectionReason}` : "."}`,
+            link: "/my-vms"
+          }
+        });
+      } catch (_) {}
+
+      // Audit Log
+      await prisma.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: `SUBDOMAIN_${decision}`,
+          entityType: "REQUEST",
+          entityId: subdomain.namespaceId,
+          details: JSON.stringify({ 
+            subdomainId, 
+            subdomain: subdomain.subdomain, 
+            decision, 
+            rejectionReason,
+            executedBy: "APPROVER_1" 
+          }),
+        }
+      });
+
+      revalidatePath("/approvals");
+      revalidatePath("/my-vms");
+      revalidatePath("/inventory/namespaces");
+      return { 
+        success: true, 
+        message: `Subdomain "${subdomain.subdomain}" has been directly ${decision === "ACTIVE" ? "approved & activated" : "rejected"} by Approver 1.` 
+      };
+    }
+
+    // Fallback: Check if it's a legacy K8sNode
+    const node = await prisma.k8sNode.findUnique({
+      where: { id: subdomainId }
     });
 
-    revalidatePath("/approvals");
-    revalidatePath("/my-vms");
-    return { success: true, message: `Subdomain request has been ${decision.toLowerCase()}` };
+    if (node) {
+      await prisma.k8sNode.update({
+        where: { id: subdomainId },
+        data: {
+          subdomainStatus: decision
+        }
+      });
+
+      // Audit Log
+      await prisma.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: `SUBDOMAIN_${decision}`,
+          entityType: "REQUEST",
+          entityId: subdomainId,
+          details: JSON.stringify({ nodeId: subdomainId, decision, executedBy: "APPROVER_1" }),
+        }
+      });
+
+      revalidatePath("/approvals");
+      revalidatePath("/my-vms");
+      return { success: true, message: `Subdomain request has been ${decision.toLowerCase()}` };
+    }
+
+    throw new Error("Subdomain record not found");
   } catch (error) {
     console.error("Error approving subdomain:", error);
     return { success: false, message: error instanceof Error ? error.message : "Unknown error" };

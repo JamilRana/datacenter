@@ -21,6 +21,21 @@ export function NotificationBell() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
+  const fetchNotifications = async () => {
+    try {
+      const [notifs, count] = await Promise.all([
+        getNotifications(20),
+        getUnreadCount()
+      ]);
+      setNotifications(notifs);
+      setUnreadCount(count);
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchNotifications();
     
@@ -37,21 +52,6 @@ export function NotificationBell() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  const fetchNotifications = async () => {
-    try {
-      const [notifs, count] = await Promise.all([
-        getNotifications(20),
-        getUnreadCount()
-      ]);
-      setNotifications(notifs);
-      setUnreadCount(count);
-    } catch (error) {
-      console.error("Failed to fetch notifications:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleNotificationClick = async (notification: NotificationItem) => {
     if (!notification.isRead) {

@@ -12,51 +12,113 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Export all tables
-    const systemSettings = await prisma.systemSetting.findMany();
-    const approvalWorkflows = await prisma.approvalWorkflow.findMany();
-    const roles = await prisma.role.findMany();
-    const users = await prisma.user.findMany();
-    const userRoles = await prisma.userRole.findMany();
-    const complianceTags = await prisma.complianceTag.findMany();
-    const physicalClusters = await prisma.physicalCluster.findMany();
-    const assets = await prisma.asset.findMany();
-    const softwareLicenses = await prisma.softwareLicense.findMany();
-    const k8sNamespaces = await prisma.k8sNamespace.findMany();
-    const requests = await prisma.request.findMany();
-    const additionalDisks = await prisma.additionalDisk.findMany();
-    const firewallPorts = await prisma.firewallPort.findMany();
-    const networkAccessEntries = await prisma.networkAccessEntry.findMany();
-    const vmSpecifications = await prisma.vmSpecification.findMany();
-    const approvals = await prisma.approval.findMany();
-    const attachments = await prisma.attachment.findMany();
-    const vmInstances = await prisma.vmInstance.findMany();
-    const vmSpecs = await prisma.vmSpec.findMany();
-    const vmSpecDisks = await prisma.vmSpecDisk.findMany();
-    const vmSpecFirewallPorts = await prisma.vmSpecFirewallPort.findMany();
-    const vmSpecNetworkAccesses = await prisma.vmSpecNetworkAccess.findMany();
-    const customizationRequests = await prisma.customizationRequest.findMany();
-    const additionalDiskInputs = await prisma.additionalDiskInput.findMany();
-    const firewallPortInputs = await prisma.firewallPortInput.findMany();
-    const networkAccessInputs = await prisma.networkAccessInput.findMany();
-    const customizationHistories = await prisma.customizationHistory.findMany();
-    const auditLogs = await prisma.auditLog.findMany();
-    const notifications = await prisma.notification.findMany();
-    const k8sClusters = await prisma.k8sCluster.findMany();
-    const k8sNodeGroups = await prisma.k8sNodeGroup.findMany();
-    const k8sNodes = await prisma.k8sNode.findMany();
-    const vmCredentials = await prisma.vmCredential.findMany();
-    const credentialAccessLogs = await prisma.credentialAccessLog.findMany();
-    const requestTags = await prisma.requestTag.findMany();
-    const vmTags = await prisma.vmTag.findMany();
-    const k8sRequestNodeGroups = await prisma.k8sRequestNodeGroup.findMany();
-    const passwordResetOtps = await prisma.passwordResetOtp.findMany();
-    const vpnAssignments = await prisma.vpnAssignment.findMany();
-    const horizonAssignments = await prisma.horizonAssignment.findMany();
+    // Export all 44 database tables in parallel
+    const [
+      systemSettings,
+      approvalWorkflows,
+      roles,
+      users,
+      userRoles,
+      complianceTags,
+      physicalClusters,
+      assets,
+      softwareLicenses,
+      k8sClusters,
+      k8sNamespaces,
+      k8sNodeGroups,
+      k8sNodes,
+      k8sSubdomains,
+      requests,
+      additionalDisks,
+      firewallPorts,
+      networkAccessEntries,
+      vmSpecifications,
+      approvals,
+      attachments,
+      vmInstances,
+      vmSpecs,
+      vmSpecDisks,
+      vmSpecFirewallPorts,
+      vmSpecNetworkAccesses,
+      customizationRequests,
+      additionalDiskInputs,
+      firewallPortInputs,
+      networkAccessInputs,
+      customizationHistories,
+      auditLogs,
+      notifications,
+      vmCredentials,
+      credentialAccessLogs,
+      requestTags,
+      vmTags,
+      k8sRequestNodeGroups,
+      passwordResetOtps,
+      vpnUsers,
+      vpnAssignments,
+      horizonUsers,
+      horizonAssignments,
+      requestResources
+    ] = await Promise.all([
+      prisma.systemSetting.findMany(),
+      prisma.approvalWorkflow.findMany(),
+      prisma.role.findMany(),
+      prisma.user.findMany(),
+      prisma.userRole.findMany(),
+      prisma.complianceTag.findMany(),
+      prisma.physicalCluster.findMany(),
+      prisma.asset.findMany(),
+      prisma.softwareLicense.findMany(),
+      prisma.k8sCluster.findMany(),
+      prisma.k8sNamespace.findMany(),
+      prisma.k8sNodeGroup.findMany(),
+      prisma.k8sNode.findMany(),
+      prisma.k8sSubdomain.findMany(),
+      prisma.request.findMany(),
+      prisma.additionalDisk.findMany(),
+      prisma.firewallPort.findMany(),
+      prisma.networkAccessEntry.findMany(),
+      prisma.vmSpecification.findMany(),
+      prisma.approval.findMany(),
+      prisma.attachment.findMany(),
+      prisma.vmInstance.findMany(),
+      prisma.vmSpec.findMany(),
+      prisma.vmSpecDisk.findMany(),
+      prisma.vmSpecFirewallPort.findMany(),
+      prisma.vmSpecNetworkAccess.findMany(),
+      prisma.customizationRequest.findMany(),
+      prisma.additionalDiskInput.findMany(),
+      prisma.firewallPortInput.findMany(),
+      prisma.networkAccessInput.findMany(),
+      prisma.customizationHistory.findMany(),
+      prisma.auditLog.findMany(),
+      prisma.notification.findMany(),
+      prisma.vmCredential.findMany(),
+      prisma.credentialAccessLog.findMany(),
+      prisma.requestTag.findMany(),
+      prisma.vmTag.findMany(),
+      prisma.k8sRequestNodeGroup.findMany(),
+      prisma.passwordResetOtp.findMany(),
+      prisma.vpnUser.findMany(),
+      prisma.vpnAssignment.findMany(),
+      prisma.horizonUser.findMany(),
+      prisma.horizonAssignment.findMany(),
+      prisma.requestResource.findMany()
+    ]);
 
     const backup = {
       version: "1.0",
       timestamp: new Date().toISOString(),
+      metadata: {
+        totalTables: 44,
+        recordCounts: {
+          users: users.length,
+          requests: requests.length,
+          vmInstances: vmInstances.length,
+          auditLogs: auditLogs.length,
+          approvals: approvals.length,
+          requestResources: requestResources.length
+        }
+      },
       data: {
         systemSettings,
         approvalWorkflows,
@@ -67,7 +129,11 @@ export async function GET() {
         physicalClusters,
         assets,
         softwareLicenses,
+        k8sClusters,
         k8sNamespaces,
+        k8sNodeGroups,
+        k8sNodes,
+        k8sSubdomains,
         requests,
         additionalDisks,
         firewallPorts,
@@ -87,17 +153,17 @@ export async function GET() {
         customizationHistories,
         auditLogs,
         notifications,
-        k8sClusters,
-        k8sNodeGroups,
-        k8sNodes,
         vmCredentials,
         credentialAccessLogs,
         requestTags,
         vmTags,
         k8sRequestNodeGroups,
         passwordResetOtps,
+        vpnUsers,
         vpnAssignments,
-        horizonAssignments
+        horizonUsers,
+        horizonAssignments,
+        requestResources
       }
     };
 
@@ -117,15 +183,22 @@ export async function POST(req: Request) {
 
     const payload = await req.json();
     if (!payload || payload.version !== "1.0" || !payload.data) {
-      return NextResponse.json({ error: "Invalid backup format" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid backup format or version mismatch" }, { status: 400 });
     }
 
     const { data } = payload;
 
-    // 1. Clean Database
-    console.log(" Wiping database for restore...");
+    console.log("Starting database restore transaction...");
+
+    // 1. Clean Database (Delete child/leaf tables first)
     await prisma.$transaction([
-      // Wiping child tables first
+      prisma.requestResource.deleteMany({}),
+      prisma.horizonAssignment.deleteMany({}),
+      prisma.vpnAssignment.deleteMany({}),
+      prisma.horizonUser.deleteMany({}),
+      prisma.vpnUser.deleteMany({}),
+      prisma.credentialAccessLog.deleteMany({}),
+      prisma.vmCredential.deleteMany({}),
       prisma.notification.deleteMany({}),
       prisma.auditLog.deleteMany({}),
       prisma.approval.deleteMany({}),
@@ -134,8 +207,6 @@ export async function POST(req: Request) {
       prisma.requestTag.deleteMany({}),
       prisma.vmTag.deleteMany({}),
       prisma.complianceTag.deleteMany({}),
-      prisma.credentialAccessLog.deleteMany({}),
-      prisma.vmCredential.deleteMany({}),
       prisma.vmSpecDisk.deleteMany({}),
       prisma.vmSpecFirewallPort.deleteMany({}),
       prisma.vmSpecNetworkAccess.deleteMany({}),
@@ -144,20 +215,19 @@ export async function POST(req: Request) {
       prisma.networkAccessEntry.deleteMany({}),
       prisma.vmSpecification.deleteMany({}),
       prisma.k8sRequestNodeGroup.deleteMany({}),
+      prisma.k8sSubdomain.deleteMany({}),
       prisma.k8sNode.deleteMany({}),
       prisma.k8sNodeGroup.deleteMany({}),
-      prisma.k8sCluster.deleteMany({}),
       prisma.k8sNamespace.deleteMany({}),
+      prisma.k8sCluster.deleteMany({}),
       prisma.additionalDiskInput.deleteMany({}),
       prisma.firewallPortInput.deleteMany({}),
       prisma.networkAccessInput.deleteMany({}),
       prisma.customizationHistory.deleteMany({}),
       prisma.customizationRequest.deleteMany({}),
-      prisma.vpnAssignment.deleteMany({}),
-      prisma.horizonAssignment.deleteMany({}),
       prisma.passwordResetOtp.deleteMany({}),
       
-      // Null out self-relations in Requests & VmInstances to prevent circular issues during wipe
+      // Null out self-relations in Requests & VmInstances to prevent circular issues
       prisma.request.updateMany({
         data: {
           targetVmId: null,
@@ -177,21 +247,20 @@ export async function POST(req: Request) {
       prisma.vmSpec.deleteMany({}),
       prisma.vmInstance.deleteMany({}),
       prisma.request.deleteMany({}),
+      prisma.softwareLicense.deleteMany({}),
+      prisma.asset.deleteMany({}),
+      prisma.physicalCluster.deleteMany({}),
       prisma.user.deleteMany({}),
       prisma.approvalWorkflow.deleteMany({}),
       prisma.role.deleteMany({}),
-      prisma.asset.deleteMany({}),
-      prisma.physicalCluster.deleteMany({}),
-      prisma.softwareLicense.deleteMany({}),
       prisma.systemSetting.deleteMany({})
     ]);
 
-    console.log(" Wiped successfully. Restoring data...");
+    console.log("Wiped database successfully. Reinserting data in dependency order...");
 
-    // 2. Restore Database
-    // We run the restore in sequential steps to satisfy foreign keys
+    // 2. Sequential Restoration Steps
 
-    // Step A: Standalone Lookups
+    // Step A: Standalone Lookup & System Models
     if (data.systemSettings?.length) {
       await prisma.systemSetting.createMany({ data: data.systemSettings });
     }
@@ -219,8 +288,20 @@ export async function POST(req: Request) {
     if (data.softwareLicenses?.length) {
       await prisma.softwareLicense.createMany({ data: data.softwareLicenses });
     }
+    if (data.k8sClusters?.length) {
+      await prisma.k8sCluster.createMany({ data: data.k8sClusters });
+    }
     if (data.k8sNamespaces?.length) {
       await prisma.k8sNamespace.createMany({ data: data.k8sNamespaces });
+    }
+    if (data.k8sNodeGroups?.length) {
+      await prisma.k8sNodeGroup.createMany({ data: data.k8sNodeGroups });
+    }
+    if (data.k8sNodes?.length) {
+      await prisma.k8sNode.createMany({ data: data.k8sNodes });
+    }
+    if (data.k8sSubdomains?.length) {
+      await prisma.k8sSubdomain.createMany({ data: data.k8sSubdomains });
     }
     if (data.passwordResetOtps?.length) {
       await prisma.passwordResetOtp.createMany({ data: data.passwordResetOtps });
@@ -330,15 +411,6 @@ export async function POST(req: Request) {
     if (data.notifications?.length) {
       await prisma.notification.createMany({ data: data.notifications });
     }
-    if (data.k8sClusters?.length) {
-      await prisma.k8sCluster.createMany({ data: data.k8sClusters });
-    }
-    if (data.k8sNodeGroups?.length) {
-      await prisma.k8sNodeGroup.createMany({ data: data.k8sNodeGroups });
-    }
-    if (data.k8sNodes?.length) {
-      await prisma.k8sNode.createMany({ data: data.k8sNodes });
-    }
     if (data.vmCredentials?.length) {
       await prisma.vmCredential.createMany({ data: data.vmCredentials });
     }
@@ -354,15 +426,28 @@ export async function POST(req: Request) {
     if (data.k8sRequestNodeGroups?.length) {
       await prisma.k8sRequestNodeGroup.createMany({ data: data.k8sRequestNodeGroups });
     }
+    if (data.vpnUsers?.length) {
+      await prisma.vpnUser.createMany({ data: data.vpnUsers });
+    }
     if (data.vpnAssignments?.length) {
       await prisma.vpnAssignment.createMany({ data: data.vpnAssignments });
+    }
+    if (data.horizonUsers?.length) {
+      await prisma.horizonUser.createMany({ data: data.horizonUsers });
     }
     if (data.horizonAssignments?.length) {
       await prisma.horizonAssignment.createMany({ data: data.horizonAssignments });
     }
+    if (data.requestResources?.length) {
+      await prisma.requestResource.createMany({ data: data.requestResources });
+    }
 
-    console.log(" Restore completed successfully!");
-    return NextResponse.json({ success: true });
+    console.log("Database restore completed successfully!");
+    return NextResponse.json({ 
+      success: true, 
+      message: "Database restored successfully",
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
     console.error("Error restoring database backup:", error);
     const message = error instanceof Error ? error.message : "Failed to restore database backup";

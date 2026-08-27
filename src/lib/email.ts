@@ -830,7 +830,7 @@ export function getVpnAccessDeploymentEmailHtml(
 
   const resourcesHtml = details.assignedResources.map(r => `<li>${escapeHtml(r)}</li>`).join("");
 
-  let content = `
+  const content = `
     <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
     <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
       Your VPN Access request for <strong>"${escapedSystem}"</strong> has been successfully provisioned (Status: <span style="color: #10b981; font-weight: 600;">${displayStatus}</span>).
@@ -905,7 +905,7 @@ export function getHorizonAccessDeploymentEmailHtml(
 
   const resourcesHtml = details.assignedResources.map(r => `<li>${escapeHtml(r)}</li>`).join("");
 
-  let content = `
+  const content = `
     <h2 style="margin: 0 0 20px 0; color: #1e293b; font-size: 20px; font-weight: 600;">Hello ${escapedName},</h2>
     <p style="margin: 0 0 20px 0; color: #475569; font-size: 15px; line-height: 1.6;">
       Your VMware Horizon access request for <strong>"${escapedSystem}"</strong> has been successfully provisioned (Status: <span style="color: #10b981; font-weight: 600;">${displayStatus}</span>).

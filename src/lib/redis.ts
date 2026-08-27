@@ -59,7 +59,7 @@ export async function getCachedData<T>(
   fetchFn: () => Promise<T>,
   ttlSeconds = 3600
 ): Promise<T> {
-  if (!redis || !isRedisConnected) return fetchFn();
+  if (!redis || redis.status !== 'ready') return fetchFn();
 
   try {
     const cached = await redis.get(key);
@@ -74,7 +74,7 @@ export async function getCachedData<T>(
   const data = await fetchFn();
 
   try {
-    if (data) {
+    if (data && redis.status === 'ready') {
       await redis.set(key, JSON.stringify(data), 'EX', ttlSeconds);
       logger.info(`Cache miss. Data stored in cache for key: ${key}`);
     }
@@ -89,7 +89,7 @@ export async function getCachedData<T>(
  * Cache invalidation utility
  */
 export async function invalidateCache(key: string | string[]): Promise<void> {
-  if (!redis || !isRedisConnected) return;
+  if (!redis || redis.status !== 'ready') return;
 
   try {
     if (Array.isArray(key)) {
@@ -114,7 +114,7 @@ export async function setCachedData<T>(
     data: T,
     ttlSeconds = 3600
 ): Promise<void> {
-    if (!redis || !isRedisConnected) return;
+    if (!redis || redis.status !== 'ready') return;
 
     try {
         await redis.set(key, JSON.stringify(data), 'EX', ttlSeconds);

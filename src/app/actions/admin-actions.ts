@@ -85,6 +85,13 @@ export async function toggleUserStatus(id: string) {
   return user;
 }
 
+export async function changeUserPassword(id: string, newPassword: string) {
+  const session = await requireAdmin();
+  const res = await userService.changeUserPassword(id, newPassword);
+  await auditService.createAuditLog(session.user.id, "UPDATE", "User", id, { action: "admin_change_password" });
+  return res;
+}
+
 export async function deleteUser(id: string) {
   const session = await requireAdmin();
   await userService.deleteUser(id);

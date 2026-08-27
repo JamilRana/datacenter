@@ -15,6 +15,7 @@ import { Shield, User, Server, Key } from "lucide-react";
 const ROLE_OPTIONS = [
   { value: "ADMIN", label: "Admin", icon: Shield },
   { value: "DC_OPS", label: "DCOPS", icon: Server },
+  { value: "APPROVER", label: "Approver", icon: Shield },
   { value: "REQUESTER", label: "Requester", icon: User },
   { value: "DEVELOPER", label: "Developer", icon: Key },
 ];
@@ -30,7 +31,8 @@ export function RoleSwitcher() {
     
     const roleMap: Record<string, string[]> = {
       ADMIN: ["ADMIN", "DC_OPS", "REQUESTER", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3", "APPROVER_L4"],
-      DC_OPS: ["DC_OPS", "REQUESTER", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3", "APPROVER_L4"],
+      DC_OPS: ["DC_OPS", "REQUESTER"],
+      APPROVER: ["APPROVER_L1", "APPROVER_L2", "APPROVER_L3", "REQUESTER"],
       REQUESTER: ["REQUESTER"],
       DEVELOPER: ["DEVELOPER", "REQUESTER"],
     };

@@ -115,6 +115,25 @@ export async function getK8sNamespacesInventory(params: {
     prisma.k8sNamespace.findMany({
       where: whereClause,
       include: {
+        subdomains: {
+          include: {
+            requestedBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            },
+            approvedBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          },
+          orderBy: { createdAt: "desc" }
+        },
         clusters: {
           include: {
             request: {

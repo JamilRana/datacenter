@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import Image from "next/image";
-import { Loader2, KeyRound, Mail, ArrowLeft, ShieldCheck } from "lucide-react";
+import { Loader2, KeyRound, Mail, ArrowLeft, ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { requestOtp, resetPasswordWithOtp } from "@/app/actions/auth-recovery-actions";
 
 type AuthMode = "login" | "forgot" | "verify";
@@ -18,12 +18,15 @@ export default function LoginPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Recovery Form State
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const router = useRouter();
   const { status } = useSession();
@@ -198,11 +201,20 @@ export default function LoginPage() {
                   <Input
                     id="password"
                     name="password"
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     placeholder="••••••••"
-                    className="pl-9 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus-visible:ring-indigo-500"
+                    className="pl-9 pr-10 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus-visible:ring-indigo-500"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition-colors"
+                    tabIndex={-1}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
 
@@ -293,13 +305,22 @@ export default function LoginPage() {
                   <KeyRound className="absolute left-3 top-3 h-4 w-4 text-slate-400 dark:text-slate-500" />
                   <Input
                     id="new-password"
-                    type="password"
+                    type={showNewPassword ? "text" : "password"}
                     placeholder="Minimum 8 characters"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    className="pl-9 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus-visible:ring-indigo-500"
+                    className="pl-9 pr-10 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus-visible:ring-indigo-500"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition-colors"
+                    tabIndex={-1}
+                    aria-label={showNewPassword ? "Hide password" : "Show password"}
+                  >
+                    {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
 
@@ -309,13 +330,22 @@ export default function LoginPage() {
                   <KeyRound className="absolute left-3 top-3 h-4 w-4 text-slate-400 dark:text-slate-500" />
                   <Input
                     id="confirm-password"
-                    type="password"
+                    type={showConfirmPassword ? "text" : "password"}
                     placeholder="Re-enter password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="pl-9 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus-visible:ring-indigo-500"
+                    className="pl-9 pr-10 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus-visible:ring-indigo-500"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition-colors"
+                    tabIndex={-1}
+                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
 

@@ -247,8 +247,25 @@ export async function deleteUser(id: string) {
   return prisma.user.delete({ where: { id } });
 }
 
+export async function changeUserPassword(id: string, newPassword: string) {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("Password must be at least 6 characters long");
+  }
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) {
+    throw new Error("User not found");
+  }
+  const hashedPassword = await bcrypt.hash(newPassword, 12);
+  await prisma.user.update({
+    where: { id },
+    data: { password: hashedPassword },
+  });
+  return { success: true, message: "Password updated successfully" };
+}
+
 export async function getAllRoles() {
   return prisma.role.findMany({
     orderBy: { name: "asc" },
   });
 }
+

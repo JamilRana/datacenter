@@ -14,6 +14,7 @@ import {
   CustomizationStatus
 } from "@prisma/client";
 import { RoleService } from "@/lib/services/role.service";
+import { ROLES } from "@/lib/roles";
 import { NotificationService } from "@/lib/services/notification.service";
 import { UserRole } from "@/lib/types/enums";
 import { ApiResponse } from "@/types";
@@ -123,19 +124,18 @@ export async function handleApprovalDecision(
         {
           AND: [
             { requestId: approvalId },
-            { approverId: session.user.id },
             { decision: ApprovalDecision.PENDING }
           ]
         },
         {
           AND: [
             { customizationRequestId: approvalId },
-            { approverId: session.user.id },
             { decision: ApprovalDecision.PENDING }
           ]
         }
       ]
-    }
+    },
+    orderBy: { level: "asc" }
   });
 
   if (!approvalRecord) {
@@ -189,8 +189,19 @@ export async function handleApprovalDecision(
     if (approval.decision !== ApprovalDecision.PENDING) {
       return { success: false, error: `This approval has already been processed: ${approval.decision}` };
     }
-    if (approval.approverId !== session.user.id) {
-      return { success: false, error: "You can only act on approvals assigned to you" };
+    
+    // Check permission: assigned approver, or admin, or user having the required approver role for this level
+    const userRoles = session.user.roles || [];
+    const isAdmin = userRoles.includes(ROLES.ADMIN);
+    const isAssigned = approval.approverId === session.user.id;
+    const hasRoleForLevel = 
+      (approval.level === 1 && (userRoles.includes("APPROVER_L1") || userRoles.includes(ROLES.L1_APPROVER))) ||
+      (approval.level === 2 && (userRoles.includes("APPROVER_L2") || userRoles.includes(ROLES.L2_APPROVER))) ||
+      (approval.level === 3 && (userRoles.includes("APPROVER_L3") || userRoles.includes(ROLES.L3_APPROVER))) ||
+      (approval.level === 4 && (userRoles.includes("APPROVER_L4") || userRoles.includes(ROLES.L4_APPROVER) || userRoles.includes(ROLES.DCOPS)));
+
+    if (!isAssigned && !isAdmin && !hasRoleForLevel) {
+      return { success: false, error: "You are not authorized to act on this approval level" };
     }
 
     // Check if all previous levels have been approved (only for APPROVE decision)
@@ -215,10 +226,15 @@ export async function handleApprovalDecision(
       }
     }
 
-    // Update Approval Record
+    // Update Approval Record - record actual approver
     await tx.approval.update({
       where: { id: resolvedApprovalId },
-      data: { decision, comments: comments || null, decidedAt: new Date() },
+      data: { 
+        approverId: session.user.id,
+        decision, 
+        comments: comments || null, 
+        decidedAt: new Date() 
+      },
     });
 
     // Handle RETURN - return to draft
@@ -1353,5 +1369,297 @@ export async function provisionVMs(
   } catch (error) {
     console.error("Error provisioning VMs:", error);
     return { success: false, message: "Failed to provision VMs" };
+  }
+}
+
+export interface InFlightModifications {
+  vcpu?: number;
+  ramGb?: number;
+  storageGb?: number;
+  quantity?: number;
+  resourceIdsToRemove?: string[];
+  notes?: string;
+}
+
+export interface ModifyAndApproveParams {
+  approvalId: string;
+  requestId: string;
+  comments?: string;
+  modifications: InFlightModifications;
+  escalateToLevel?: number;
+}
+
+/**
+ * In-flight Modification & Approval Action
+ * Allows approvers (L1-L4, DC_OPS) and Admins to modify requested resources (e.g. prune VMs from Horizon/VPN, downsize RAM/vCPU)
+ * and approve the request in a single atomic transaction with complete audit diff logging and requester notification.
+ */
+export async function modifyAndApproveRequest(params: ModifyAndApproveParams): Promise<ApiResponse> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
+
+  const { approvalId, requestId, comments, modifications, escalateToLevel } = params;
+
+  try {
+    const approvalRecord = await prisma.approval.findFirst({
+      where: {
+        OR: [
+          { id: approvalId },
+          { AND: [{ requestId: requestId }, { decision: ApprovalDecision.PENDING }] }
+        ]
+      },
+      orderBy: { level: "asc" }
+    });
+
+    if (!approvalRecord) {
+      return { success: false, error: "Pending approval record not found" };
+    }
+
+    const request = await prisma.request.findUnique({
+      where: { id: requestId },
+      include: {
+        requestResources: {
+          include: {
+            vm: true,
+            namespace: true
+          }
+        },
+        vmSpecifications: true
+      }
+    });
+
+    if (!request) {
+      return { success: false, error: "Request not found" };
+    }
+
+    // Compute change diffs
+    const diffs: string[] = [];
+    const originalValues: Record<string, any> = {};
+    const newValues: Record<string, any> = {};
+
+    if (modifications.vcpu !== undefined && modifications.vcpu !== request.vcpu) {
+      diffs.push(`vCPU: ${request.vcpu || 0} → ${modifications.vcpu}`);
+      originalValues.vcpu = request.vcpu;
+      newValues.vcpu = modifications.vcpu;
+    }
+
+    if (modifications.ramGb !== undefined && modifications.ramGb !== request.ramGb) {
+      diffs.push(`RAM: ${request.ramGb || 0}GB → ${modifications.ramGb}GB`);
+      originalValues.ramGb = request.ramGb;
+      newValues.ramGb = modifications.ramGb;
+    }
+
+    if (modifications.storageGb !== undefined && modifications.storageGb !== request.storageGb) {
+      diffs.push(`Storage: ${request.storageGb || 0}GB → ${modifications.storageGb}GB`);
+      originalValues.storageGb = request.storageGb;
+      newValues.storageGb = modifications.storageGb;
+    }
+
+    if (modifications.quantity !== undefined && modifications.quantity !== request.quantity) {
+      diffs.push(`Quantity: ${request.quantity} → ${modifications.quantity}`);
+      originalValues.quantity = request.quantity;
+      newValues.quantity = modifications.quantity;
+    }
+
+    let removedLabels: string[] = [];
+    if (modifications.resourceIdsToRemove && modifications.resourceIdsToRemove.length > 0) {
+      const removed = (request.requestResources || []).filter(r => 
+        modifications.resourceIdsToRemove!.includes(r.id)
+      );
+      removedLabels = removed.map(r => r.vm?.hostname || r.namespace?.name || "Resource");
+      if (removedLabels.length > 0) {
+        diffs.push(`Removed Resources: [${removedLabels.join(", ")}]`);
+      }
+    }
+
+    // Apply adjustments in transaction
+    await prisma.$transaction(async (tx) => {
+      // 1. Remove pruned resources from requestResources
+      if (modifications.resourceIdsToRemove && modifications.resourceIdsToRemove.length > 0) {
+        await tx.requestResource.deleteMany({
+          where: {
+            id: { in: modifications.resourceIdsToRemove },
+            requestId
+          }
+        });
+      }
+
+      // 2. Update Request specs
+      const updateData: any = {};
+      if (modifications.vcpu !== undefined) updateData.vcpu = modifications.vcpu;
+      if (modifications.ramGb !== undefined) updateData.ramGb = modifications.ramGb;
+      if (modifications.storageGb !== undefined) updateData.storageGb = modifications.storageGb;
+      if (modifications.quantity !== undefined) updateData.quantity = modifications.quantity;
+
+      if (Object.keys(updateData).length > 0) {
+        await tx.request.update({
+          where: { id: requestId },
+          data: updateData
+        });
+
+        // Also update any associated vmSpecifications
+        await tx.vmSpecification.updateMany({
+          where: { requestId },
+          data: {
+            vcpu: updateData.vcpu !== undefined ? updateData.vcpu : undefined,
+            ramGb: updateData.ramGb !== undefined ? updateData.ramGb : undefined,
+            storageGb: updateData.storageGb !== undefined ? updateData.storageGb : undefined,
+          }
+        });
+      }
+
+      // 3. Create AuditLog entry with full diff metadata
+      await tx.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: "REQUEST_MODIFIED_IN_FLIGHT",
+          entityType: "REQUEST",
+          entityId: requestId,
+          details: {
+            diffs,
+            originalValues,
+            newValues,
+            removedResources: removedLabels,
+            approverNotes: comments || "Approved with modifications",
+            level: approvalRecord.level
+          }
+        }
+      });
+    });
+
+    // 4. Process approval decision with diff summary
+    const diffSummary = diffs.length > 0 ? diffs.join("; ") : "No spec changes";
+    const fullComments = comments?.trim()
+      ? `${comments.trim()} (Modifications: ${diffSummary})`
+      : `Approved with modifications: ${diffSummary}`;
+
+    const decisionResult = await handleApprovalDecision(
+      approvalRecord.id,
+      ApprovalDecision.APPROVED,
+      fullComments,
+      escalateToLevel
+    );
+
+    // 5. Notify requester about modifications
+    if (request.requesterId && diffs.length > 0) {
+      NotificationService.notifyRequester(
+        request.requesterId,
+        request.systemName,
+        `APPROVED_WITH_MODIFICATIONS`,
+        requestId,
+        `Your request was approved with modifications by ${session.user.name || "Approver"}: ${diffSummary}`
+      ).catch(e => console.error("Failed to notify requester of in-flight modification:", e));
+    }
+
+    revalidatePath(`/requests/${requestId}`);
+    revalidatePath(`/requests/${requestId}/view`);
+    revalidatePath(`/approvals/${requestId}`);
+    revalidatePath("/approvals");
+
+    return decisionResult;
+  } catch (error) {
+    console.error("modifyAndApproveRequest failed:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Failed to modify and approve request" };
+  }
+}
+
+/**
+ * Update request in-flight without approving immediately
+ */
+export async function updateRequestInFlight(
+  requestId: string,
+  modifications: InFlightModifications,
+  notes?: string
+): Promise<ApiResponse> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
+
+  try {
+    const request = await prisma.request.findUnique({
+      where: { id: requestId },
+      include: {
+        requestResources: {
+          include: {
+            vm: true,
+            namespace: true
+          }
+        }
+      }
+    });
+
+    if (!request) return { success: false, error: "Request not found" };
+
+    const diffs: string[] = [];
+
+    if (modifications.vcpu !== undefined && modifications.vcpu !== request.vcpu) {
+      diffs.push(`vCPU: ${request.vcpu || 0} → ${modifications.vcpu}`);
+    }
+    if (modifications.ramGb !== undefined && modifications.ramGb !== request.ramGb) {
+      diffs.push(`RAM: ${request.ramGb || 0}GB → ${modifications.ramGb}GB`);
+    }
+    if (modifications.storageGb !== undefined && modifications.storageGb !== request.storageGb) {
+      diffs.push(`Storage: ${request.storageGb || 0}GB → ${modifications.storageGb}GB`);
+    }
+    if (modifications.quantity !== undefined && modifications.quantity !== request.quantity) {
+      diffs.push(`Quantity: ${request.quantity} → ${modifications.quantity}`);
+    }
+
+    let removedLabels: string[] = [];
+    if (modifications.resourceIdsToRemove && modifications.resourceIdsToRemove.length > 0) {
+      const removed = (request.requestResources || []).filter(r => 
+        modifications.resourceIdsToRemove!.includes(r.id)
+      );
+      removedLabels = removed.map(r => r.vm?.hostname || r.namespace?.name || "Resource");
+      if (removedLabels.length > 0) {
+        diffs.push(`Removed Resources: [${removedLabels.join(", ")}]`);
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (modifications.resourceIdsToRemove && modifications.resourceIdsToRemove.length > 0) {
+        await tx.requestResource.deleteMany({
+          where: {
+            id: { in: modifications.resourceIdsToRemove },
+            requestId
+          }
+        });
+      }
+
+      const updateData: any = {};
+      if (modifications.vcpu !== undefined) updateData.vcpu = modifications.vcpu;
+      if (modifications.ramGb !== undefined) updateData.ramGb = modifications.ramGb;
+      if (modifications.storageGb !== undefined) updateData.storageGb = modifications.storageGb;
+      if (modifications.quantity !== undefined) updateData.quantity = modifications.quantity;
+
+      if (Object.keys(updateData).length > 0) {
+        await tx.request.update({
+          where: { id: requestId },
+          data: updateData
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: "REQUEST_MODIFIED_IN_FLIGHT",
+          entityType: "REQUEST",
+          entityId: requestId,
+          details: {
+            diffs,
+            removedResources: removedLabels,
+            notes: notes || "Manual adjustment",
+          }
+        }
+      });
+    });
+
+    revalidatePath(`/requests/${requestId}`);
+    revalidatePath(`/requests/${requestId}/view`);
+    revalidatePath(`/approvals/${requestId}`);
+
+    return { success: true, message: `Updated request: ${diffs.join(", ")}` };
+  } catch (error) {
+    console.error("updateRequestInFlight failed:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Failed to update request" };
   }
 }

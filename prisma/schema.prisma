@@ -31,6 +31,8 @@ model User {
   credentialAccessLogs  CredentialAccessLog[]
   horizonAssigned       HorizonAssignment[]    @relation("HorizonAssignedBy")
   vpnAssigned           VpnAssignment[]        @relation("VpnAssignedBy")
+  subdomainsRequested   K8sSubdomain[]         @relation("SubdomainRequester")
+  subdomainsApproved    K8sSubdomain[]         @relation("SubdomainApprover")
 }
 
 model Role {
@@ -695,6 +697,7 @@ model K8sNamespace {
   horizonAssignments HorizonAssignment[] @relation("NamespaceToHorizon")
   vpnAssignments     VpnAssignment[]     @relation("NamespaceToVpn")
   requestResources   RequestResource[]
+  subdomains         K8sSubdomain[]
 }
 
 model K8sCluster {
@@ -792,6 +795,28 @@ model K8sNode {
   subdomainStatus String       @default("PENDING")
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+}
+
+model K8sSubdomain {
+  id              String        @id @default(uuid())
+  namespaceId     String
+  namespace       K8sNamespace  @relation(fields: [namespaceId], references: [id], onDelete: Cascade)
+  subdomain       String
+  externalIp      String?       // Ingress Controller / External IP
+  serviceName     String?       // K8s Service Name
+  targetPort      Int?          @default(443)
+  purpose         String?
+  status          String        @default("PENDING") // PENDING, ACTIVE, REJECTED
+  rejectionReason String?
+  requestedById   String
+  requestedBy     User          @relation("SubdomainRequester", fields: [requestedById], references: [id])
+  approvedById    String?
+  approvedBy      User?         @relation("SubdomainApprover", fields: [approvedById], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([namespaceId])
+  @@index([status])
 }
 
 model PasswordResetOtp {

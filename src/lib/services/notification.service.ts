@@ -146,9 +146,20 @@ export class NotificationService {
         include: {
           requester: { select: { id: true, email: true, name: true } },
           developer: { select: { id: true, email: true, name: true } },
+          targetVm: {
+            include: {
+              currentSpec: true
+            }
+          },
           vmInstances: {
             include: {
               currentSpec: true
+            }
+          },
+          requestResources: {
+            include: {
+              vm: { include: { currentSpec: true } },
+              namespace: true
             }
           },
           k8sClusters: {
@@ -171,7 +182,7 @@ export class NotificationService {
       const relativeLink = `/requests/${request.id}/view`;
       const fullActionUrl = `${getAppUrl()}${relativeLink}`;
 
-      const vmsDetails: VMNotificationDetails[] = (request.vmInstances || []).map((vm: any) => ({
+      let vmsDetails: VMNotificationDetails[] = (request.vmInstances || []).map((vm: any) => ({
         hostname: vm.hostname || "—",
         ipAddress: vm.ipAddress || undefined,
         publicIpAddress: vm.publicIpAddress || undefined,
@@ -182,6 +193,20 @@ export class NotificationService {
         osName: vm.currentSpec?.osName || undefined,
         osVersion: vm.currentSpec?.osVersion || undefined,
       }));
+
+      if (vmsDetails.length === 0 && request.targetVm) {
+        vmsDetails = [{
+          hostname: request.targetVm.hostname || "—",
+          ipAddress: request.targetVm.ipAddress || undefined,
+          publicIpAddress: request.targetVm.publicIpAddress || undefined,
+          subdomain: request.targetVm.subdomain || undefined,
+          vcpu: request.upgradeCpu || request.targetVm.currentSpec?.vcpu || 0,
+          ramGb: request.upgradeRamGb || request.targetVm.currentSpec?.ramGb || 0,
+          storageGb: request.upgradeStorageGb || request.targetVm.currentSpec?.storageGb || 0,
+          osName: request.targetVm.currentSpec?.osName || undefined,
+          osVersion: request.targetVm.currentSpec?.osVersion || undefined,
+        }];
+      }
 
       let vpnDetails: VpnNotificationDetails | undefined;
       let horizonDetails: HorizonNotificationDetails | undefined;

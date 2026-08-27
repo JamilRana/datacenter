@@ -788,6 +788,7 @@ export async function submitRequest(requestId: string) {
       vaReportSubmitted: true,
       requesterId: true,
       systemName: true,
+      purpose: true,
       requestType: true,
       developerId: true, // Track if developer-created
     },
@@ -1314,6 +1315,47 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
     requestResources: request.requestResources || [],
     vmSpecifications: vmSpecsTransformed,
   };
+
+  // Fetch associated Audit Logs
+  try {
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        OR: [
+          { entityId: requestId },
+          { vmId: { in: (request.vmInstances || []).map((v: any) => v.id) } },
+        ],
+      },
+      include: {
+        actor: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            designation: true,
+          },
+        },
+      },
+      orderBy: { timestamp: "desc" },
+    });
+
+    transformed.auditLogs = auditLogs.map((log: any) => ({
+      id: log.id,
+      action: log.action,
+      entityType: log.entityType,
+      entityId: log.entityId,
+      details: log.details,
+      timestamp: log.timestamp,
+      actor: {
+        id: log.actor?.id || "",
+        name: log.actor?.name || "System",
+        email: log.actor?.email || "",
+        designation: log.actor?.designation || undefined,
+      },
+    }));
+  } catch (err) {
+    console.error("Failed to fetch audit logs for request:", err);
+    transformed.auditLogs = [];
+  }
 
   return transformed;
 }

@@ -148,6 +148,22 @@ export interface detailsRequest {
   k8sClusters?: any[] | null;
   requestResources?: any[] | null;
   vmSpecifications?: VmSpecification[] | null;
+  auditLogs?: RequestAuditLogItem[] | null;
+}
+
+export interface RequestAuditLogItem {
+  id: string;
+  action: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  details?: any;
+  timestamp: Date;
+  actor: {
+    id: string;
+    name: string;
+    email: string;
+    designation?: string | null;
+  };
 }
 
 export interface K8sRequestNodeGroup {

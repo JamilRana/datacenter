@@ -16,32 +16,42 @@ export interface NotificationItem {
 }
 
 export async function getNotifications(limit = 10): Promise<NotificationItem[]> {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return [];
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) return [];
 
-  const notifications = await prisma.notification.findMany({
-    where: {
-      userId: session.user.id,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    take: limit,
-  });
+    const notifications = await prisma.notification.findMany({
+      where: {
+        userId: session.user.id,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: limit,
+    });
 
-  return notifications;
+    return notifications;
+  } catch (error) {
+    console.warn("Failed to get notifications (DB may be connecting/waking up):", error);
+    return [];
+  }
 }
 
 export async function getUnreadCount(): Promise<number> {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return 0;
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) return 0;
 
-  return prisma.notification.count({
-    where: {
-      userId: session.user.id,
-      isRead: false,
-    },
-  });
+    return await prisma.notification.count({
+      where: {
+        userId: session.user.id,
+        isRead: false,
+      },
+    });
+  } catch (error) {
+    console.warn("Failed to get unread count (DB may be connecting/waking up):", error);
+    return 0;
+  }
 }
 
 export async function markAsRead(notificationId: string) {

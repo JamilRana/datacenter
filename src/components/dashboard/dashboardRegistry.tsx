@@ -1,17 +1,22 @@
 // src/components/dashboard/dashboardRegistry.tsx
 "use client";
 
-import { ROLES } from "@/lib/roles";
 import { AdminWidgets } from "./widgets/AdminWidgets";
 import { DcopsWidgets } from "./widgets/DcopsWidgets";
+import { ApproverWidgets } from "./widgets/ApproverWidgets";
 import { RequesterWidgets } from "./widgets/RequesterWidgets";
-import { AdminDashboardData } from "@/types/dashboard";
-import { DcopsDashboardData } from "@/lib/dashboard/dcopsDashboard";
-import { RequesterDashboardData } from "@/lib/dashboard/requesterDashboard";
+import { 
+  AdminDashboardData, 
+  DcopsDashboardData, 
+  ApproverDashboardData, 
+  RequesterDashboardData 
+} from "@/types/dashboard";
+import { DashboardRole, getPrimaryRole, getRoleLabel } from "@/lib/dashboard/registry";
 
 export type DashboardData = 
   | { role: "ADMIN"; data: AdminDashboardData }
   | { role: "DCOPS"; data: DcopsDashboardData }
+  | { role: "APPROVER"; data: ApproverDashboardData }
   | { role: "REQUESTER"; data: RequesterDashboardData };
 
 interface DashboardRegistryProps {
@@ -24,6 +29,8 @@ export function DashboardRegistry({ data }: DashboardRegistryProps) {
       return <AdminWidgets data={data.data as AdminDashboardData} />;
     case "DCOPS":
       return <DcopsWidgets data={data.data as DcopsDashboardData} />;
+    case "APPROVER":
+      return <ApproverWidgets data={data.data as ApproverDashboardData} />;
     case "REQUESTER":
       return <RequesterWidgets data={data.data as RequesterDashboardData} />;
     default:
@@ -31,21 +38,5 @@ export function DashboardRegistry({ data }: DashboardRegistryProps) {
   }
 }
 
-export function getPrimaryRole(userRoles: string[]): "ADMIN" | "DCOPS" | "REQUESTER" {
-  if (userRoles.includes(ROLES.ADMIN)) return "ADMIN";
-  if (userRoles.includes(ROLES.DCOPS)) return "DCOPS";
-  return "REQUESTER";
-}
-
-export function getRoleLabel(role: "ADMIN" | "DCOPS" | "REQUESTER"): string {
-  switch (role) {
-    case "ADMIN":
-      return "Administrator";
-    case "DCOPS":
-      return "Data Center Operations";
-    case "REQUESTER":
-      return "Requester";
-    default:
-      return "User";
-  }
-}
+export { getPrimaryRole, getRoleLabel };
+export type { DashboardRole };

@@ -20,6 +20,7 @@ import {
   Shield,
   FileText,
   Download,
+  Eye,
   Cpu,
   Globe,
   Printer,
@@ -867,28 +868,53 @@ export function RequestDetails({
           {/* Attachments */}
           {data.attachments && data.attachments.length > 0 && (
             <Card title="Attachments" icon={FileText}>
-              <div className="space-y-2">
-                {data.attachments.map((attachment) => (
-                  <div key={attachment.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-slate-400" />
-                      <div>
-                        <p className="text-sm font-medium text-slate-700">{attachment.fileName}</p>
-                        <p className="text-xs text-slate-400">
-                          {attachment.attachmentType === "JUSTIFICATION" ? "Software Requirements Specification (SRS)" : attachment.attachmentType.replace(/_/g, " ")} • {attachment.user?.name || "Unknown"}
-                        </p>
+              <div className="space-y-2.5">
+                {data.attachments.map((attachment) => {
+                  const ext = attachment.fileName.split(".").pop()?.toUpperCase() || "FILE";
+                  return (
+                    <div key={attachment.id} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100/70 transition-colors rounded-xl border border-slate-200/80">
+                      <div className="flex items-center gap-3 min-w-0 flex-1 mr-3">
+                        <div className="p-2 bg-white rounded-lg border border-slate-200 text-indigo-600 flex-shrink-0 shadow-xs">
+                          <FileText className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-slate-800 truncate" title={attachment.fileName}>
+                              {attachment.fileName}
+                            </p>
+                            <Badge variant="outline" className="text-[9px] font-bold py-0 px-1 bg-white border-slate-300">
+                              {ext}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {attachment.attachmentType === "JUSTIFICATION" ? "Software Requirements Specification (SRS)" : attachment.attachmentType.replace(/_/g, " ")} • {attachment.user?.name || "Uploaded"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <a 
+                          href={attachment.filePath} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-150 transition-colors"
+                          title="Preview Document in New Tab"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">View</span>
+                        </a>
+                        <a 
+                          href={`${attachment.filePath}?download=1`} 
+                          download={attachment.fileName}
+                          className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 rounded-lg border border-slate-200 transition-colors shadow-xs"
+                          title="Download Document"
+                        >
+                          <Download className="h-3.5 w-3.5 text-slate-600" />
+                          <span className="hidden sm:inline">Download</span>
+                        </a>
                       </div>
                     </div>
-                    <a 
-                      href={attachment.filePath} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800"
-                    >
-                      <Download className="h-4 w-4" />
-                    </a>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </Card>
           )}
@@ -911,6 +937,12 @@ export function RequestDetails({
           <ApprovalPanel
             approvals={data.approvals || []}
             requestType={data.requestType || ""}
+            requestId={data.id}
+            initialVcpu={data.vcpu}
+            initialRamGb={data.ramGb}
+            initialStorageGb={data.storageGb}
+            initialQuantity={data.quantity}
+            requestResources={data.requestResources || []}
           />
           {!hideTimeline && (
             <Card title="Approval Progress & Timeline" icon={Clock}>
@@ -920,6 +952,91 @@ export function RequestDetails({
                   currentStatus={data.status || ""}
                   approvals={data.approvals as any || []}
                 />
+              </div>
+            </Card>
+          )}
+
+          {/* Audit Trail & Modification History */}
+          {data?.auditLogs && data.auditLogs.length > 0 && (
+            <Card title={`Audit Trail & History (${data.auditLogs.length} Events)`} icon={Shield}>
+              <div className="space-y-3 p-4">
+                {data.auditLogs.map((log) => {
+                  let details: any = {};
+                  try {
+                    details = typeof log.details === "string" ? JSON.parse(log.details) : log.details || {};
+                  } catch {
+                    details = {};
+                  }
+                  const isModification = log.action === "REQUEST_MODIFIED_IN_FLIGHT";
+                  const isExecution = log.action.includes("EXECUTE") || log.action.includes("PROVISION");
+
+                  return (
+                    <div 
+                      key={log.id} 
+                      className={`p-3.5 rounded-xl border text-xs ${
+                        isModification 
+                          ? "bg-indigo-50/60 border-indigo-200 dark:bg-indigo-950/30 dark:border-indigo-900" 
+                          : isExecution
+                          ? "bg-teal-50/60 border-teal-200 dark:bg-teal-950/30 dark:border-teal-900"
+                          : "bg-slate-50/60 border-slate-200 dark:bg-slate-800/40 dark:border-slate-700"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge 
+                            variant="outline" 
+                            className={`text-[10px] font-bold ${
+                              isModification 
+                                ? "bg-indigo-100 text-indigo-800 border-indigo-300" 
+                                : isExecution
+                                ? "bg-teal-100 text-teal-800 border-teal-300"
+                                : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {log.action.replace(/_/g, " ")}
+                          </Badge>
+                          <span className="font-bold text-slate-900 dark:text-slate-100">
+                            By {log.actor?.name || "System"}
+                          </span>
+                          {log.actor?.designation && (
+                            <span className="text-slate-400">({log.actor.designation})</span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400">
+                          {format(new Date(log.timestamp), "MMM d, yyyy h:mm a")}
+                        </span>
+                      </div>
+
+                      {/* Diffs for in-flight modifications */}
+                      {details?.diffs && Array.isArray(details.diffs) && details.diffs.length > 0 && (
+                        <div className="mt-2 space-y-1 bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-indigo-100 dark:border-indigo-950">
+                          <p className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">
+                            Modifications Applied:
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {details.diffs.map((diff: string, idx: number) => (
+                              <Badge key={idx} variant="secondary" className="text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200">
+                                {diff}
+                              </Badge>
+                            ))}
+                          </div>
+                          {details.approverNotes && (
+                            <p className="text-[11px] text-slate-600 dark:text-slate-300 italic mt-1.5">
+                              &quot;{details.approverNotes}&quot;
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* General notes */}
+                      {details?.notes && (!details?.diffs || details.diffs.length === 0) && (
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1">
+                          {details.notes}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </Card>
           )}

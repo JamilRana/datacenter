@@ -113,7 +113,7 @@ export async function createSystemUpgradeRequest(formData: FormData) {
     const effectiveRequesterId = isDeveloper && assignedRequesterId ? assignedRequesterId : userId;
     const targetVm = await prisma.vmInstance.findUnique({
       where: { id: upgradeVmId },
-      include: { owner: true, currentSpec: true }
+      include: { owner: true, currentSpec: true, request: true }
     });
 
     if (!targetVm) {

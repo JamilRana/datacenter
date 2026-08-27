@@ -75,6 +75,24 @@ const DEFAULT_WORKFLOW_CONFIG: Record<string, WorkflowConfig> = {
       { level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
     ],
   },
+  VPN_ACCESS: {
+    requestType: "VPN_ACCESS",
+    levels: [
+      { level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
+      { level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
+      { level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
+      { level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
+    ],
+  },
+  HORIZON_ACCESS: {
+    requestType: "HORIZON_ACCESS",
+    levels: [
+      { level: 1, role: "APPROVER_L1", roleLabel: "Section Officer", isFinal: false },
+      { level: 2, role: "APPROVER_L2", roleLabel: "Deputy Director", isFinal: false },
+      { level: 3, role: "APPROVER_L3", roleLabel: "Director MIS", isFinal: true },
+      { level: 4, role: "DC_OPS", roleLabel: "DCOPS", isFinal: true },
+    ],
+  },
 };
 
 const CACHE_TTL = 5 * 60 * 1000;

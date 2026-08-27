@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { getUsers, createUser, updateUser, toggleUserStatus, deleteUser } from "@/app/actions/admin-actions";
+import { getUsers, createUser, updateUser, toggleUserStatus, deleteUser, changeUserPassword } from "@/app/actions/admin-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
-import { Loader2, Plus, Search, Trash2, ToggleLeft, X } from "lucide-react";
+import { Loader2, Plus, Search, Trash2, ToggleLeft, X, KeyRound, Eye, EyeOff, Lock, RefreshCw } from "lucide-react";
 import { ROLES } from "@/lib/roles";
 import { toast } from "sonner";
 
@@ -58,6 +58,16 @@ export default function UserManagementPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [saving, setSaving] = useState(false);
+  
+  // Password Change Modal State
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [passwordTargetUser, setPasswordTargetUser] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [showDialogPassword, setShowDialogPassword] = useState(false);
   
   const [formData, setFormData] = useState({
     name: "",
@@ -177,7 +187,56 @@ export default function UserManagementPage() {
   const openCreateDialog = () => {
     setEditingUser(null);
     setFormData({ name: "", email: "", designation: "", organization: "", contact: "", password: "", roles: [] });
+    setShowDialogPassword(false);
     setIsDialogOpen(true);
+  };
+
+  const handleOpenPasswordModal = (user: User) => {
+    setPasswordTargetUser(user);
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+    setIsPasswordModalOpen(true);
+  };
+
+  const generateRandomPassword = () => {
+    const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*";
+    let pass = "Dghs@";
+    for (let i = 0; i < 6; i++) {
+      pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setNewPassword(pass);
+    setConfirmPassword(pass);
+    setShowNewPassword(true);
+    setShowConfirmPassword(true);
+    toast.info(`Generated password: ${pass}`);
+  };
+
+  const handleSavePassword = async () => {
+    if (!passwordTargetUser) return;
+    if (!newPassword || newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters long");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    try {
+      setChangingPassword(true);
+      await changeUserPassword(passwordTargetUser.id, newPassword);
+      toast.success(`Password successfully updated for ${passwordTargetUser.name}`);
+      setIsPasswordModalOpen(false);
+      setPasswordTargetUser(null);
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error: unknown) {
+      console.error("Failed to change password:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to change password");
+    } finally {
+      setChangingPassword(false);
+    }
   };
 
   const toggleRole = (role: string) => {
@@ -291,15 +350,41 @@ export default function UserManagementPage() {
                     </TableCell>
                     <TableCell>{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(user)}>
-                          <span className="text-xs">Edit</span>
+                      <div className="flex justify-end gap-1.5 items-center">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleOpenPasswordModal(user)}
+                          title="Change Password"
+                          className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                        >
+                          <KeyRound className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleToggleStatus(user.id)}>
-                          <ToggleLeft className="h-4 w-4" />
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => handleEdit(user)}
+                          className="h-8 px-2 text-xs"
+                        >
+                          Edit
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(user.id)}>
-                          <Trash2 className="h-4 w-4 text-red-500" />
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleToggleStatus(user.id)}
+                          title={user.isActive ? "Deactivate User" : "Activate User"}
+                          className="h-8 w-8"
+                        >
+                          <ToggleLeft className={`h-4 w-4 ${user.isActive ? "text-green-600" : "text-slate-400"}`} />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleDelete(user.id)}
+                          title="Delete User"
+                          className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>
@@ -327,55 +412,92 @@ export default function UserManagementPage() {
         </div>
       )}
 
-      {/* User Dialog */}
+      {/* User Create / Edit Dialog */}
       {isDialogOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xl rounded-2xl">
             <CardContent className="pt-6 space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-bold">{editingUser ? "Edit User" : "Create User"}</h2>
-                <Button variant="ghost" size="icon" onClick={() => setIsDialogOpen(false)}>
+              <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">{editingUser ? "Edit User" : "Create User"}</h2>
+                <Button variant="ghost" size="icon" onClick={() => setIsDialogOpen(false)} className="h-8 w-8">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
               
               <div className="space-y-3">
                 <div>
-                  <label className="text-sm font-medium block mb-1">Name *</label>
-                  <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+                  <label className="text-sm font-medium block mb-1 text-slate-700 dark:text-slate-300">Name *</label>
+                  <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Full name" />
                 </div>
                 <div>
-                  <label className="text-sm font-medium block mb-1">Email *</label>
-                  <Input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                  <label className="text-sm font-medium block mb-1 text-slate-700 dark:text-slate-300">Email *</label>
+                  <Input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} placeholder="name@domain.gov.bd" />
                 </div>
-                {!editingUser && (
+                {!editingUser ? (
                   <div>
-                    <label className="text-sm font-medium block mb-1">Password *</label>
-                    <Input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
+                    <label className="text-sm font-medium block mb-1 text-slate-700 dark:text-slate-300">Password *</label>
+                    <div className="relative">
+                      <Input 
+                        type={showDialogPassword ? "text" : "password"} 
+                        value={formData.password} 
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
+                        placeholder="••••••••"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowDialogPassword(!showDialogPassword)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 focus:outline-none"
+                        tabIndex={-1}
+                      >
+                        {showDialogPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-sm font-medium block mb-1 text-slate-700 dark:text-slate-300">New Password <span className="text-xs font-normal text-slate-400">(leave blank to keep current)</span></label>
+                    <div className="relative">
+                      <Input 
+                        type={showDialogPassword ? "text" : "password"} 
+                        value={formData.password} 
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
+                        placeholder="Enter new password to update"
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowDialogPassword(!showDialogPassword)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 focus:outline-none"
+                        tabIndex={-1}
+                      >
+                        {showDialogPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div>
-                  <label className="text-sm font-medium block mb-1">Designation</label>
-                  <Input value={formData.designation} onChange={(e) => setFormData({ ...formData, designation: e.target.value })} />
+                  <label className="text-sm font-medium block mb-1 text-slate-700 dark:text-slate-300">Designation</label>
+                  <Input value={formData.designation} onChange={(e) => setFormData({ ...formData, designation: e.target.value })} placeholder="e.g. Administrator" />
                 </div>
                 <div>
-                  <label className="text-sm font-medium block mb-1">Organization</label>
-                  <Input value={formData.organization} onChange={(e) => setFormData({ ...formData, organization: e.target.value })} />
+                  <label className="text-sm font-medium block mb-1 text-slate-700 dark:text-slate-300">Organization</label>
+                  <Input value={formData.organization} onChange={(e) => setFormData({ ...formData, organization: e.target.value })} placeholder="e.g. DGHS" />
                 </div>
                 <div>
-                  <label className="text-sm font-medium block mb-1">Contact/Mobile</label>
-                  <Input value={formData.contact} onChange={(e) => setFormData({ ...formData, contact: e.target.value })} />
+                  <label className="text-sm font-medium block mb-1 text-slate-700 dark:text-slate-300">Contact/Mobile</label>
+                  <Input value={formData.contact} onChange={(e) => setFormData({ ...formData, contact: e.target.value })} placeholder="e.g. 01700000000" />
                 </div>
                 <div>
-                  <label className="text-sm font-medium block mb-2">Roles</label>
+                  <label className="text-sm font-medium block mb-2 text-slate-700 dark:text-slate-300">Roles</label>
                   <div className="grid grid-cols-2 gap-2">
                     {roleOptions.map((role) => (
-                      <label key={role.value} className="flex items-center gap-2 text-sm">
+                      <label key={role.value} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={formData.roles.includes(role.value)}
                           onChange={() => toggleRole(role.value)}
-                          className="rounded"
+                          className="rounded text-indigo-600 focus:ring-indigo-500"
                         />
                         {role.label}
                       </label>
@@ -384,10 +506,103 @@ export default function UserManagementPage() {
                 </div>
               </div>
               
-              <Button onClick={handleSubmit} disabled={saving} className="w-full">
+              <Button onClick={handleSubmit} disabled={saving} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white mt-4">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 {editingUser ? "Update User" : "Create User"}
               </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Admin Change Password Modal */}
+      {isPasswordModalOpen && passwordTargetUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-2xl rounded-2xl overflow-hidden">
+            <CardContent className="pt-6 space-y-4">
+              <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
+                    <KeyRound className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Change Password</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {passwordTargetUser.name} <span className="text-slate-400">({passwordTargetUser.email})</span>
+                    </p>
+                  </div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setIsPasswordModalOpen(false)} className="h-8 w-8 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              
+              <div className="space-y-4 pt-1">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={generateRandomPassword}
+                    className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Generate random password
+                  </button>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium block mb-1 text-slate-700 dark:text-slate-300">New Password *</label>
+                  <div className="relative">
+                    <Input 
+                      type={showNewPassword ? "text" : "password"} 
+                      value={newPassword} 
+                      onChange={(e) => setNewPassword(e.target.value)} 
+                      placeholder="Minimum 6 characters"
+                      className="pr-10 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition-colors"
+                      tabIndex={-1}
+                      aria-label={showNewPassword ? "Hide password" : "Show password"}
+                    >
+                      {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium block mb-1 text-slate-700 dark:text-slate-300">Confirm New Password *</label>
+                  <div className="relative">
+                    <Input 
+                      type={showConfirmPassword ? "text" : "password"} 
+                      value={confirmPassword} 
+                      onChange={(e) => setConfirmPassword(e.target.value)} 
+                      placeholder="Re-enter new password"
+                      className="pr-10 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 focus:outline-none transition-colors"
+                      tabIndex={-1}
+                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                    >
+                      {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <Button variant="outline" onClick={() => setIsPasswordModalOpen(false)} className="w-1/2">
+                  Cancel
+                </Button>
+                <Button onClick={handleSavePassword} disabled={changingPassword} className="w-1/2 bg-amber-600 hover:bg-amber-700 text-white font-medium">
+                  {changingPassword ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Lock className="h-4 w-4 mr-2" />}
+                  Update Password
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>

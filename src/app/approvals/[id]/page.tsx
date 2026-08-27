@@ -105,7 +105,7 @@ export default function ApprovalDetailPage({
       } else if (entityType === "customization") {
         const data = await getCustomizationRequest(id);
         if (!data) throw new Error("Customization request not found");
-        setCustomizationRequest(data);
+        setCustomizationRequest(data as unknown as CustomizationRequest);
         setRequest(null);
       }
     } catch (err) {

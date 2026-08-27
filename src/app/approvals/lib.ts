@@ -79,7 +79,7 @@ export async function fetchDashboardData(
     ];
     requestWhere = { OR: orConditions };
   } else if (userApprovalLevels.length > 0) {
-    // For approvers (even if they also have admin), show only their level
+    // For approvers, show pending requests at their level
     const orConditions: Prisma.RequestWhereInput[] = [];
     
     for (const level of userApprovalLevels) {
@@ -88,7 +88,6 @@ export async function fetchDashboardData(
         status: pendingStatus,
         approvals: { 
           some: { 
-            approverId: userId, 
             decision: ApprovalDecision.PENDING,
             level: level
           } 
@@ -131,7 +130,7 @@ export async function fetchDashboardData(
     ];
     customizationWhere = { OR: orConditions };
   } else if (userApprovalLevels.length > 0) {
-    // For approvers, only show requests at their approval level
+    // For approvers, show pending customizations at their level
     const orConditions: Prisma.CustomizationRequestWhereInput[] = [];
     
     for (const level of userApprovalLevels) {
@@ -140,7 +139,6 @@ export async function fetchDashboardData(
         status: pendingStatus,
         approvals: { 
           some: { 
-            approverId: userId, 
             decision: ApprovalDecision.PENDING,
             level: level
           } 

@@ -1,372 +1,333 @@
+// src/lib/dashboard/adminDashboard.ts
 import prisma from "@/lib/prisma";
 import { getCachedData } from "@/lib/redis";
 import { 
-  AdminDashboardStats, 
-  MonthlyRequestTrend, 
-  ApprovalDistribution, 
-  AuditLogEntry, 
   AdminDashboardData,
-  DashboardHealthCard
-} from "@/types";
+  AdminKPIs,
+  RequestPipelineCounts,
+  ResourceOverviewData,
+  ExpiringVmItem,
+  ExpiringLicenseItem,
+  StuckRequestItem,
+  DashboardRecentActivity
+} from "@/types/dashboard";
+import { checkSystemHealth } from "./systemHealth";
+import { RequestStatus, VmStatus } from "@prisma/client";
 
 export async function getAdminDashboardData(): Promise<AdminDashboardData> {
-  return getCachedData('admin_dashboard_data', async () => {
+  return getCachedData("admin_dashboard_data_v2", async () => {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+    const in90Days = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+
+    // Parallel DB Aggregations
     const [
-      stats,
-      monthlyTrends,
-      approvalDistribution,
+      vmCounts,
+      requestCounts,
+      approvalLevelCounts,
+      userCounts,
+      expiringVmsCounts,
+      expiringLicensesCounts,
+      pipelineGroupings,
+      vmSpecs,
+      serverAssets,
+      expiringVmsList,
+      expiringLicensesList,
+      stuckRequestsList,
       recentAuditLogs,
-      infrastructureOverview,
-      resourceSummary,
-      requestsSummary,
-      recentActivities,
+      systemHealth,
     ] = await Promise.all([
-      getAdminStats(),
-      getMonthlyRequestTrends(),
-      getApprovalDistribution(),
-      getRecentAuditLogs(),
-      getInfrastructureOverview(),
-      getResourceSummary(),
-      getRequestsSummary(),
-      getRecentActivities(),
+      // 1. VM Counts by Status
+      Promise.all([
+        prisma.vmInstance.count(),
+        prisma.vmInstance.count({ where: { status: VmStatus.ACTIVE } }),
+        prisma.vmInstance.count({ where: { status: VmStatus.SUSPENDED } }),
+        prisma.vmInstance.count({ where: { status: VmStatus.RETIRED } }),
+      ]),
+
+      // 2. Request Counts (Total, This Month, Pending)
+      Promise.all([
+        prisma.request.count(),
+        prisma.request.count({ where: { createdAt: { gte: startOfMonth } } }),
+        prisma.request.count({
+          where: {
+            status: { in: [RequestStatus.PENDING_L1, RequestStatus.PENDING_L2, RequestStatus.PENDING_L3, RequestStatus.PENDING_L4] },
+          },
+        }),
+      ]),
+
+      // 3. Approvals by Level
+      Promise.all([
+        prisma.approval.count({ where: { decision: "PENDING", level: 1 } }),
+        prisma.approval.count({ where: { decision: "PENDING", level: 2 } }),
+        prisma.approval.count({ where: { decision: "PENDING", level: 3 } }),
+        prisma.approval.count({ where: { decision: "PENDING", level: 4 } }),
+      ]),
+
+      // 4. User Counts (Total, Active, Inactive)
+      Promise.all([
+        prisma.user.count(),
+        prisma.user.count({ where: { isActive: true } }),
+        prisma.user.count({ where: { isActive: false } }),
+      ]),
+
+      // 5. Expiring VMs Counts
+      Promise.all([
+        prisma.vmInstance.count({
+          where: {
+            status: VmStatus.ACTIVE,
+            renewalDate: { gte: now, lte: in30Days },
+          },
+        }),
+        prisma.vmInstance.count({
+          where: {
+            status: VmStatus.ACTIVE,
+            renewalDate: { gte: now, lte: in60Days },
+          },
+        }),
+        prisma.vmInstance.count({
+          where: {
+            status: VmStatus.ACTIVE,
+            renewalDate: { gte: now, lte: in90Days },
+          },
+        }),
+      ]),
+
+      // 6. Expiring Licenses Counts
+      Promise.all([
+        prisma.softwareLicense.count({
+          where: { expiryDate: { gte: now, lte: in30Days } },
+        }),
+        prisma.softwareLicense.count({
+          where: { expiryDate: { gte: now, lte: in60Days } },
+        }),
+        prisma.softwareLicense.count({
+          where: { expiryDate: { gte: now, lte: in90Days } },
+        }),
+      ]),
+
+      // 7. Pipeline Groupings
+      prisma.request.groupBy({
+        by: ["status"],
+        _count: { id: true },
+      }),
+
+      // 8. VM Specs (for allocated CPU, RAM, Storage)
+      prisma.vmSpec.findMany({
+        select: { vcpu: true, ramGb: true, storageGb: true },
+      }),
+
+      // 9. Physical Server Assets (for total infrastructure capacity)
+      prisma.asset.findMany({
+        where: { type: "SERVER" },
+        select: { cpuCores: true, ramGb: true, storageGb: true },
+      }),
+
+      // 10. Expiring VMs Detailed List (top 5)
+      prisma.vmInstance.findMany({
+        where: {
+          status: VmStatus.ACTIVE,
+          renewalDate: { gte: now, lte: in60Days },
+        },
+        orderBy: { renewalDate: "asc" },
+        take: 5,
+        include: {
+          owner: { select: { name: true } },
+          request: { select: { systemName: true } },
+        },
+      }),
+
+      // 11. Expiring Licenses Detailed List (top 5)
+      prisma.softwareLicense.findMany({
+        where: { expiryDate: { gte: now, lte: in60Days } },
+        orderBy: { expiryDate: "asc" },
+        take: 5,
+        select: { id: true, name: true, vendor: true, expiryDate: true },
+      }),
+
+      // 12. Stuck Requests (> 48 hours in pending status)
+      prisma.request.findMany({
+        where: {
+          status: { in: [RequestStatus.PENDING_L1, RequestStatus.PENDING_L2, RequestStatus.PENDING_L3, RequestStatus.PENDING_L4, RequestStatus.APPROVED] },
+          createdAt: { lte: fortyEightHoursAgo },
+        },
+        orderBy: { createdAt: "asc" },
+        take: 5,
+        include: {
+          requester: { select: { name: true } },
+        },
+      }),
+
+      // 13. Recent Audit Logs
+      prisma.auditLog.findMany({
+        take: 10,
+        orderBy: { timestamp: "desc" },
+        include: {
+          actor: { select: { name: true, email: true } },
+        },
+      }),
+
+      // 14. System Health Check
+      checkSystemHealth(),
     ]);
 
-    const healthStatus = await getHealthStatus(resourceSummary, infrastructureOverview);
+    // Format Pipeline Counts
+    const pipelineMap: Record<string, number> = {};
+    for (const group of pipelineGroupings) {
+      pipelineMap[group.status] = group._count.id;
+    }
+
+    const pendingDcOps = (pipelineMap[RequestStatus.APPROVED] || 0) + (pipelineMap[RequestStatus.PARTIALLY_PROVISIONED] || 0);
+
+    const pipelineCounts: RequestPipelineCounts = {
+      draft: pipelineMap[RequestStatus.DRAFT] || 0,
+      l1: pipelineMap[RequestStatus.PENDING_L1] || 0,
+      l2: pipelineMap[RequestStatus.PENDING_L2] || 0,
+      l3: pipelineMap[RequestStatus.PENDING_L3] || 0,
+      l4: pipelineMap[RequestStatus.PENDING_L4] || 0,
+      dcops: pendingDcOps,
+      provisioned: pipelineMap[RequestStatus.PROVISIONED] || 0,
+      closed: pipelineMap[RequestStatus.CLOSED] || 0,
+    };
+
+    // Calculate Resource Overview
+    const allocatedCpu = vmSpecs.reduce((sum, s) => sum + (s.vcpu || 0), 0);
+    const allocatedRamGb = vmSpecs.reduce((sum, s) => sum + (s.ramGb || 0), 0);
+    const allocatedStorageGb = vmSpecs.reduce((sum, s) => sum + (s.storageGb || 0), 0);
+
+    const hostTotalCpu = serverAssets.reduce((sum, h) => sum + (h.cpuCores || 0), 0);
+    const hostTotalRamGb = serverAssets.reduce((sum, h) => sum + (h.ramGb || 0), 0);
+    const hostTotalStorageGb = serverAssets.reduce((sum, h) => sum + (h.storageGb || 0), 0);
+
+    // Fallbacks if physical host inventory is not fully populated yet
+    const totalCpu = Math.max(hostTotalCpu, allocatedCpu > 0 ? Math.round(allocatedCpu * 1.4) : 256);
+    const totalRamGb = Math.max(hostTotalRamGb, allocatedRamGb > 0 ? Math.round(allocatedRamGb * 1.3) : 1024);
+    const totalStorageGb = Math.max(hostTotalStorageGb, allocatedStorageGb > 0 ? Math.round(allocatedStorageGb * 1.4) : 20480);
+
+    const resourceOverview: ResourceOverviewData = {
+      cpu: {
+        allocated: allocatedCpu,
+        available: Math.max(0, totalCpu - allocatedCpu),
+        total: totalCpu,
+        utilizationPercent: totalCpu > 0 ? Math.min(100, Math.round((allocatedCpu / totalCpu) * 100)) : 0,
+      },
+      ram: {
+        allocatedGb: allocatedRamGb,
+        availableGb: Math.max(0, totalRamGb - allocatedRamGb),
+        totalGb: totalRamGb,
+        utilizationPercent: totalRamGb > 0 ? Math.min(100, Math.round((allocatedRamGb / totalRamGb) * 100)) : 0,
+      },
+      storage: {
+        allocatedGb: allocatedStorageGb,
+        availableGb: Math.max(0, totalStorageGb - allocatedStorageGb),
+        totalGb: totalStorageGb,
+        utilizationPercent: totalStorageGb > 0 ? Math.min(100, Math.round((allocatedStorageGb / totalStorageGb) * 100)) : 0,
+      },
+    };
+
+    // Format Expiry & Attention Items
+    const expiringVmsFormatted: ExpiringVmItem[] = expiringVmsList.map(vm => {
+      const remainingMs = vm.renewalDate ? new Date(vm.renewalDate).getTime() - now.getTime() : 0;
+      return {
+        id: vm.id,
+        hostname: vm.hostname || `VM-${vm.sequenceNumber}`,
+        systemName: vm.request?.systemName || vm.systemName || "VM Instance",
+        ownerName: vm.owner?.name || "Unassigned",
+        renewalDate: vm.renewalDate,
+        daysRemaining: Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24))),
+      };
+    });
+
+    const expiringLicensesFormatted: ExpiringLicenseItem[] = expiringLicensesList.map(lic => {
+      const remainingMs = lic.expiryDate ? new Date(lic.expiryDate).getTime() - now.getTime() : 0;
+      return {
+        id: lic.id,
+        name: lic.name,
+        vendor: lic.vendor,
+        expiryDate: lic.expiryDate,
+        daysRemaining: Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24))),
+      };
+    });
+
+    const stuckRequestsFormatted: StuckRequestItem[] = stuckRequestsList.map(req => {
+      const waitingMs = now.getTime() - new Date(req.createdAt).getTime();
+      return {
+        id: req.id,
+        systemName: req.systemName,
+        requestType: req.requestType,
+        status: req.status,
+        requesterName: req.requester?.name || "Requester",
+        createdAt: req.createdAt,
+        hoursWaiting: Math.round(waitingMs / (1000 * 60 * 60)),
+      };
+    });
+
+    // Format Recent Activities
+    const recentActivities: DashboardRecentActivity[] = recentAuditLogs.map(log => ({
+      id: log.id,
+      type: log.action.includes("REQUEST") ? "request" : log.action.includes("VM") ? "vm" : log.action.includes("APPROVAL") ? "approval" : "user",
+      action: log.action.replace(/_/g, " "),
+      title: log.action.replace(/_/g, " "),
+      subtitle: log.actor?.name ? `By ${log.actor.name}` : "System event",
+      actorName: log.actor?.name,
+      timestamp: log.timestamp,
+      status: log.entityType || undefined,
+    }));
+
+    const systemAlertsCount = systemHealth.filter(h => h.status !== "healthy").length;
+
+    const kpis: AdminKPIs = {
+      totalVms: {
+        total: vmCounts[0],
+        active: vmCounts[1],
+        suspended: vmCounts[2],
+        retired: vmCounts[3],
+      },
+      totalRequests: {
+        total: requestCounts[0],
+        thisMonth: requestCounts[1],
+        pending: requestCounts[2],
+      },
+      pendingApprovals: {
+        total: approvalLevelCounts[0] + approvalLevelCounts[1] + approvalLevelCounts[2] + approvalLevelCounts[3],
+        l1: approvalLevelCounts[0],
+        l2: approvalLevelCounts[1],
+        l3: approvalLevelCounts[2],
+        l4: approvalLevelCounts[3],
+      },
+      pendingDcOps,
+      activeUsers: {
+        total: userCounts[0],
+        active: userCounts[1],
+        inactive: userCounts[2],
+      },
+      expiringVms: {
+        next30Days: expiringVmsCounts[0],
+        next60Days: expiringVmsCounts[1],
+        next90Days: expiringVmsCounts[2],
+      },
+      expiringLicenses: {
+        next30Days: expiringLicensesCounts[0],
+        next60Days: expiringLicensesCounts[1],
+        next90Days: expiringLicensesCounts[2],
+      },
+      systemAlertsCount,
+    };
 
     return {
-      stats,
-      monthlyTrends,
-      approvalDistribution,
-      recentAuditLogs,
-      infrastructureOverview,
-      resourceSummary,
-      requestsSummary,
-      recentActivities,
-      healthStatus,
-    };
-  }, 10); // Cache for 10 seconds for real-time responsiveness during edits
-}
-
-async function getAdminStats(): Promise<AdminDashboardStats> {
-  const [
-    totalVms,
-    totalUsers,
-    pendingApprovals,
-    vmSpecs,
-  ] = await Promise.all([
-    prisma.vmInstance.count(),
-    prisma.user.count(),
-    prisma.approval.count({
-      where: { decision: "PENDING" },
-    }),
-    prisma.vmSpec.findMany({
-      select: { vcpu: true, ramGb: true },
-    }),
-  ]);
-
-  const totalCpuCores = vmSpecs.reduce((sum: number, spec: any) => sum + spec.vcpu, 0);
-  const totalRamGb = vmSpecs.reduce((sum: number, spec: any) => sum + spec.ramGb, 0);
-
-  return {
-    totalVms,
-    totalUsers,
-    pendingApprovals,
-    totalCpuCores,
-    totalRamGb,
-  };
-}
-
-async function getMonthlyRequestTrends(): Promise<MonthlyRequestTrend[]> {
-  const sixMonthsAgo = new Date();
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
-  const requests = await prisma.request.findMany({
-    where: {
-      createdAt: { gte: sixMonthsAgo },
-    },
-    select: {
-      createdAt: true,
-      status: true,
-    },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const monthlyData: Record<string, { requests: number; approvals: number; rejections: number }> = {};
-
-  for (const req of requests) {
-    const monthKey = req.createdAt.toISOString().slice(0, 7);
-    if (!monthlyData[monthKey]) {
-      monthlyData[monthKey] = { requests: 0, approvals: 0, rejections: 0 };
-    }
-    monthlyData[monthKey].requests++;
-    
-    if (req.status === "APPROVED" || req.status === "PROVISIONED") {
-      monthlyData[monthKey].approvals++;
-    } else if (req.status === "REJECTED") {
-      monthlyData[monthKey].rejections++;
-    }
-  }
-
-  return Object.entries(monthlyData)
-    .map(([month, data]: any) => ({
-      month,
-      ...data,
-    }))
-    .slice(-6);
-}
-
-async function getApprovalDistribution(): Promise<ApprovalDistribution[]> {
-  const approvals = await prisma.approval.findMany({
-    where: {
-      decision: { not: "PENDING" },
-    },
-    select: { decision: true },
-  });
-
-  const statusCount: Record<string, number> = {};
-  for (const approval of approvals) {
-    statusCount[approval.decision] = (statusCount[approval.decision] || 0) + 1;
-  }
-
-  return Object.entries(statusCount)
-    .map(([status, count]: any) => ({ status, count }))
-    .sort((a: any, b: any) => b.count - a.count);
-}
-
-async function getRecentAuditLogs(): Promise<AuditLogEntry[]> {
-  const logs = await prisma.auditLog.findMany({
-    take: 10,
-    orderBy: { timestamp: "desc" },
-    include: {
-      actor: {
-        select: { name: true, email: true },
+      kpis,
+      requestPipeline: pipelineCounts,
+      resourceOverview,
+      systemHealth,
+      expiryAndAttention: {
+        expiringVms: expiringVmsFormatted,
+        expiringLicenses: expiringLicensesFormatted,
+        stuckRequests: stuckRequestsFormatted,
       },
-    },
-  });
-
-  return logs.map((log: any) => ({
-    id: log.id,
-    action: log.action,
-    actorId: log.actorId,
-    entityType: log.entityType,
-    entityId: log.entityId,
-    timestamp: log.timestamp,
-    actor: log.actor,
-  }));
-}
-
-async function getInfrastructureOverview() {
-  const [
-    totalClusters,
-    totalK8sClusters,
-    totalVms,
-    runningVms,
-    stoppedVms,
-    totalAssets
-  ] = await Promise.all([
-    prisma.physicalCluster.count(),
-    prisma.k8sCluster.count(),
-    prisma.vmInstance.count(),
-    prisma.vmInstance.count({ where: { status: "ACTIVE" } }),
-    prisma.vmInstance.count({ where: { status: "SUSPENDED" } }),
-    prisma.asset.count()
-  ]);
-
-  return {
-    totalClusters,
-    totalK8sClusters,
-    totalVms,
-    runningVms,
-    stoppedVms,
-    totalAssets
-  };
-}
-
-async function getResourceSummary() {
-  const hosts = await prisma.asset.findMany({
-    where: { type: "SERVER" },
-    include: {
-      vms: {
-        where: { status: "ACTIVE" },
-        include: { currentSpec: { select: { vcpu: true, ramGb: true, storageGb: true } } }
-      }
-    }
-  });
-
-  let cpuTotal = 0;
-  let ramTotalGb = 0;
-  let storageTotalGb = 0;
-  let cpuUsed = 0;
-  let ramUsedGb = 0;
-  let storageUsedGb = 0;
-  let hasGpu = false;
-  let gpuTotal = 0;
-  let gpuUsed = 0;
-
-  for (const host of hosts) {
-    cpuTotal += host.cpuCores || 0;
-    ramTotalGb += host.ramGb || 0;
-    storageTotalGb += host.storageGb || 0;
-    
-    if (host.graphicsCardModel) {
-      hasGpu = true;
-      gpuTotal += 1;
-    }
-
-    for (const vm of host.vms) {
-      cpuUsed += vm.currentSpec?.vcpu || 0;
-      ramUsedGb += vm.currentSpec?.ramGb || 0;
-      storageUsedGb += vm.currentSpec?.storageGb || 0;
-      if (host.graphicsCardModel) {
-        gpuUsed += 1;
-      }
-    }
-  }
-
-  const cpuPercent = cpuTotal > 0 ? Math.round((cpuUsed / cpuTotal) * 100) : 0;
-  const ramPercent = ramTotalGb > 0 ? Math.round((ramUsedGb / ramTotalGb) * 100) : 0;
-  const storagePercent = storageTotalGb > 0 ? Math.round((storageUsedGb / storageTotalGb) * 100) : 0;
-  const gpuPercent = gpuTotal > 0 ? Math.round((gpuUsed / gpuTotal) * 100) : 0;
-
-  return {
-    cpuUsed,
-    cpuTotal,
-    cpuPercent,
-    ramUsedGb,
-    ramTotalGb,
-    ramPercent,
-    storageUsedGb,
-    storageTotalGb,
-    storagePercent,
-    ...(hasGpu ? { gpuUsed, gpuTotal, gpuPercent } : {})
-  };
-}
-
-async function getRequestsSummary() {
-  const [pending, approved, rejected, inProgress] = await Promise.all([
-    prisma.request.count({ where: { status: { in: ["PENDING_L1", "PENDING_L2", "PENDING_L3", "PENDING_L4"] } } }),
-    prisma.request.count({ where: { status: "APPROVED" } }),
-    prisma.request.count({ where: { status: "REJECTED" } }),
-    prisma.request.count({ where: { status: "PROVISIONED" } })
-  ]);
-
-  return {
-    pending,
-    approved,
-    rejected,
-    inProgress
-  };
-}
-
-async function getRecentActivities() {
-  const [requests, vms, approvals, auditLogs] = await Promise.all([
-    prisma.request.findMany({
-      take: 5,
-      orderBy: { createdAt: "desc" },
-      include: { requester: { select: { name: true } } }
-    }),
-    prisma.vmInstance.findMany({
-      take: 5,
-      orderBy: { createdAt: "desc" },
-      where: { status: "ACTIVE" },
-      include: { owner: { select: { name: true } } }
-    }),
-    prisma.approval.findMany({
-      take: 5,
-      where: { decision: { not: "PENDING" } },
-      orderBy: { createdAt: "desc" },
-      include: { approver: { select: { name: true } }, request: { select: { systemName: true } } }
-    }),
-    prisma.auditLog.findMany({
-      take: 5,
-      orderBy: { timestamp: "desc" },
-      include: { actor: { select: { name: true } } }
-    })
-  ]);
-
-  const list: any[] = [];
-
-  requests.forEach((r: any) => {
-    list.push({
-      id: `req-${r.id}`,
-      type: "request",
-      title: `Request for ${r.systemName}`,
-      subtitle: `Submitted by ${r.requester?.name || "Unknown"}`,
-      timestamp: r.createdAt,
-      status: r.status
-    });
-  });
-
-  vms.forEach((v: any) => {
-    list.push({
-      id: `vm-${v.id}`,
-      type: "vm",
-      title: `VM ${v.hostname || "Instance"} Provisioned`,
-      subtitle: `Owned by ${v.owner?.name || "System"}`,
-      timestamp: v.createdAt,
-      status: v.status
-    });
-  });
-
-  approvals.forEach((a: any) => {
-    list.push({
-      id: `appr-${a.id}`,
-      type: "approval",
-      title: `Approval Decision: ${a.decision}`,
-      subtitle: `By ${a.approver?.name || "Approver"} for ${a.request?.systemName || "Request"}`,
-      timestamp: a.decidedAt || a.createdAt,
-      status: a.decision
-    });
-  });
-
-  auditLogs.forEach((l: any) => {
-    list.push({
-      id: `audit-${l.id}`,
-      type: "inventory",
-      title: l.action,
-      subtitle: `Action by ${l.actor?.name || "Actor"} (${l.entityType || "Asset"})`,
-      timestamp: l.timestamp
-    });
-  });
-
-  return list
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 10);
-}
-
-async function getHealthStatus(resourceSummary: any, infra: any): Promise<DashboardHealthCard[]> {
-  const computeStatus: "healthy" | "warning" | "critical" = resourceSummary.cpuPercent > 85 || resourceSummary.ramPercent > 85 ? "warning" : "healthy";
-  
-  return [
-    {
-      title: "Cluster Health",
-      status: "healthy" as const,
-      value: "Healthy",
-      description: `${infra.totalClusters} Active Hypervisor Clusters`
-    },
-    {
-      title: "Storage Health",
-      status: resourceSummary.storagePercent > 90 ? "critical" as const : (resourceSummary.storagePercent > 75 ? "warning" as const : "healthy" as const),
-      value: `${100 - resourceSummary.storagePercent}% Available`,
-      description: "All SAN storage pools active"
-    },
-    {
-      title: "Compute Capacity",
-      status: computeStatus,
-      value: `${resourceSummary.cpuPercent}% CPU Used`,
-      description: "Calculated across virtual allocations"
-    },
-    {
-      title: "Network Status",
-      status: "healthy" as const,
-      value: "Online",
-      description: "Throughput and latency within baseline limits"
-    },
-    {
-      title: "Resource Availability",
-      status: "healthy" as const,
-      value: "Nominal",
-      description: "Hardware clusters reporting fully available"
-    }
-  ];
+      recentActivities,
+    };
+  }, 10);
 }
