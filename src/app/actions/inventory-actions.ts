@@ -4,8 +4,8 @@
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
-import { 
-  AssetType as PrismaAssetType, 
+import {
+  AssetType as PrismaAssetType,
   VmStatus as PrismaVmStatus,
 } from "@prisma/client";
 
@@ -116,22 +116,6 @@ export async function getK8sNamespacesInventory(params: {
       where: whereClause,
       include: {
         subdomains: {
-          include: {
-            requestedBy: {
-              select: {
-                id: true,
-                name: true,
-                email: true
-              }
-            },
-            approvedBy: {
-              select: {
-                id: true,
-                name: true,
-                email: true
-              }
-            }
-          },
           orderBy: { createdAt: "desc" }
         },
         clusters: {
