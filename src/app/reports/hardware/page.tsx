@@ -5,12 +5,13 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { fetchHardwareReport } from "@/app/actions/report-actions";
-import { Download, Filter, Search, HardDrive, Server, Cpu, Database, FileSpreadsheet, FileText } from "lucide-react";
+import { Download, Filter, Search, HardDrive, Server, Cpu, Database, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { exportToCsv, exportToExcel, exportToPdf } from "@/lib/export-utils";
+import { toast } from "sonner";
 import { 
   Table, 
   TableBody, 
@@ -72,6 +73,7 @@ export default function HardwareReportPage() {
   
   const [reportData, setReportData] = useState<HardwareReportResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
   const [filters, setFilters] = useState({
     search: "",
@@ -140,9 +142,17 @@ export default function HardwareReportPage() {
     setFilters(prev => ({ ...prev, page: newPage }));
   };
 
-  const getExportData = () => {
-    if (!reportData?.data) return [];
-    return reportData.data.map(asset => ({
+  const getFullExportData = async () => {
+    const params: Record<string, unknown> = {
+      getAll: true,
+    };
+    if (filters.search) params.search = filters.search;
+    if (filters.type && filters.type !== "all") params.type = filters.type;
+    if (filters.location && filters.location !== "all") params.location = filters.location;
+    if (filters.clusterId && filters.clusterId !== "all") params.clusterId = filters.clusterId;
+
+    const result = await fetchHardwareReport(params);
+    return (result?.data || []).map(asset => ({
       Name: asset.assetName,
       Type: asset.type,
       Cluster: asset.clusterName || "-",
@@ -159,21 +169,54 @@ export default function HardwareReportPage() {
     }));
   };
 
-  const handleExportCsv = () => {
-    exportToCsv(`hardware-report-${new Date().toISOString().split("T")[0]}.csv`, getExportData());
+  const handleExportCsv = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing CSV export for all matching hardware assets...");
+      const exportData = await getFullExportData();
+      exportToCsv(`hardware-report-${new Date().toISOString().split("T")[0]}.csv`, exportData);
+      toast.success(`Exported ${exportData.length} assets successfully.`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export hardware report");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const handleExportExcel = () => {
-    exportToExcel(`hardware-report-${new Date().toISOString().split("T")[0]}.xls`, getExportData());
+  const handleExportExcel = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing Excel export for all matching hardware assets...");
+      const exportData = await getFullExportData();
+      exportToExcel(`hardware-report-${new Date().toISOString().split("T")[0]}.xls`, exportData);
+      toast.success(`Exported ${exportData.length} assets successfully.`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export hardware report");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const handleExportPdf = () => {
-    exportToPdf(
-      `hardware-report-${new Date().toISOString().split("T")[0]}.html`,
-      "Hardware Report",
-      ["Name", "Type", "Cluster", "Location", "Total CPU", "Total RAM", "Total Storage", "Alloc CPU", "Alloc RAM", "Alloc Storage", "Utilization", "VMs", "Status"],
-      getExportData()
-    );
+  const handleExportPdf = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing PDF export for all matching hardware assets...");
+      const exportData = await getFullExportData();
+      exportToPdf(
+        `hardware-report-${new Date().toISOString().split("T")[0]}.html`,
+        "Hardware Report",
+        ["Name", "Type", "Cluster", "Location", "Total CPU", "Total RAM", "Total Storage", "Alloc CPU", "Alloc RAM", "Alloc Storage", "Utilization", "VMs", "Status"],
+        exportData
+      );
+      toast.success(`Exported ${exportData.length} assets successfully.`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export hardware report");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (status === "loading" || loading) {
@@ -221,14 +264,14 @@ export default function HardwareReportPage() {
           <p className="text-slate-500 mt-1">Hardware asset utilization and capacity report</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExportCsv} className="gap-2">
-            <Download className="h-4 w-4" /> CSV
+          <Button variant="outline" disabled={isExporting} onClick={handleExportCsv} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} CSV
           </Button>
-          <Button variant="outline" onClick={handleExportExcel} className="gap-2">
-            <FileSpreadsheet className="h-4 w-4" /> Excel
+          <Button variant="outline" disabled={isExporting} onClick={handleExportExcel} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />} Excel
           </Button>
-          <Button variant="outline" onClick={handleExportPdf} className="gap-2">
-            <FileText className="h-4 w-4" /> PDF
+          <Button variant="outline" disabled={isExporting} onClick={handleExportPdf} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} PDF
           </Button>
         </div>
       </div>

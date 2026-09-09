@@ -95,6 +95,19 @@ export const authOptions: NextAuthOptions = {
         token.contact = user.contact;
         token.roles = user.roles;
         token.organization = user.organization;
+      } else if (token.email) {
+        try {
+          const dbUser = await prisma.user.findFirst({
+            where: { email: { equals: token.email as string, mode: "insensitive" } },
+            select: { id: true, isActive: true, roles: { include: { role: true } } }
+          });
+          if (dbUser && dbUser.isActive) {
+            token.id = dbUser.id;
+            token.roles = dbUser.roles.map((ur: any) => ur.role.name);
+          }
+        } catch {
+          // Keep existing token if db check fails temporarily
+        }
       }
       return token;
     },

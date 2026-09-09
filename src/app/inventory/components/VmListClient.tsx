@@ -40,11 +40,44 @@ export function VmListClient({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+
+  const urlSearch = searchParams.get("search") || "";
+  const urlStatus = searchParams.get("status") || "ALL";
+
+  const [searchTerm, setSearchTerm] = useState(urlSearch);
+  const [statusFilter, setStatusFilter] = useState(urlStatus);
   const [isPending, startTransition] = React.useTransition();
 
   const totalPages = Math.ceil(total / pageSize);
+
+  // Sync state if URL query params change externally
+  React.useEffect(() => {
+    setSearchTerm(urlSearch);
+  }, [urlSearch]);
+
+  React.useEffect(() => {
+    setStatusFilter(urlStatus);
+  }, [urlStatus]);
+
+  // Debounced URL update when search changes
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchTerm !== urlSearch) {
+        startTransition(() => {
+          const params = new URLSearchParams(searchParams.toString());
+          if (searchTerm.trim()) {
+            params.set("search", searchTerm.trim());
+          } else {
+            params.delete("search");
+          }
+          params.set("page", "1");
+          router.push(`${pathname}?${params.toString()}`, { scroll: false });
+        });
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm, urlSearch, pathname, router, searchParams]);
 
   const handlePageChange = (newPage: number) => {
     startTransition(() => {
@@ -54,24 +87,63 @@ export function VmListClient({
     });
   };
 
-  const filteredVms = initialVms.filter(vm => {
-    const matchesSearch = 
-      vm.hostname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      vm.ipAddress?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      vm.owner?.name?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = statusFilter === "ALL" || vm.status === statusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
-
-  const handleSearch = (term: string) => {
-    setSearchTerm(term);
+  const handleStatusChange = (newStatus: string) => {
+    setStatusFilter(newStatus);
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (newStatus && newStatus !== "ALL") {
+        params.set("status", newStatus);
+      } else {
+        params.delete("status");
+      }
+      params.set("page", "1");
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    });
   };
 
-  const handleStatusChange = (status: string) => {
-    setStatusFilter(status);
+  const getVisiblePages = (): (number | string)[] => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+
+    const pageSet = new Set<number>();
+    // Always include 1, 2, 3
+    pageSet.add(1);
+    pageSet.add(2);
+    pageSet.add(3);
+
+    // Always include n-2, n-1, n
+    pageSet.add(totalPages - 2);
+    pageSet.add(totalPages - 1);
+    pageSet.add(totalPages);
+
+    // Include window around current page
+    for (let i = currentPage - 1; i <= currentPage + 1; i++) {
+      if (i >= 1 && i <= totalPages) {
+        pageSet.add(i);
+      }
+    }
+
+    const sorted = Array.from(pageSet).sort((a, b) => a - b);
+    const pages: (number | string)[] = [];
+
+    for (let i = 0; i < sorted.length; i++) {
+      const current = sorted[i];
+      if (i > 0) {
+        const prev = sorted[i - 1];
+        if (current - prev === 2) {
+          pages.push(prev + 1);
+        } else if (current - prev > 2) {
+          pages.push("...");
+        }
+      }
+      pages.push(current);
+    }
+
+    return pages;
   };
+
+  const filteredVms = initialVms;
 
   return (
     <div className="space-y-0">
@@ -80,10 +152,10 @@ export function VmListClient({
         <div className="flex-1 relative w-full">
            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
            <Input 
-             placeholder="Search by hostname, IP address, or owner..." 
+             placeholder="Search by hostname, IP address, subdomain, or owner..." 
              className="pl-9 h-11 bg-white border-slate-200"
              value={searchTerm}
-             onChange={(e) => handleSearch(e.target.value)}
+             onChange={(e) => setSearchTerm(e.target.value)}
            />
         </div>
 
@@ -100,7 +172,7 @@ export function VmListClient({
            </select>
         </div>
 
-        <div className="text-sm text-slate-500 font-medium bg-white px-3 py-1 rounded-full border border-slate-100 shadow-sm flex items-center gap-2">
+        <div className="text-sm text-slate-500 font-medium bg-white px-3 py-1 rounded-full border border-slate-100 shadow-sm flex items-center gap-2 whitespace-nowrap">
           <div className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse" />
           Showing {filteredVms.length} of {total} total instances
         </div>
@@ -238,38 +310,30 @@ export function VmListClient({
             </Button>
             
             <div className="flex items-center gap-1">
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let pageNum = 1;
-                if (totalPages <= 5) {
-                  pageNum = i + 1;
-                } else {
-                  if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
+              {getVisiblePages().map((item, idx) => {
+                if (typeof item !== "number") {
+                  return (
+                    <span key={`ellipsis-${idx}`} className="px-1.5 text-slate-400 font-bold text-xs select-none">
+                      ...
+                    </span>
+                  );
                 }
-                
-                if (pageNum <= 0 || pageNum > totalPages) return null;
 
-                const isActive = pageNum === currentPage;
-                
+                const isActive = item === currentPage;
                 return (
                   <Button
-                    key={pageNum}
+                    key={`page-${item}`}
                     variant={isActive ? "default" : "outline"}
                     size="sm"
-                    onClick={() => handlePageChange(pageNum)}
+                    onClick={() => handlePageChange(item)}
                     disabled={isPending}
-                    className={`h-9 w-9 p-0 font-bold text-xs transition-all active:scale-95 shadow-sm ${
+                    className={`h-9 min-w-[36px] px-2.5 font-bold text-xs transition-all active:scale-95 shadow-sm ${
                       isActive 
                         ? "bg-indigo-600 hover:bg-indigo-700 text-white border-transparent" 
                         : "border-slate-200 hover:border-indigo-200 hover:text-indigo-600 bg-white"
                     }`}
                   >
-                    {pageNum}
+                    {item}
                   </Button>
                 );
               })}

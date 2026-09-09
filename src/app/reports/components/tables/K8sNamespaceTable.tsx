@@ -34,11 +34,13 @@ import { K8sNamespaceReportItem } from "@/types/reports";
 import { exportToExcel, exportToCSV } from "@/lib/export-utils";
 import { format } from "date-fns";
 import { Pagination } from "@/components/Pagination";
+import { toast } from "sonner";
 
 export function K8sNamespaceTable({ dateRange }: { dateRange?: { from: Date; to: Date } }) {
   const [data, setData] = useState<K8sNamespaceReportItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [searchTerm, setSearchTerm] = useState("");
@@ -144,25 +146,42 @@ export function K8sNamespaceTable({ dateRange }: { dateRange?: { from: Date; to:
     manualSorting: true,
   });
 
-  const handleExport = (formatType: "xlsx" | "csv") => {
-    const dataToExport = data.map(item => ({
-      "Namespace Name": item.name,
-      "Supervisor IP": item.supervisorIp,
-      "Cluster Name": item.clusterName,
-      "Project": item.project,
-      "Owner": item.owner,
-      "Environment": item.environment,
-      "Nodes Count": item.totalNodes,
-      "vCPU Cores": item.totalVcpu,
-      "RAM (GB)": item.totalRamGb,
-      "Status": item.status,
-      "Provisioned Date": format(new Date(item.createdAt), "yyyy-MM-dd")
-    }));
-    
-    if (formatType === "xlsx") {
-      exportToExcel("K8s_Namespace_Report", dataToExport);
-    } else {
-      exportToCSV("K8s_Namespace_Report", dataToExport);
+  const handleExport = async (formatType: "xlsx" | "csv") => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing export for all matching Kubernetes namespaces...");
+      const result = await getK8sNamespaceReport({
+        getAll: true,
+        searchTerm,
+        from: dateRange?.from,
+        to: dateRange?.to
+      });
+
+      const dataToExport = result.data.map(item => ({
+        "Namespace Name": item.name,
+        "Supervisor IP": item.supervisorIp,
+        "Cluster Name": item.clusterName,
+        "Project": item.project,
+        "Owner": item.owner,
+        "Environment": item.environment,
+        "Nodes Count": item.totalNodes,
+        "vCPU Cores": item.totalVcpu,
+        "RAM (GB)": item.totalRamGb,
+        "Status": item.status,
+        "Provisioned Date": format(new Date(item.createdAt), "yyyy-MM-dd")
+      }));
+      
+      if (formatType === "xlsx") {
+        exportToExcel("K8s_Namespace_Report", dataToExport);
+      } else {
+        exportToCSV("K8s_Namespace_Report", dataToExport);
+      }
+      toast.success(`Exported ${dataToExport.length} namespaces successfully.`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export Kubernetes namespaces");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -186,11 +205,11 @@ export function K8sNamespaceTable({ dateRange }: { dateRange?: { from: Date; to:
             </Button>
           </div>
           <div className="flex gap-2">
-             <Button size="sm" variant="outline" className="h-10 gap-2 font-medium" onClick={() => handleExport("xlsx")}>
-                <Download size={16} /> XLSX
+             <Button size="sm" variant="outline" className="h-10 gap-2 font-medium" disabled={isExporting} onClick={() => handleExport("xlsx")}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} XLSX
               </Button>
-              <Button size="sm" variant="outline" className="h-10 gap-2 font-medium" onClick={() => handleExport("csv")}>
-                <Download size={16} /> CSV
+              <Button size="sm" variant="outline" className="h-10 gap-2 font-medium" disabled={isExporting} onClick={() => handleExport("csv")}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} CSV
               </Button>
           </div>
         </div>

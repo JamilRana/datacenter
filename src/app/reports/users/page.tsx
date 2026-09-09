@@ -5,12 +5,13 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { fetchUserReport } from "@/app/actions/report-actions";
-import { Download, Filter, Search, Users, User, FileCheck, Server, Clock, FileSpreadsheet, FileText } from "lucide-react";
+import { Download, Filter, Search, Users, User, FileCheck, Server, Clock, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { exportToCsv, exportToExcel, exportToPdf } from "@/lib/export-utils";
+import { toast } from "sonner";
 import { 
   Table, 
   TableBody, 
@@ -69,6 +70,7 @@ export default function UserReportPage() {
   
   const [reportData, setReportData] = useState<UserReportResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
   const [filters, setFilters] = useState({
     search: "",
@@ -121,9 +123,16 @@ export default function UserReportPage() {
     setFilters(prev => ({ ...prev, page: newPage }));
   };
 
-  const getExportData = () => {
-    if (!reportData?.data) return [];
-    return reportData.data.map(user => ({
+  const getFullExportData = async () => {
+    const params: Record<string, unknown> = {
+      getAll: true,
+    };
+    if (filters.search) params.search = filters.search;
+    if (filters.role && filters.role !== "all") params.role = filters.role;
+    if (filters.department && filters.department !== "all") params.department = filters.department;
+
+    const result = await fetchUserReport(params);
+    return (result?.data || []).map(user => ({
       Name: user.name,
       Email: user.email,
       Department: user.organization || "N/A",
@@ -136,21 +145,54 @@ export default function UserReportPage() {
     }));
   };
 
-  const handleExportCsv = () => {
-    exportToCsv(`user-report-${new Date().toISOString().split("T")[0]}.csv`, getExportData());
+  const handleExportCsv = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing CSV export for all matching users...");
+      const exportData = await getFullExportData();
+      exportToCsv(`user-report-${new Date().toISOString().split("T")[0]}.csv`, exportData);
+      toast.success(`Exported ${exportData.length} users successfully.`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export user report");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const handleExportExcel = () => {
-    exportToExcel(`user-report-${new Date().toISOString().split("T")[0]}.xls`, getExportData());
+  const handleExportExcel = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing Excel export for all matching users...");
+      const exportData = await getFullExportData();
+      exportToExcel(`user-report-${new Date().toISOString().split("T")[0]}.xls`, exportData);
+      toast.success(`Exported ${exportData.length} users successfully.`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export user report");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const handleExportPdf = () => {
-    exportToPdf(
-      `user-report-${new Date().toISOString().split("T")[0]}.html`,
-      "User Report",
-      ["Name", "Email", "Department", "Roles", "VMs", "Requests", "Pending", "Last Active", "Created"],
-      getExportData()
-    );
+  const handleExportPdf = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing PDF export for all matching users...");
+      const exportData = await getFullExportData();
+      exportToPdf(
+        `user-report-${new Date().toISOString().split("T")[0]}.html`,
+        "User Report",
+        ["Name", "Email", "Department", "Roles", "VMs", "Requests", "Pending", "Last Active", "Created"],
+        exportData
+      );
+      toast.success(`Exported ${exportData.length} users successfully.`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export user report");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (status === "loading" || loading) {
@@ -198,14 +240,14 @@ export default function UserReportPage() {
           <p className="text-slate-500 mt-1">User activity, roles, and resource ownership report</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExportCsv} className="gap-2">
-            <Download className="h-4 w-4" /> CSV
+          <Button variant="outline" disabled={isExporting} onClick={handleExportCsv} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} CSV
           </Button>
-          <Button variant="outline" onClick={handleExportExcel} className="gap-2">
-            <FileSpreadsheet className="h-4 w-4" /> Excel
+          <Button variant="outline" disabled={isExporting} onClick={handleExportExcel} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />} Excel
           </Button>
-          <Button variant="outline" onClick={handleExportPdf} className="gap-2">
-            <FileText className="h-4 w-4" /> PDF
+          <Button variant="outline" disabled={isExporting} onClick={handleExportPdf} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} PDF
           </Button>
         </div>
       </div>

@@ -45,6 +45,7 @@ export function RenewalsTable({ dateRange }: { dateRange?: { from: Date; to: Dat
   const [data, setData] = useState<RenewalItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [searchTerm, setSearchTerm] = useState("");
@@ -185,22 +186,39 @@ export function RenewalsTable({ dateRange }: { dateRange?: { from: Date; to: Dat
     manualSorting: true,
   });
 
-  const handleExport = (formatType: 'xlsx' | 'csv') => {
-    const dataToExport = data.map(item => ({
-      "VM Name": item.vmName,
-      "Owner": item.ownerName,
-      "Project": item.project,
-      "Env": item.environment,
-      "Renewal Date": format(new Date(item.renewalDate), "yyyy-MM-dd"),
-      "Days Remaining": item.daysRemaining,
-      "Status": item.status,
-      "Last Activity": format(new Date(item.lastRenewed), "yyyy-MM-dd")
-    }));
-    
-    if (formatType === 'xlsx') {
-      exportToExcel('Renewal_Report', dataToExport);
-    } else {
-      exportToCSV('Renewal_Report', dataToExport);
+  const handleExport = async (formatType: 'xlsx' | 'csv') => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing export for all matching renewals...");
+      const result = await getRenewalsReport({
+        getAll: true,
+        searchTerm,
+        from: dateRange?.from,
+        to: dateRange?.to
+      });
+
+      const dataToExport = result.data.map(item => ({
+        "VM Name": item.vmName,
+        "Owner": item.ownerName,
+        "Project": item.project,
+        "Env": item.environment,
+        "Renewal Date": format(new Date(item.renewalDate), "yyyy-MM-dd"),
+        "Days Remaining": item.daysRemaining,
+        "Status": item.status,
+        "Last Activity": format(new Date(item.lastRenewed), "yyyy-MM-dd")
+      }));
+      
+      if (formatType === 'xlsx') {
+        exportToExcel('Renewal_Report', dataToExport);
+      } else {
+        exportToCSV('Renewal_Report', dataToExport);
+      }
+      toast.success(`Exported ${dataToExport.length} renewals successfully.`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export renewal report");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -219,11 +237,11 @@ export function RenewalsTable({ dateRange }: { dateRange?: { from: Date; to: Dat
             />
           </div>
           <div className="flex gap-2">
-             <Button size="sm" variant="outline" className="h-10 gap-2" onClick={() => handleExport('xlsx')}>
-                <Download size={16} /> XLSX Export
+             <Button size="sm" variant="outline" className="h-10 gap-2" disabled={isExporting} onClick={() => handleExport('xlsx')}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} XLSX Export
               </Button>
-              <Button size="sm" variant="outline" className="h-10 gap-2" onClick={() => handleExport('csv')}>
-                <Download size={16} /> CSV Export
+              <Button size="sm" variant="outline" className="h-10 gap-2" disabled={isExporting} onClick={() => handleExport('csv')}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} CSV Export
               </Button>
               <Button size="sm" className="h-10 bg-indigo-600 hover:bg-indigo-700 gap-2" onClick={loadData}>
                 <RefreshCcw size={14} /> Refresh

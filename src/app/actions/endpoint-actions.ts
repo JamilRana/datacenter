@@ -11,12 +11,16 @@ import { revalidatePath } from "next/cache";
 // -------------------------------------------------------------
 
 export async function fetchHorizonAssignments(page: number = 1, pageSize: number = 10, search: string = "") {
-  const skip = (page - 1) * pageSize;
+  const safePage = Math.max(1, page);
+  const skip = (safePage - 1) * pageSize;
   const where: any = {};
   if (search) {
     where.OR = [
       { username: { contains: search, mode: "insensitive" } },
       { fullName: { contains: search, mode: "insensitive" } },
+      { email: { contains: search, mode: "insensitive" } },
+      { user: { name: { contains: search, mode: "insensitive" } } },
+      { user: { email: { contains: search, mode: "insensitive" } } },
     ];
   }
 
@@ -24,6 +28,15 @@ export async function fetchHorizonAssignments(page: number = 1, pageSize: number
     prisma.horizonUser.findMany({
       where,
       include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            designation: true,
+            organization: true,
+          }
+        },
         assignments: {
           include: {
             vm: {
@@ -56,7 +69,7 @@ export async function fetchHorizonAssignments(page: number = 1, pageSize: number
     prisma.horizonUser.count({ where }),
   ]);
 
-  return { data, total, page, pageSize };
+  return { data, total, page: safePage, pageSize };
 }
 
 export async function createHorizonAssignment(payload: {
@@ -64,6 +77,7 @@ export async function createHorizonAssignment(payload: {
   fullName: string;
   email?: string;
   status: string;
+  userId?: string;
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
@@ -78,6 +92,7 @@ export async function createHorizonAssignment(payload: {
 
   const res = await prisma.horizonUser.create({
     data: {
+      userId: payload.userId || null,
       username: payload.username,
       fullName: payload.fullName,
       email: payload.email || null,
@@ -94,6 +109,7 @@ export async function updateHorizonAssignment(id: string, payload: {
   fullName: string;
   email?: string;
   status: string;
+  userId?: string | null;
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
@@ -111,6 +127,7 @@ export async function updateHorizonAssignment(id: string, payload: {
   const res = await prisma.horizonUser.update({
     where: { id },
     data: {
+      ...(payload.userId !== undefined ? { userId: payload.userId } : {}),
       username: payload.username,
       fullName: payload.fullName,
       email: payload.email || null,
@@ -204,13 +221,16 @@ export async function removeHorizonAssignment(id: string) {
 // -------------------------------------------------------------
 
 export async function fetchVpnAssignments(page: number = 1, pageSize: number = 10, search: string = "") {
-  const skip = (page - 1) * pageSize;
+  const safePage = Math.max(1, page);
+  const skip = (safePage - 1) * pageSize;
   const where: any = {};
   if (search) {
     where.OR = [
       { username: { contains: search, mode: "insensitive" } },
       { fullName: { contains: search, mode: "insensitive" } },
       { vpnIp: { contains: search, mode: "insensitive" } },
+      { user: { name: { contains: search, mode: "insensitive" } } },
+      { user: { email: { contains: search, mode: "insensitive" } } },
     ];
   }
 
@@ -218,6 +238,15 @@ export async function fetchVpnAssignments(page: number = 1, pageSize: number = 1
     prisma.vpnUser.findMany({
       where,
       include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            designation: true,
+            organization: true,
+          }
+        },
         assignments: {
           include: {
             vm: {
@@ -250,15 +279,16 @@ export async function fetchVpnAssignments(page: number = 1, pageSize: number = 1
     prisma.vpnUser.count({ where }),
   ]);
 
-  return { data, total, page, pageSize };
+  return { data, total, page: safePage, pageSize };
 }
 
 export async function createVpnAssignment(payload: {
   username: string;
   fullName: string;
-  vpnProfile: string;
+  vpnProfile?: string;
   vpnIp: string;
   status: string;
+  userId?: string;
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
@@ -281,9 +311,10 @@ export async function createVpnAssignment(payload: {
 
   const res = await prisma.vpnUser.create({
     data: {
+      userId: payload.userId || null,
       username: payload.username,
       fullName: payload.fullName,
-      vpnProfile: payload.vpnProfile,
+      vpnProfile: payload.vpnProfile || "Full Tunnel",
       vpnIp: payload.vpnIp,
       status: payload.status,
     },
@@ -296,9 +327,10 @@ export async function createVpnAssignment(payload: {
 export async function updateVpnAssignment(id: string, payload: {
   username: string;
   fullName: string;
-  vpnProfile: string;
+  vpnProfile?: string;
   vpnIp: string;
   status: string;
+  userId?: string | null;
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
@@ -327,9 +359,10 @@ export async function updateVpnAssignment(id: string, payload: {
   const res = await prisma.vpnUser.update({
     where: { id },
     data: {
+      ...(payload.userId !== undefined ? { userId: payload.userId } : {}),
       username: payload.username,
       fullName: payload.fullName,
-      vpnProfile: payload.vpnProfile,
+      vpnProfile: payload.vpnProfile || "Full Tunnel",
       vpnIp: payload.vpnIp,
       status: payload.status,
     },

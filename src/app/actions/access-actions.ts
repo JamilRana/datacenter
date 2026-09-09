@@ -16,20 +16,26 @@ import { generateApprovals } from "./approval-actions";
 import { revalidatePath } from "next/cache";
 import { ROLES, hasRole } from "@/lib/roles";
 
-export async function getAccessableVms() {
+export async function getAccessableVms(requesterId?: string) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) throw new Error("Unauthorized");
 
     const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
-    
-    // Non-admins see their own active VMs, admins see all active VMs
-    const whereClause: Prisma.VmInstanceWhereInput = isAdmin
-      ? { status: VmStatus.ACTIVE }
-      : { ownerId: session.user.id, status: VmStatus.ACTIVE };
+    const isDeveloper = hasRole(session.user.roles, ROLES.DEVELOPER);
+
+    // If an admin or developer explicitly specifies a target requester, use that requester's ID;
+    // otherwise default to the session user's ID so that requesters only see their own VMs.
+    const targetUserId = ((isAdmin || isDeveloper) && requesterId) ? requesterId : session.user.id;
 
     const vms = await prisma.vmInstance.findMany({
-      where: whereClause,
+      where: {
+        status: VmStatus.ACTIVE,
+        OR: [
+          { ownerId: targetUserId },
+          { request: { requesterId: targetUserId } }
+        ]
+      },
       include: {
         currentSpec: true,
         request: {
@@ -98,12 +104,19 @@ export async function createAccessRequest(formData: FormData) {
 
     // Check VM ownership
     const effectiveRequesterId = isDeveloper && assignedRequesterId ? assignedRequesterId : userId;
-    if (firstVm && !isAdmin && firstVm.ownerId !== effectiveRequesterId) {
-      throw new Error("You can only request access for your own VMs");
-    }
-
-    if (firstVm && firstVm.status !== VmStatus.ACTIVE) {
-      throw new Error("Target VM must be ACTIVE to request access");
+    if (vmIds.length > 0) {
+      const selectedVms = await prisma.vmInstance.findMany({
+        where: { id: { in: vmIds } },
+        include: { request: true }
+      });
+      for (const vm of selectedVms) {
+        if (vm.ownerId !== effectiveRequesterId && vm.request?.requesterId !== effectiveRequesterId) {
+          throw new Error("You can only request access for your own VMs");
+        }
+        if (vm.status !== VmStatus.ACTIVE) {
+          throw new Error(`Target VM (${vm.hostname || "VM"}) must be ACTIVE to request access`);
+        }
+      }
     }
 
     const rawAccessType = formData.get("accessType")?.toString();

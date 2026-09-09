@@ -33,6 +33,8 @@ interface ProvisionVMModalProps {
   onSuccess: () => void;
 }
 
+const EMPTY_SPECS: any[] = [];
+
 export function ProvisionVMModal({
   open,
   onOpenChange,
@@ -41,7 +43,7 @@ export function ProvisionVMModal({
   existingVmsCount,
   defaultSubdomain = "",
   requesterId,
-  vmSpecifications = [],
+  vmSpecifications = EMPTY_SPECS,
   targetSpecId = null,
   targetSequenceNumber = null,
   onSuccess,
@@ -54,66 +56,70 @@ export function ProvisionVMModal({
   const remainingVms = Math.max(0, totalRequested - existingVmsCount);
 
   useEffect(() => {
-    if (open) {
+    if (!open) {
+      setVms([]);
       setErrors({});
-
-      if (targetSpecId && targetSequenceNumber) {
-        // Targeted single VM provisioning
-        const matchedSpec = vmSpecifications.find((s) => s.id === targetSpecId);
-        setVms([
-          {
-            hostname: "",
-            ipAddress: "",
-            publicIpAddress: "",
-            subdomain: matchedSpec?.subdomain || defaultSubdomain || "",
-            sequenceNumber: targetSequenceNumber,
-            vmSpecificationId: targetSpecId,
-            spec: matchedSpec,
-          },
-        ]);
-      } else {
-        // Batch provisioning: auto-populate all remaining pending VMs
-        const pendingCount = remainingVms;
-        const initialCards: VmCardState[] = [];
-
-        for (let i = 0; i < pendingCount; i++) {
-          const seq = existingVmsCount + i + 1;
-          const matchedSpec = vmSpecifications[i] || vmSpecifications[0];
-          initialCards.push({
-            hostname: "",
-            ipAddress: "",
-            publicIpAddress: "",
-            subdomain: matchedSpec?.subdomain || defaultSubdomain || "",
-            sequenceNumber: seq,
-            vmSpecificationId: matchedSpec?.id || null,
-            spec: matchedSpec,
-          });
-        }
-
-        setVms(initialCards);
-      }
+      return;
     }
-  }, [open, targetSpecId, targetSequenceNumber, existingVmsCount, remainingVms, vmSpecifications, defaultSubdomain]);
 
-  const addVm = () => {
-    if (vms.length < remainingVms) {
-      const nextSeq = existingVmsCount + vms.length + 1;
-      const specIdx = vms.length % (vmSpecifications.length || 1);
-      const matchedSpec = vmSpecifications[specIdx] || null;
+    setErrors({});
 
+    if (targetSpecId && targetSequenceNumber) {
+      // Targeted single VM provisioning
+      const matchedSpec = vmSpecifications.find((s) => s.id === targetSpecId);
       setVms([
-        ...vms,
         {
           hostname: "",
           ipAddress: "",
           publicIpAddress: "",
           subdomain: matchedSpec?.subdomain || defaultSubdomain || "",
-          sequenceNumber: nextSeq,
-          vmSpecificationId: matchedSpec?.id || null,
+          sequenceNumber: targetSequenceNumber,
+          vmSpecificationId: targetSpecId,
           spec: matchedSpec,
         },
       ]);
+    } else {
+      // Batch provisioning: auto-populate all remaining pending VMs
+      const totalReq = requestQuantity || vmSpecifications.length || 1;
+      const remaining = Math.max(0, totalReq - existingVmsCount);
+      const pendingCount = remaining > 0 ? remaining : 1;
+      const initialCards: VmCardState[] = [];
+
+      for (let i = 0; i < pendingCount; i++) {
+        const seq = existingVmsCount + i + 1;
+        const matchedSpec = vmSpecifications[i] || vmSpecifications[0];
+        initialCards.push({
+          hostname: "",
+          ipAddress: "",
+          publicIpAddress: "",
+          subdomain: matchedSpec?.subdomain || defaultSubdomain || "",
+          sequenceNumber: seq,
+          vmSpecificationId: matchedSpec?.id || null,
+          spec: matchedSpec,
+        });
+      }
+
+      setVms(initialCards);
     }
+  }, [open, requestId, targetSpecId, targetSequenceNumber]);
+
+  const addVm = () => {
+    const nextSeq = existingVmsCount + vms.length + 1;
+    const specIdx = vmSpecifications.length > 0 ? vms.length % vmSpecifications.length : 0;
+    const matchedSpec = vmSpecifications[specIdx] || null;
+
+    setVms((prev) => [
+      ...prev,
+      {
+        hostname: "",
+        ipAddress: "",
+        publicIpAddress: "",
+        subdomain: matchedSpec?.subdomain || defaultSubdomain || "",
+        sequenceNumber: nextSeq,
+        vmSpecificationId: matchedSpec?.id || null,
+        spec: matchedSpec,
+      },
+    ]);
   };
 
   const removeVm = (index: number) => {
@@ -411,7 +417,7 @@ export function ProvisionVMModal({
           )}
 
           {/* Add VM Button for batch */}
-          {!targetSpecId && vms.length < remainingVms && (
+          {!targetSpecId && (remainingVms <= 0 || vms.length < remainingVms) && (
             <Button
               variant="outline"
               className="w-full border-dashed border-slate-300 py-6 text-slate-600 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50/30"
@@ -419,7 +425,7 @@ export function ProvisionVMModal({
               type="button"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Add Another VM ({vms.length}/{remainingVms} Pending)
+              Add Another VM {remainingVms > 0 ? `(${vms.length}/${remainingVms} Pending)` : ""}
             </Button>
           )}
 

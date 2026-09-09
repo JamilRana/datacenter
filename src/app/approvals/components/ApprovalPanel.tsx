@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,10 @@ import {
   Layers,
   Cpu,
   MemoryStick,
-  HardDrive
+  HardDrive,
+  Trash2,
+  Plus,
+  Minus
 } from "lucide-react";
 import { toast } from "sonner";
 import { 
@@ -37,6 +40,9 @@ import {
 } from "@/app/actions/approval-actions";
 import { Approval } from "@/types/approvals";
 import { useSession } from "next-auth/react";
+import { K8sNodeRole } from "@prisma/client";
+
+import { canUserApprove } from "@/lib/roles";
 
 export interface ApprovalResourceItem {
   id: string;
@@ -48,22 +54,34 @@ export interface ApprovalPanelProps {
   approvals: Approval[];
   requestType?: string;
   requestId?: string;
+  requestStatus?: string;
   initialVcpu?: number | null;
   initialRamGb?: number | null;
   initialStorageGb?: number | null;
   initialQuantity?: number | null;
   requestResources?: ApprovalResourceItem[];
+  k8sRequestNodeGroups?: Array<{
+    id: string;
+    role: string;
+    nodeCount: number;
+    vcpu: number;
+    ramGb: number;
+    storageGb?: number | null;
+    targetNodeGroupId?: string | null;
+  }>;
 }
 
 export function ApprovalPanel({
   approvals,
   requestType,
   requestId,
+  requestStatus,
   initialVcpu,
   initialRamGb,
   initialStorageGb,
   initialQuantity,
   requestResources = [],
+  k8sRequestNodeGroups = [],
 }: ApprovalPanelProps) {
   const [comments, setComments] = useState("");
   const [forwardComments, setForwardComments] = useState("");
@@ -84,31 +102,75 @@ export function ApprovalPanel({
   );
   const [adjustComments, setAdjustComments] = useState("");
 
+  // K8s In-flight modification state
+  const [modK8sGroups, setModK8sGroups] = useState<Array<{
+    id: string;
+    role: string;
+    nodeCount: number;
+    vcpu: number;
+    ramGb: number;
+    storageGb: number;
+    targetNodeGroupId?: string | null;
+  }>>(() => 
+    (k8sRequestNodeGroups || []).map(g => ({
+      id: g.id,
+      role: g.role,
+      nodeCount: g.nodeCount,
+      vcpu: g.vcpu,
+      ramGb: g.ramGb,
+      storageGb: g.storageGb ?? 50,
+      targetNodeGroupId: g.targetNodeGroupId,
+    }))
+  );
+  const [removedK8sGroupIds, setRemovedK8sGroupIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (k8sRequestNodeGroups && k8sRequestNodeGroups.length > 0) {
+      setModK8sGroups(
+        k8sRequestNodeGroups.map(g => ({
+          id: g.id,
+          role: g.role,
+          nodeCount: g.nodeCount,
+          vcpu: g.vcpu,
+          ramGb: g.ramGb,
+          storageGb: g.storageGb ?? 50,
+          targetNodeGroupId: g.targetNodeGroupId,
+        }))
+      );
+    }
+  }, [k8sRequestNodeGroups]);
+
   const currentUserId = session?.user?.id;
   const userRoles = session?.user?.roles || [];
-  const isAdmin = userRoles.includes("ADMIN");
   
-  // Find pending approval with lowest level
+  // 1. Request must be in an active pending stage (PENDING_L1, PENDING_L2, PENDING_L3, PENDING_L4)
+  const isPendingStatus = requestStatus ? requestStatus.startsWith("PENDING_L") : true;
+  if (requestStatus && !isPendingStatus) {
+    return null;
+  }
+
+  // 2. Determine current pending level from requestStatus (or fallback to lowest pending approval)
+  const currentPendingLevel = requestStatus?.startsWith("PENDING_L")
+    ? parseInt(requestStatus.replace("PENDING_L", ""), 10)
+    : null;
+
+  // 3. Find the pending approval matching this level
   const pendingApproval = approvals
-    .filter(a => a.decision === "PENDING")
+    .filter(a => a.decision === "PENDING" && (currentPendingLevel !== null ? a.level === currentPendingLevel : true))
     .sort((a, b) => a.level - b.level)[0] || null;
 
-  const pendingLevel = pendingApproval?.level || null;
+  const targetLevel = currentPendingLevel ?? pendingApproval?.level ?? null;
 
-  // Role authorization
+  // 4. Role authorization: user must have permission to approve at targetLevel
   const isAuthorized = Boolean(
-    pendingApproval && (
-      pendingApproval.approverId === currentUserId ||
-      isAdmin ||
-      (pendingLevel === 1 && (userRoles.includes("APPROVER_L1") || userRoles.includes("L1_APPROVER"))) ||
-      (pendingLevel === 2 && (userRoles.includes("APPROVER_L2") || userRoles.includes("L2_APPROVER"))) ||
-      (pendingLevel === 3 && (userRoles.includes("APPROVER_L3") || userRoles.includes("L3_APPROVER"))) ||
-      (pendingLevel === 4 && (userRoles.includes("APPROVER_L4") || userRoles.includes("L4_APPROVER") || userRoles.includes("DC_OPS")))
+    targetLevel !== null && (
+      canUserApprove(userRoles, targetLevel) ||
+      (pendingApproval && pendingApproval.approverId === currentUserId)
     )
   );
 
   const activeApproval = isAuthorized ? pendingApproval : null;
-  const currentLevel = activeApproval?.level || null;
+  const currentLevel = targetLevel;
   const isDirectorLevel = currentLevel === 4;
 
   const processAction = async (
@@ -195,18 +257,36 @@ export function ApprovalPanel({
       .filter(r => !selectedResourceIds.includes(r.id))
       .map(r => r.id);
 
+    const isK8s = requestType === "K8S_NAMESPACE";
+
     setLoading(true);
     try {
+      const activeK8sGroups = modK8sGroups.filter(g => !removedK8sGroupIds.includes(g.id));
+      if (isK8s && activeK8sGroups.length === 0) {
+        toast.error("A Kubernetes namespace request must retain at least one node group.");
+        setLoading(false);
+        return;
+      }
+
       const result = await modifyAndApproveRequest({
         approvalId: activeApproval.id,
         requestId,
         comments: adjustComments.trim(),
         modifications: {
-          vcpu: modVcpu,
-          ramGb: modRamGb,
-          storageGb: modStorageGb,
-          quantity: modQuantity,
+          vcpu: isK8s ? undefined : modVcpu,
+          ramGb: isK8s ? undefined : modRamGb,
+          storageGb: isK8s ? undefined : modStorageGb,
+          quantity: isK8s ? undefined : modQuantity,
           resourceIdsToRemove: removedIds,
+          k8sNodeGroups: isK8s ? activeK8sGroups.map(g => ({
+            id: g.id,
+            role: g.role as K8sNodeRole,
+            nodeCount: g.nodeCount,
+            vcpu: g.vcpu,
+            ramGb: g.ramGb,
+            storageGb: g.storageGb,
+          })) : undefined,
+          k8sNodeGroupIdsToRemove: isK8s && removedK8sGroupIds.length > 0 ? removedK8sGroupIds : undefined,
         }
       });
 
@@ -422,8 +502,144 @@ export function ApprovalPanel({
           </DialogHeader>
 
           <div className="space-y-5 py-3 text-xs">
-            {/* VM Spec Modifiers */}
-            {(isVmRequest || requestType === "K8S_NAMESPACE" || !isAccessRequest) && (
+            {/* K8S Node Groups Spec Modifiers */}
+            {requestType === "K8S_NAMESPACE" ? (
+              <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/30 dark:bg-indigo-950/20 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-100 dark:border-indigo-900/40 pb-2.5">
+                  <div>
+                    <p className="font-bold text-indigo-900 dark:text-indigo-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                      <Layers className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                      Kubernetes Node Groups ({modK8sGroups.filter(g => !removedK8sGroupIds.includes(g.id)).length} Active)
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      Customize node counts and specs per role, or prune groups before approving.
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                      Total: {modK8sGroups.filter(g => !removedK8sGroupIds.includes(g.id)).reduce((acc, g) => acc + g.nodeCount, 0)} Nodes •{" "}
+                      {modK8sGroups.filter(g => !removedK8sGroupIds.includes(g.id)).reduce((acc, g) => acc + g.nodeCount * g.vcpu, 0)} vCPU •{" "}
+                      {modK8sGroups.filter(g => !removedK8sGroupIds.includes(g.id)).reduce((acc, g) => acc + g.nodeCount * g.ramGb, 0)} GB RAM •{" "}
+                      {modK8sGroups.filter(g => !removedK8sGroupIds.includes(g.id)).reduce((acc, g) => acc + g.nodeCount * g.storageGb, 0)} GB Disk
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {modK8sGroups.map((group, idx) => {
+                    const isRemoved = removedK8sGroupIds.includes(group.id);
+                    const activeCount = modK8sGroups.filter(g => !removedK8sGroupIds.includes(g.id)).length;
+                    return (
+                      <div 
+                        key={group.id} 
+                        className={`p-3 rounded-lg border transition-all ${
+                          isRemoved 
+                            ? "bg-slate-100/70 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 opacity-60" 
+                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 shadow-xs"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                              isRemoved ? "bg-slate-200 text-slate-500" : "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300"
+                            }`}>
+                              {group.role}
+                            </span>
+                            {group.targetNodeGroupId && (
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                                (Scaling Existing Group)
+                              </span>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={!isRemoved && activeCount <= 1}
+                            onClick={() => {
+                              setRemovedK8sGroupIds(prev => 
+                                prev.includes(group.id) 
+                                  ? prev.filter(id => id !== group.id)
+                                  : [...prev, group.id]
+                              );
+                            }}
+                            className={`h-7 px-2 text-[11px] font-medium ${
+                              isRemoved 
+                                ? "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" 
+                                : "text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                            }`}
+                            title={!isRemoved && activeCount <= 1 ? "At least 1 node group must remain" : ""}
+                          >
+                            {isRemoved ? "Restore Group" : "Prune Group"}
+                          </Button>
+                        </div>
+
+                        {!isRemoved && (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                            <div>
+                              <Label className="text-[10px] text-slate-500">Nodes</Label>
+                              <Input 
+                                type="number" 
+                                min={1} 
+                                max={50} 
+                                value={group.nodeCount} 
+                                onChange={(e) => {
+                                  const val = Math.max(1, parseInt(e.target.value) || 1);
+                                  setModK8sGroups(prev => prev.map((g, i) => i === idx ? { ...g, nodeCount: val } : g));
+                                }}
+                                className="h-7 text-xs mt-0.5"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-slate-500">vCPU / node</Label>
+                              <Input 
+                                type="number" 
+                                min={1} 
+                                max={64} 
+                                value={group.vcpu} 
+                                onChange={(e) => {
+                                  const val = Math.max(1, parseInt(e.target.value) || 1);
+                                  setModK8sGroups(prev => prev.map((g, i) => i === idx ? { ...g, vcpu: val } : g));
+                                }}
+                                className="h-7 text-xs mt-0.5"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-slate-500">RAM (GB) / node</Label>
+                              <Input 
+                                type="number" 
+                                min={1} 
+                                max={512} 
+                                value={group.ramGb} 
+                                onChange={(e) => {
+                                  const val = Math.max(1, parseInt(e.target.value) || 1);
+                                  setModK8sGroups(prev => prev.map((g, i) => i === idx ? { ...g, ramGb: val } : g));
+                                }}
+                                className="h-7 text-xs mt-0.5"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px] text-slate-500">Disk (GB) / node</Label>
+                              <Input 
+                                type="number" 
+                                min={10} 
+                                max={5000} 
+                                value={group.storageGb} 
+                                onChange={(e) => {
+                                  const val = Math.max(10, parseInt(e.target.value) || 10);
+                                  setModK8sGroups(prev => prev.map((g, i) => i === idx ? { ...g, storageGb: val } : g));
+                                }}
+                                className="h-7 text-xs mt-0.5"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (isVmRequest || !isAccessRequest) && (
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-4">
                 <p className="font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider text-[11px]">
                   Resource Sizing

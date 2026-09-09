@@ -37,6 +37,7 @@ import {
   ChevronDown,
   Info,
   Layers,
+  HardDrive,
 } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AdditionalDisk, detailsRequest, FirewallPort } from "@/types/requests";
@@ -171,7 +172,12 @@ export function RequestForm({
     if (requestType === "CLONE_VM") {
       const fetchVms = async () => {
         try {
-          const vms = await getCloneableVms();
+          const targetRequester = isDeveloper ? (assignedRequesterId || undefined) : undefined;
+          if (isDeveloper && !assignedRequesterId) {
+            setCloneableVms([]);
+            return;
+          }
+          const vms = await getCloneableVms(targetRequester);
           setCloneableVms(vms);
         } catch (error) {
           toast.error(`Failed to load active VMs : ${error}`);
@@ -181,8 +187,13 @@ export function RequestForm({
     } else if (requestType === "VPN_ACCESS" || requestType === "HORIZON_ACCESS") {
       const fetchAccessable = async () => {
         try {
+          const targetRequester = isDeveloper ? (assignedRequesterId || undefined) : undefined;
+          if (isDeveloper && !assignedRequesterId) {
+            setAccessableVms([]);
+            return;
+          }
           const [vms, ns] = await Promise.all([
-            getAccessableVms(),
+            getAccessableVms(targetRequester),
             getNamespaceOptions()
           ]);
           setAccessableVms(vms);
@@ -195,7 +206,12 @@ export function RequestForm({
     } else if (requestType === "SYSTEM_UPGRADE") {
       const fetchUpgradeable = async () => {
         try {
-          const vms = await getUpgradeableVms();
+          const targetRequester = isDeveloper ? (assignedRequesterId || undefined) : undefined;
+          if (isDeveloper && !assignedRequesterId) {
+            setUpgradeableVms([]);
+            return;
+          }
+          const vms = await getUpgradeableVms(targetRequester);
           setUpgradeableVms(vms);
         } catch (error) {
           toast.error(`Failed to load active VMs : ${error}`);
@@ -203,7 +219,7 @@ export function RequestForm({
       };
       fetchUpgradeable();
     }
-  }, [requestType]);
+  }, [requestType, assignedRequesterId, isDeveloper]);
   const isEditOrCopy = isEditing || !!copyFrom || !!queryType;
   const [currentStep, setCurrentStep] = useState(isEditOrCopy ? 1 : 0);
   const totalSteps = 4;
@@ -705,16 +721,14 @@ export function RequestForm({
         setIsAutoSaving(false);
         return false;
       }
-      for (let i = 0; i < k8sNodeGroups.length; i++) {
-        const group = k8sNodeGroups[i];
-        if (group.nodeCount <= 0 || group.vcpu <= 0 || group.ramGb <= 0 || group.storageGb <= 0) {
-          toast.error(`Invalid values in node group ${i + 1}`);
-          setIsSubmitting(false);
-          setIsAutoSaving(false);
-          return false;
-        }
-      }
-      formData.set("k8sNodeGroups", JSON.stringify(k8sNodeGroups));
+      const sanitizedK8sNodeGroups = k8sNodeGroups.map((group) => ({
+        ...group,
+        nodeCount: Math.max(1, Number(group.nodeCount) || 1),
+        vcpu: Math.max(1, Number(group.vcpu) || 1),
+        ramGb: Math.max(1, Number(group.ramGb) || 1),
+        storageGb: Math.max(10, Number(group.storageGb) || 10),
+      }));
+      formData.set("k8sNodeGroups", JSON.stringify(sanitizedK8sNodeGroups));
       formData.set("vcpu", "0");
       formData.set("ramGb", "0");
       formData.set("storageGb", "0");
@@ -954,6 +968,41 @@ export function RequestForm({
             <div className="bg-blue-50 p-3 rounded-md border border-blue-200 text-blue-800 text-sm mb-4">
               📋 Prefilled from a previous request. Please review all fields.
             </div>
+          )}
+
+          {/* Developer Assignment */}
+          {isDeveloper && (
+            <Card className="shadow-md border-amber-200 bg-amber-50/30">
+              <CardHeader>
+                <CardTitle className="text-lg text-amber-800 flex items-center gap-2">
+                  <Users className="w-5 h-5" /> Assign Responsible Requester
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <Label className="text-amber-800">Requester *</Label>
+                  <Select
+                    value={assignedRequesterId}
+                    onValueChange={(val) => {
+                      setAssignedRequesterId(val);
+                      setSelectedVmIds([]);
+                    }}
+                    required
+                  >
+                    <SelectTrigger className="border-amber-300 bg-white">
+                      <SelectValue placeholder="Select the user responsible for this request" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {requesters.map((requester) => (
+                        <SelectItem key={requester.id} value={requester.id}>
+                          {requester.name} • {requester.designation || requester.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Source VM Selector for Clone */}
@@ -1630,7 +1679,14 @@ export function RequestForm({
                       <CardContent>
                         <div className="space-y-2">
                           <Label className="text-amber-800">Requester *</Label>
-                          <Select value={assignedRequesterId} onValueChange={setAssignedRequesterId} required>
+                          <Select
+                            value={assignedRequesterId}
+                            onValueChange={(val) => {
+                              setAssignedRequesterId(val);
+                              setSelectedVmIds([]);
+                            }}
+                            required
+                          >
                             <SelectTrigger className="border-amber-300">
                               <SelectValue placeholder="Select the user responsible for this VM" />
                             </SelectTrigger>
@@ -2211,125 +2267,290 @@ export function RequestForm({
                       </CardContent>
                     </Card>
                   ) : requestType === "K8S_NAMESPACE" ? (<>
-                    <Card className="shadow-md border-indigo-200 bg-indigo-50/20">
-                      <CardHeader className="bg-indigo-50/50 border-b border-indigo-100 flex flex-row items-center justify-between">
-                        <div className="flex items-center gap-2 text-indigo-600">
-                          <Code className="w-5 h-5" />
-                          <CardTitle className="text-lg">Kubernetes Node Specifications</CardTitle>
+                    <Card className="shadow-md border-indigo-200 bg-white overflow-hidden">
+                      <CardHeader className="bg-gradient-to-r from-indigo-50/80 to-blue-50/50 border-b border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5">
+                        <div>
+                          <div className="flex items-center gap-2 text-indigo-700 font-bold text-lg">
+                            <Code className="w-5 h-5" />
+                            <CardTitle className="text-lg">Kubernetes Node Specifications</CardTitle>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Configure the node groups, roles (Master/Worker), and compute/storage resources for this namespace.
+                          </p>
                         </div>
                         <Button
                           type="button"
                           onClick={() => setK8sNodeGroups([...k8sNodeGroups, { role: "WORKER", nodeCount: 1, vcpu: 2, ramGb: 4, storageGb: 50 }])}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 h-8 px-3 rounded-lg"
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs flex items-center gap-1.5 h-9 px-3.5 rounded-lg shadow-sm shrink-0 self-start sm:self-auto"
                         >
-                          <Plus className="w-3.5 h-3.5" /> Add Node Group
+                          <Plus className="w-4 h-4" /> Add Node Group
                         </Button>
                       </CardHeader>
-                      <CardContent className="space-y-4 pt-6">
+
+                      <CardContent className="space-y-5 p-5">
+                        {/* Summary / Total Resource Allocation KPI Cards */}
+                        {(() => {
+                          const totalNodes = k8sNodeGroups.reduce((acc, g) => acc + (Number(g.nodeCount) || 0), 0);
+                          const totalVcpu = k8sNodeGroups.reduce((acc, g) => acc + ((Number(g.nodeCount) || 0) * (Number(g.vcpu) || 0)), 0);
+                          const totalRam = k8sNodeGroups.reduce((acc, g) => acc + ((Number(g.nodeCount) || 0) * (Number(g.ramGb) || 0)), 0);
+                          const totalStorage = k8sNodeGroups.reduce((acc, g) => acc + ((Number(g.nodeCount) || 0) * (Number(g.storageGb) || 0)), 0);
+                          const masterNodes = k8sNodeGroups.filter(g => g.role === "MASTER").reduce((acc, g) => acc + (Number(g.nodeCount) || 0), 0);
+                          const workerNodes = k8sNodeGroups.filter(g => g.role === "WORKER").reduce((acc, g) => acc + (Number(g.nodeCount) || 0), 0);
+
+                          return (
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100">
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                                  <Server className="w-3 h-3 text-indigo-600" /> Total Nodes
+                                </span>
+                                <p className="text-base font-bold text-slate-900">
+                                  {totalNodes}{" "}
+                                  <span className="text-[11px] font-normal text-slate-500">
+                                    ({masterNodes} Master, {workerNodes} Worker)
+                                  </span>
+                                </p>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                                  <Cpu className="w-3 h-3 text-indigo-600" /> Total vCPU
+                                </span>
+                                <p className="text-base font-bold text-indigo-900">
+                                  {totalVcpu} <span className="text-xs font-normal text-slate-500">Cores</span>
+                                </p>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                                  <HardDrive className="w-3 h-3 text-emerald-600" /> Total RAM
+                                </span>
+                                <p className="text-base font-bold text-emerald-900">
+                                  {totalRam} <span className="text-xs font-normal text-slate-500">GB</span>
+                                </p>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                                  <Layers className="w-3 h-3 text-blue-600" /> Total Storage
+                                </span>
+                                <p className="text-base font-bold text-blue-900">
+                                  {totalStorage} <span className="text-xs font-normal text-slate-500">GB</span>
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {k8sNodeGroups.length === 0 ? (
-                          <div className="text-center py-6 text-sm text-slate-500 italic bg-white rounded-lg border border-slate-100">
-                            No node groups defined. Please add at least one group.
+                          <div className="text-center py-8 text-sm text-slate-500 italic bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                            No node groups defined. Click &ldquo;Add Node Group&rdquo; above to add at least one group.
                           </div>
                         ) : (
                           <div className="space-y-4">
-                            {k8sNodeGroups.map((group, index) => (
-                              <div key={index} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4 relative">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (k8sNodeGroups.length <= 1) {
-                                      toast.error("At least one node group is required");
-                                      return;
-                                    }
-                                    setK8sNodeGroups(k8sNodeGroups.filter((_, idx) => idx !== index));
-                                  }}
-                                  className="absolute top-4 right-4 text-red-500 hover:text-red-700 transition-colors"
+                            {k8sNodeGroups.map((group, index) => {
+                              const groupCount = Number(group.nodeCount) || 0;
+                              const groupCpu = Number(group.vcpu) || 0;
+                              const groupRam = Number(group.ramGb) || 0;
+                              const groupDisk = Number(group.storageGb) || 0;
+
+                              return (
+                                <div 
+                                  key={index} 
+                                  className="bg-white rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors overflow-hidden"
                                 >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs text-slate-500 font-bold uppercase">Node Role</Label>
-                                    <Select
-                                      value={group.role}
-                                      onValueChange={(val) => {
-                                        const updated = [...k8sNodeGroups];
-                                        updated[index].role = val;
-                                        setK8sNodeGroups(updated);
+                                  {/* Node Group Card Header */}
+                                  <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-bold text-slate-800">
+                                        Node Group #{index + 1}
+                                      </span>
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                                        group.role === "MASTER" 
+                                          ? "bg-amber-100 text-amber-800 border border-amber-200"
+                                          : "bg-blue-100 text-blue-800 border border-blue-200"
+                                      }`}>
+                                        {group.role === "MASTER" ? "Master (Control Plane)" : "Worker (Workload)"}
+                                      </span>
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        if (k8sNodeGroups.length <= 1) {
+                                          toast.error("At least one node group is required");
+                                          return;
+                                        }
+                                        setK8sNodeGroups(k8sNodeGroups.filter((_, idx) => idx !== index));
                                       }}
+                                      className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 px-2 text-xs font-medium gap-1"
+                                      title="Delete this node group"
                                     >
-                                      <SelectTrigger className="h-9">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="MASTER">Master Node</SelectItem>
-                                        <SelectItem value="WORKER">Worker Node</SelectItem>
-                                      </SelectContent>
-                                    </Select>
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <span>Remove</span>
+                                    </Button>
                                   </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs text-slate-500 font-bold uppercase">Node Count</Label>
-                                    <Input
-                                      type="number"
-                                      value={group.nodeCount}
-                                      onChange={(e) => {
-                                        const updated = [...k8sNodeGroups];
-                                        updated[index].nodeCount = parseInt(e.target.value) || 1;
-                                        setK8sNodeGroups(updated);
-                                      }}
-                                      min="1"
-                                      max="20"
-                                      className="h-9"
-                                    />
+
+                                  {/* Form Inputs: 5 full, spacious columns */}
+                                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                                    {/* 1. Node Role */}
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs text-slate-600 font-bold uppercase tracking-wider">
+                                        Node Role <span className="text-red-500">*</span>
+                                      </Label>
+                                      <Select
+                                        value={group.role}
+                                        onValueChange={(val) => {
+                                          const updated = [...k8sNodeGroups];
+                                          updated[index].role = val;
+                                          setK8sNodeGroups(updated);
+                                        }}
+                                      >
+                                        <SelectTrigger className="h-10 bg-white">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="MASTER">Master (Control Plane)</SelectItem>
+                                          <SelectItem value="WORKER">Worker (Workload)</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <p className="text-[10px] text-slate-400">Target role in cluster</p>
+                                    </div>
+
+                                    {/* 2. Node Count */}
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs text-slate-600 font-bold uppercase tracking-wider">
+                                        Node Count <span className="text-red-500">*</span>
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        min="1"
+                                        max="50"
+                                        value={group.nodeCount}
+                                        onChange={(e) => {
+                                          const updated = [...k8sNodeGroups];
+                                          const val = e.target.value;
+                                          const p = parseInt(val, 10);
+                                          updated[index].nodeCount = val === "" ? "" : (isNaN(p) ? "" : p);
+                                          setK8sNodeGroups(updated);
+                                        }}
+                                        onBlur={() => {
+                                          const updated = [...k8sNodeGroups];
+                                          if (!updated[index].nodeCount || Number(updated[index].nodeCount) < 1) {
+                                            updated[index].nodeCount = 1;
+                                            setK8sNodeGroups(updated);
+                                          }
+                                        }}
+                                        placeholder="e.g. 3"
+                                        className="h-10 bg-white"
+                                        required
+                                      />
+                                      <p className="text-[10px] text-slate-400">Instances in this group</p>
+                                    </div>
+
+                                    {/* 3. vCPU Cores */}
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs text-slate-600 font-bold uppercase tracking-wider">
+                                        vCPU / Node <span className="text-red-500">*</span>
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        min="1"
+                                        max="128"
+                                        value={group.vcpu}
+                                        onChange={(e) => {
+                                          const updated = [...k8sNodeGroups];
+                                          const val = e.target.value;
+                                          const p = parseInt(val, 10);
+                                          updated[index].vcpu = val === "" ? "" : (isNaN(p) ? "" : p);
+                                          setK8sNodeGroups(updated);
+                                        }}
+                                        onBlur={() => {
+                                          const updated = [...k8sNodeGroups];
+                                          if (!updated[index].vcpu || Number(updated[index].vcpu) < 1) {
+                                            updated[index].vcpu = 1;
+                                            setK8sNodeGroups(updated);
+                                          }
+                                        }}
+                                        placeholder="e.g. 2"
+                                        className="h-10 bg-white"
+                                        required
+                                      />
+                                      <p className="text-[10px] text-slate-400">Cores per node</p>
+                                    </div>
+
+                                    {/* 4. RAM (GB) */}
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs text-slate-600 font-bold uppercase tracking-wider">
+                                        RAM / Node (GB) <span className="text-red-500">*</span>
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        min="1"
+                                        max="512"
+                                        value={group.ramGb}
+                                        onChange={(e) => {
+                                          const updated = [...k8sNodeGroups];
+                                          const val = e.target.value;
+                                          const p = parseInt(val, 10);
+                                          updated[index].ramGb = val === "" ? "" : (isNaN(p) ? "" : p);
+                                          setK8sNodeGroups(updated);
+                                        }}
+                                        onBlur={() => {
+                                          const updated = [...k8sNodeGroups];
+                                          if (!updated[index].ramGb || Number(updated[index].ramGb) < 1) {
+                                            updated[index].ramGb = 1;
+                                            setK8sNodeGroups(updated);
+                                          }
+                                        }}
+                                        placeholder="e.g. 4"
+                                        className="h-10 bg-white"
+                                        required
+                                      />
+                                      <p className="text-[10px] text-slate-400">Memory in Gigabytes</p>
+                                    </div>
+
+                                    {/* 5. Storage (GB) */}
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs text-slate-600 font-bold uppercase tracking-wider">
+                                        Storage / Node (GB) <span className="text-red-500">*</span>
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        min="10"
+                                        max="5000"
+                                        value={group.storageGb}
+                                        onChange={(e) => {
+                                          const updated = [...k8sNodeGroups];
+                                          const val = e.target.value;
+                                          const p = parseInt(val, 10);
+                                          updated[index].storageGb = val === "" ? "" : (isNaN(p) ? "" : p);
+                                          setK8sNodeGroups(updated);
+                                        }}
+                                        onBlur={() => {
+                                          const updated = [...k8sNodeGroups];
+                                          if (!updated[index].storageGb || Number(updated[index].storageGb) < 10) {
+                                            updated[index].storageGb = 10;
+                                            setK8sNodeGroups(updated);
+                                          }
+                                        }}
+                                        placeholder="e.g. 50"
+                                        className="h-10 bg-white"
+                                        required
+                                      />
+                                      <p className="text-[10px] text-slate-400">Min 10 GB per node</p>
+                                    </div>
                                   </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs text-slate-500 font-bold uppercase">vCPU Cores</Label>
-                                    <Input
-                                      type="number"
-                                      value={group.vcpu}
-                                      onChange={(e) => {
-                                        const updated = [...k8sNodeGroups];
-                                        updated[index].vcpu = parseInt(e.target.value) || 1;
-                                        setK8sNodeGroups(updated);
-                                      }}
-                                      min="1"
-                                      max="64"
-                                      className="h-9"
-                                    />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs text-slate-500 font-bold uppercase">RAM (GB)</Label>
-                                    <Input
-                                      type="number"
-                                      value={group.ramGb}
-                                      onChange={(e) => {
-                                        const updated = [...k8sNodeGroups];
-                                        updated[index].ramGb = parseInt(e.target.value) || 1;
-                                        setK8sNodeGroups(updated);
-                                      }}
-                                      min="1"
-                                      max="256"
-                                      className="h-9"
-                                    />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label className="text-xs text-slate-500 font-bold uppercase">Storage (GB)</Label>
-                                    <Input
-                                      type="number"
-                                      value={group.storageGb}
-                                      onChange={(e) => {
-                                        const updated = [...k8sNodeGroups];
-                                        updated[index].storageGb = parseInt(e.target.value) || 1;
-                                        setK8sNodeGroups(updated);
-                                      }}
-                                      min="10"
-                                      max="2000"
-                                      className="h-9"
-                                    />
+
+                                  {/* Group Footer Summary */}
+                                  <div className="bg-slate-50/70 px-4 py-2 border-t border-slate-100 flex flex-wrap items-center justify-between text-xs text-slate-500 gap-2">
+                                    <span>
+                                      Group Subtotal: <strong>{groupCount}</strong> Nodes × (<strong>{groupCpu}</strong> vCPU, <strong>{groupRam}</strong> GB RAM, <strong>{groupDisk}</strong> GB Storage)
+                                    </span>
+                                    <span className="font-semibold text-indigo-700">
+                                      = {groupCount * groupCpu} vCPUs • {groupCount * groupRam} GB RAM • {groupCount * groupDisk} GB Storage
+                                    </span>
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
                       </CardContent>
@@ -2378,7 +2599,20 @@ export function RequestForm({
                             name="quantity"
                             type="number"
                             value={quantity}
-                            onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "") {
+                                setQuantity("" as any);
+                              } else {
+                                const p = parseInt(val, 10);
+                                if (!isNaN(p)) setQuantity(p);
+                              }
+                            }}
+                            onBlur={() => {
+                              if (!quantity || Number(quantity) < 1) {
+                                setQuantity(1);
+                              }
+                            }}
                             className="w-12 h-7 bg-white border-indigo-200 text-center p-0 no-spinner font-bold"
                             min="1"
                             max="20"

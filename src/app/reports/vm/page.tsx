@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { fetchVmReport } from "@/app/actions/report-actions";
-import { Download, Filter, Search, FileSpreadsheet, FileText } from "lucide-react";
+import { Download, Filter, Search, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/analytics/StatCard";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
 import { exportToCsv, exportToExcel, exportToPdf } from "@/lib/export-utils";
+import { toast } from "sonner";
 
 interface VmReportRow {
   id: string;
@@ -70,6 +71,7 @@ export default function VmReportPage() {
   
   const [reportData, setReportData] = useState<VmReportResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [filters, setFilters] = useState({
     search: searchParams.get("search") || "",
     status: searchParams.get("status") || "all",
@@ -115,10 +117,16 @@ export default function VmReportPage() {
     setFilters(prev => ({ ...prev, page: newPage }));
   };
 
-  const handleExportCsv = () => {
-    if (!reportData?.data) return;
-    
-    const exportData = reportData.data.map(vm => ({
+  const getFullExportData = async () => {
+    const params: Record<string, unknown> = {
+      getAll: true,
+    };
+    if (filters.search) params.search = filters.search;
+    if (filters.status && filters.status !== "all") params.status = filters.status;
+    if (filters.environment && filters.environment !== "all") params.environment = filters.environment;
+
+    const result = await fetchVmReport(params);
+    return (result?.data || []).map(vm => ({
       Hostname: vm.hostname,
       Owner: vm.ownerName,
       Email: vm.ownerEmail,
@@ -131,53 +139,56 @@ export default function VmReportPage() {
       Storage_GB: vm.storageGb,
       Created: new Date(vm.createdAt).toLocaleDateString(),
     }));
-    
-    exportToCsv(`vm-report-${new Date().toISOString().split("T")[0]}.csv`, exportData);
   };
 
-  const handleExportExcel = () => {
-    if (!reportData?.data) return;
-    
-    const exportData = reportData.data.map(vm => ({
-      Hostname: vm.hostname,
-      Owner: vm.ownerName,
-      Email: vm.ownerEmail,
-      System: vm.systemName,
-      Domain: vm.domain,
-      Environment: vm.environment,
-      Status: vm.status,
-      vCPU: vm.vcpu,
-      RAM_GB: vm.ramGb,
-      Storage_GB: vm.storageGb,
-      Created: new Date(vm.createdAt).toLocaleDateString(),
-    }));
-    
-    exportToExcel(`vm-report-${new Date().toISOString().split("T")[0]}.xls`, exportData);
+  const handleExportCsv = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing CSV export for all matching VMs...");
+      const exportData = await getFullExportData();
+      exportToCsv(`vm-report-${new Date().toISOString().split("T")[0]}.csv`, exportData);
+      toast.success(`Exported ${exportData.length} VMs successfully.`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export VM report");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const handleExportPdf = () => {
-    if (!reportData?.data) return;
-    
-    const exportData = reportData.data.map(vm => ({
-      Hostname: vm.hostname,
-      Owner: vm.ownerName,
-      Email: vm.ownerEmail,
-      System: vm.systemName,
-      Domain: vm.domain,
-      Environment: vm.environment,
-      Status: vm.status,
-      vCPU: vm.vcpu,
-      RAM_GB: vm.ramGb,
-      Storage_GB: vm.storageGb,
-      Created: new Date(vm.createdAt).toLocaleDateString(),
-    }));
-    
-    exportToPdf(
-      `vm-report-${new Date().toISOString().split("T")[0]}.html`,
-      "VM Report",
-      ["Hostname", "Owner", "Email", "System", "Domain", "Environment", "Status", "vCPU", "RAM (GB)", "Storage (GB)", "Created"],
-      exportData
-    );
+  const handleExportExcel = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing Excel export for all matching VMs...");
+      const exportData = await getFullExportData();
+      exportToExcel(`vm-report-${new Date().toISOString().split("T")[0]}.xls`, exportData);
+      toast.success(`Exported ${exportData.length} VMs successfully.`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export VM report");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing PDF export for all matching VMs...");
+      const exportData = await getFullExportData();
+      exportToPdf(
+        `vm-report-${new Date().toISOString().split("T")[0]}.html`,
+        "VM Report",
+        ["Hostname", "Owner", "Email", "System", "Domain", "Environment", "Status", "vCPU", "RAM (GB)", "Storage (GB)", "Created"],
+        exportData
+      );
+      toast.success(`Exported ${exportData.length} VMs successfully.`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export VM report");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (status === "loading" || loading) {
@@ -203,14 +214,14 @@ export default function VmReportPage() {
           <p className="text-slate-500 mt-1">Virtual machine inventory and utilization report</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExportCsv} className="gap-2">
-            <Download className="h-4 w-4" /> CSV
+          <Button variant="outline" disabled={isExporting} onClick={handleExportCsv} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} CSV
           </Button>
-          <Button variant="outline" onClick={handleExportExcel} className="gap-2">
-            <FileSpreadsheet className="h-4 w-4" /> Excel
+          <Button variant="outline" disabled={isExporting} onClick={handleExportExcel} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />} Excel
           </Button>
-          <Button variant="outline" onClick={handleExportPdf} className="gap-2">
-            <FileText className="h-4 w-4" /> PDF
+          <Button variant="outline" disabled={isExporting} onClick={handleExportPdf} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} PDF
           </Button>
         </div>
       </div>

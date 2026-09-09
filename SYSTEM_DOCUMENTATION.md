@@ -276,13 +276,10 @@ d:\datacenter\
 │   └── proxy.ts                       # Auth and rate limiting network boundary (Next.js 16)
 ├── prisma/
 │   ├── schema.prisma                 # Database schema (595 lines, 20 models)
-│   ├── seed.ts                       # Database seeder
-│   └── seed.sql                      # SQL seed data
+│   └── seed.ts                       # Database seeder
 ├── data/                             # Seed data files
 │   ├── UserList.json                 # User seed data
-│   ├── VmList.json                   # VM seed data
-│   ├── server_req.csv                # Request history
-│   └── server_req.xlsx               # Request spreadsheet
+│   └── vm_import.csv                 # VM inventory, specs, and requester data
 ├── scripts/
 │   ├── check-minio.ts                # MinIO connectivity check
 │   └── check-workflows.ts            # Workflow configuration check
@@ -1301,22 +1298,17 @@ NEXT_PUBLIC_EMAIL=noreply@datacenter.dghs.gov.bd
 | `start` | `next start` | Start production server |
 | `lint` | `next lint` | Run ESLint |
 | `postinstall` | `prisma generate` | Auto-generate Prisma client |
-| `db:seed` | `tsx prisma/seed.ts` | Seed all data |
-| `seed:users` | `tsx prisma/seed.ts --users` | Seed users only |
-| `seed:vms` | `tsx prisma/seed.ts --vms` | Seed VMs only |
-| `seed:clear` | `tsx prisma/seed.ts --clear` | Clear seeded data |
-| `seed:clear-all` | `tsx prisma/seed.ts --clear-all` | Clear all data |
+| `db:seed` | `tsx prisma/seed.ts` | Complete seed (Users + CSV VM inventory & specs) |
+| `seed:users` | `tsx prisma/seed.ts --users` | Seed users & roles only |
+| `seed:vms` | `tsx prisma/seed.ts --vms` | Seed VM inventory & specs from CSV |
+| `seed:csv` | `tsx prisma/seed.ts --csv` | Seed VM inventory & specs from CSV |
 
 ### Seed Data Files
 
 | File | Size | Purpose |
 |---|---|---|
-| `data/UserList.json` | 9KB | User accounts with roles |
-| `data/VmList.json` | 155KB | VM instances with specs |
-| `data/server_req.csv` | 304KB | Historical request data |
-| `data/server_req.xlsx` | 58KB | Request spreadsheet data |
-| `data/user.csv` | 5KB | User data (CSV format) |
-| `data/server_request_3_table.sql` | 401KB | SQL import for 3-table request data |
+| `data/UserList.json` | 17KB | User accounts with roles and workflows |
+| `data/vm_import.csv` | 82KB | VM instances, hardware specifications, IPs, and requesters |
 
 ### Setup Steps
 

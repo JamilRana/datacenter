@@ -56,7 +56,6 @@ export async function fetchDashboardData(
     .map((role: any) => levelMapping[role])
     .filter((lvl): lvl is number => lvl !== undefined);
 
-  // Admins see everything - regardless of also having approver role
   const isAdminUser = userRoles.includes(ROLES.ADMIN);
   const isDCOps = userRoles.includes(ROLES.DCOPS);
 
@@ -79,21 +78,23 @@ export async function fetchDashboardData(
     ];
     requestWhere = { OR: orConditions };
   } else if (userApprovalLevels.length > 0) {
-    // For approvers, show pending requests at their level
-    const orConditions: Prisma.RequestWhereInput[] = [];
-    
-    for (const level of userApprovalLevels) {
-      const pendingStatus = `PENDING_L${level}` as RequestStatus;
-      orConditions.push({
-        status: pendingStatus,
-        approvals: { 
-          some: { 
-            decision: ApprovalDecision.PENDING,
-            level: level
-          } 
-        }
-      });
-    }
+    // For approvers, show pending requests at their level plus requests they acted on
+    const orConditions: Prisma.RequestWhereInput[] = [
+      {
+        status: { in: userApprovalLevels.map(level => `PENDING_L${level}` as RequestStatus) }
+      },
+      {
+        approvals: {
+          some: {
+            OR: [
+              { level: { in: userApprovalLevels } },
+              { approverId: userId }
+            ]
+          }
+        },
+        status: { not: RequestStatus.DRAFT }
+      }
+    ];
     
     // DCOps can also see approved/provisioned requests
     if (userRoles.includes(ROLES.DCOPS)) {
@@ -130,21 +131,23 @@ export async function fetchDashboardData(
     ];
     customizationWhere = { OR: orConditions };
   } else if (userApprovalLevels.length > 0) {
-    // For approvers, show pending customizations at their level
-    const orConditions: Prisma.CustomizationRequestWhereInput[] = [];
-    
-    for (const level of userApprovalLevels) {
-      const pendingStatus = `PENDING_L${level}` as CustomizationStatus;
-      orConditions.push({
-        status: pendingStatus,
-        approvals: { 
-          some: { 
-            decision: ApprovalDecision.PENDING,
-            level: level
-          } 
-        }
-      });
-    }
+    // For approvers, show pending customizations at their level plus customizations they acted on
+    const orConditions: Prisma.CustomizationRequestWhereInput[] = [
+      {
+        status: { in: userApprovalLevels.map(level => `PENDING_L${level}` as CustomizationStatus) }
+      },
+      {
+        approvals: {
+          some: {
+            OR: [
+              { level: { in: userApprovalLevels } },
+              { approverId: userId }
+            ]
+          }
+        },
+        status: { not: CustomizationStatus.DRAFT }
+      }
+    ];
     
     // DCOps can also see approved/applied customizations
     if (userRoles.includes(ROLES.DCOPS)) {
@@ -210,7 +213,6 @@ export async function fetchDashboardData(
               status: `PENDING_L${level}` as RequestStatus,
               approvals: { 
                 some: { 
-                  approverId: userId, 
                   decision: ApprovalDecision.PENDING,
                   level: level
                 } 
@@ -249,7 +251,6 @@ export async function fetchDashboardData(
               status: `PENDING_L${level}` as CustomizationStatus,
               approvals: { 
                 some: { 
-                  approverId: userId, 
                   decision: ApprovalDecision.PENDING,
                   level: level
                 } 
@@ -491,6 +492,8 @@ export async function fetchDashboardData(
       quantity: req.quantity,
       vmInstances: { length: req.vmInstances.length },
       subdomain: req.subdomain,
+      requesterId: req.requesterId,
+      vmSpecifications: req.vmSpecifications || [],
       summary: computeRequestSummary(req),
     })),
     

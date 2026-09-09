@@ -40,28 +40,42 @@ export function hasRole(userRoles: string[] | undefined, targetRole: string) {
   return userRoles.includes(targetRole);
 }
 
-export async function canUserApproveAtLevel(userRoles: string[] | undefined, level: number, _requestType?: string): Promise<boolean> {
-  if (!userRoles) return false;
-  if (hasRole(userRoles, ROLES.ADMIN)) return true;
+export function getUserActionableLevels(userRoles: string[] | undefined): number[] {
+  if (!userRoles || !Array.isArray(userRoles)) return [];
+  const levels = new Set<number>();
   
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  void _requestType;
+  if (userRoles.includes("APPROVER_L1") || userRoles.includes("L1_APPROVER")) levels.add(1);
+  if (userRoles.includes("APPROVER_L2") || userRoles.includes("L2_APPROVER")) levels.add(2);
+  if (userRoles.includes("APPROVER_L3") || userRoles.includes("L3_APPROVER")) levels.add(3);
+  if (userRoles.includes("APPROVER_L4") || userRoles.includes("L4_APPROVER")) levels.add(4);
   
-  // Simplified check - fallback to role-based lookup
-  if (level === 1 && hasRole(userRoles, ROLES.L1_APPROVER)) return true;
-  if (level === 2 && hasRole(userRoles, ROLES.L2_APPROVER)) return true;
-  if (level === 3 && hasRole(userRoles, ROLES.L3_APPROVER)) return true;
-  if (level === 4 && hasRole(userRoles, ROLES.L4_APPROVER)) return true;
-  return false;
+  // If user has specific approver level(s) assigned, those are strictly their actionable levels
+  if (levels.size > 0) {
+    return Array.from(levels);
+  }
+  
+  // Only pure admin (without specific approver tiers assigned) can act on any level
+  if (userRoles.includes(ROLES.ADMIN)) {
+    return [1, 2, 3, 4];
+  }
+  
+  return [];
 }
 
-export function canUserApprove(userRoles: string[] | undefined, level: string): boolean {
-  if (!userRoles) return false;
-  if (hasRole(userRoles, ROLES.ADMIN)) return true;
-  if (level === "L1" && hasRole(userRoles, ROLES.L1_APPROVER)) return true;
-  if (level === "L2" && hasRole(userRoles, ROLES.L2_APPROVER)) return true;
-  if (level === "L3" && hasRole(userRoles, ROLES.L3_APPROVER)) return true;
-  if (level === "L4" && hasRole(userRoles, ROLES.L4_APPROVER)) return true;
-  if (level === "DCOPS" && hasRole(userRoles, ROLES.DCOPS)) return true;
-  return false;
+export function canUserApprove(userRoles: string[] | undefined, level: string | number): boolean {
+  if (!userRoles || !Array.isArray(userRoles)) return false;
+  const levelStr = String(level).toUpperCase();
+  if (levelStr === "DCOPS" || levelStr === "DC_OPS") {
+    return hasRole(userRoles, ROLES.DCOPS) || (hasRole(userRoles, ROLES.ADMIN) && getUserActionableLevels(userRoles).length === 4);
+  }
+  
+  const cleanLevel = typeof level === "number" ? level : parseInt(levelStr.replace("L", ""), 10);
+  if (isNaN(cleanLevel)) return false;
+  
+  const actionableLevels = getUserActionableLevels(userRoles);
+  return actionableLevels.includes(cleanLevel);
+}
+
+export async function canUserApproveAtLevel(userRoles: string[] | undefined, level: number, _requestType?: string): Promise<boolean> {
+  return canUserApprove(userRoles, level);
 }

@@ -9,13 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Loader2, Plus, Trash2, Save, X, Edit2 } from "lucide-react";
@@ -40,10 +40,10 @@ const requestTypeLabels: Record<string, string> = {
 export default function WorkflowsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  
+
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [requestTypes, setRequestTypes] = useState<string[]>([]);
-  const [availableRoles, setAvailableRoles] = useState<{value: string; label: string}[]>([]);
+  const [availableRoles, setAvailableRoles] = useState<{ value: string; label: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedType, setSelectedType] = useState<string>("NEW_VM");
   const [isAdding, setIsAdding] = useState(false);
@@ -204,8 +204,8 @@ export default function WorkflowsPage() {
                       <TableRow key={workflow.id}>
                         <TableCell className="font-medium">Level {workflow.level}</TableCell>
                         <TableCell>
-                          <Select 
-                            value={editLevel.role} 
+                          <Select
+                            value={editLevel.role}
                             onValueChange={(v) => setEditLevel({ ...editLevel, role: v, isFinal: v === "DC_OPS" ? false : editLevel.isFinal })}
                           >
                             <SelectTrigger className="w-[180px]">
@@ -222,7 +222,7 @@ export default function WorkflowsPage() {
                         </TableCell>
                         <TableCell>
                           <Input
-                            placeholder="e.g., Section Officer"
+                            placeholder="e.g., Assistant Maintenance Enginner"
                             value={editLevel.roleLabel}
                             onChange={(e) => setEditLevel({ ...editLevel, roleLabel: e.target.value })}
                             className="w-[180px]"
@@ -302,7 +302,7 @@ export default function WorkflowsPage() {
                   </TableCell>
                   <TableCell>
                     <Input
-                      placeholder="e.g., Section Officer"
+                      placeholder="e.g., Assistant Maintenance Engineer"
                       value={newLevel.roleLabel}
                       onChange={(e) => setNewLevel({ ...newLevel, roleLabel: e.target.value })}
                       className="w-[180px]"

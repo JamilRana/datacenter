@@ -44,6 +44,8 @@ export interface DashboardRequest {
   quantity?: number;
   vmInstances?: { length: number };
   subdomain?: string | null;
+  requesterId?: string;
+  vmSpecifications?: any[];
   summary?: {
     vmCount: number;
     namespaceCount: number;

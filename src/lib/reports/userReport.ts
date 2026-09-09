@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 export interface UserReportParams {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   search?: string;
   role?: string;
   department?: string;
@@ -45,13 +46,15 @@ export async function getUserReport(params: UserReportParams): Promise<UserRepor
   const { 
     page = 1, 
     pageSize = 10, 
+    getAll = false,
     search,
     role,
     department,
     userRoles 
   } = params;
 
-  const skip = (page - 1) * pageSize;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
   const isAdmin = userRoles?.some((r: any) => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
 
   if (!isAdmin) {
@@ -98,7 +101,7 @@ export async function getUserReport(params: UserReportParams): Promise<UserRepor
     prisma.user.findMany({
       where,
       skip,
-      take: pageSize,
+      take,
       orderBy: { createdAt: "desc" },
       include: {
         roles: {

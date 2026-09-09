@@ -19,7 +19,7 @@ import {
   DialogTitle,
   DialogFooter
 } from "@/components/ui/dialog";
-import { fetchAllVms } from "@/app/actions/vm-actions";
+import { getCustomizableVms } from "@/app/actions/customization-actions";
 import { createDecommissionRequest, getDecommissionRequestList, submitDecommissionRequest, deleteDecommissionRequest } from "@/app/actions/decommission-actions";
 import { SerializedVmInstance } from "@/types/vm";
 import { toast } from "sonner";
@@ -40,13 +40,12 @@ export default function DecommissionPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [vmsRes, decommRes] = await Promise.all([
-        fetchAllVms(),
+      const [customizableVms, decommRes] = await Promise.all([
+        getCustomizableVms(),
         getDecommissionRequestList({ status: "ALL" })
       ]);
       if (!isMounted.current) return;
-      const activeVms = vmsRes.vms.filter(vm => vm.status === "ACTIVE");
-      setVms(activeVms);
+      setVms(customizableVms);
       setDecommissionRequests(decommRes.data);
     } catch (error) {
       console.error("Failed to load data:", error);
@@ -176,11 +175,17 @@ export default function DecommissionPage() {
                   <SelectValue placeholder="Select an active VM" />
                 </SelectTrigger>
                 <SelectContent>
-                  {vms.map((vm) => (
-                    <SelectItem key={vm.id} value={vm.id}>
-                      {vm.hostname} ({vm.ipAddress || "No IP"})
+                  {vms.length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      No active virtual machines found
                     </SelectItem>
-                  ))}
+                  ) : (
+                    vms.map((vm) => (
+                      <SelectItem key={vm.id} value={vm.id}>
+                        {vm.hostname} ({vm.ipAddress || "No IP"})
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>

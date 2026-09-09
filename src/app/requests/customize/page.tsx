@@ -1,27 +1,31 @@
 // src/app/requests/customize/page.tsx
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { CustomizationModal } from "./components/CustomizationModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Eye, Edit, Send, Trash, Plus, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { Pagination } from "@/components/Pagination";
-import { deleteCustomizationRequest, getCustomizationRequests } from "@/app/actions/customization-actions";
-import { fetchAllVms } from "@/app/actions/vm-actions";
+import { deleteCustomizationRequest, getCustomizationRequests, getCustomizableVms } from "@/app/actions/customization-actions";
 import { CustomizationRequest as CustomizationRequestType } from "@/types/customization";
 import { SerializedVmInstance } from "@/types/vm";
 import { canEdit, canSubmit } from "@/types/requests";
 import { CustomizationStatus, Environment, VmStatus } from "@/types/enums";
 import { StatusBadge } from "@/components/StatusBadge";
 
-export default function CustomizationRequestsPage() {
+function CustomizationRequestsContent() {
+  const searchParams = useSearchParams();
+  const urlVmId = searchParams.get("vmId");
+
   const [requests, setRequests] = useState<CustomizationRequestType[]>([]);
   const [vms, setVms] = useState<SerializedVmInstance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<CustomizationRequestType | null>(null);
   const [modalMode, setModalMode] = useState<"create" | "view" | "edit">("view");
+  const [initialVmId, setInitialVmId] = useState<string | undefined>(undefined);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const perPage = 10;
@@ -34,9 +38,9 @@ export default function CustomizationRequestsPage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [requestsRes, vmsRes] = await Promise.all([
+      const [requestsRes, customizableVms] = await Promise.all([
         getCustomizationRequests({ page: currentPage, perPage }),
-        fetchAllVms()
+        getCustomizableVms()
       ]);
       if (!isMounted.current) return;
       const transformedRequests: CustomizationRequestType[] = requestsRes.requests.map((req: any) => ({
@@ -78,7 +82,7 @@ export default function CustomizationRequestsPage() {
         } : null,
       }));
       setRequests(transformedRequests);
-      setVms(vmsRes.vms);
+      setVms(customizableVms);
       setTotalPages(requestsRes.totalPages);
       setIsLoading(false);
     } catch (error) {
@@ -96,12 +100,26 @@ export default function CustomizationRequestsPage() {
     };
   }, [fetchData]);
 
+  // Handle URL vmId parameter
+  const handledUrlVmId = useRef(false);
+  useEffect(() => {
+    if (urlVmId && !isLoading && !handledUrlVmId.current) {
+      handledUrlVmId.current = true;
+      setInitialVmId(urlVmId);
+      setSelectedRequest(null);
+      setModalMode("create");
+      setIsModalOpen(true);
+    }
+  }, [urlVmId, isLoading]);
+
   const handleOpenModal = (
     request: CustomizationRequestType | null,
-    mode: "create" | "view" | "edit"
+    mode: "create" | "view" | "edit",
+    vmId?: string
   ) => {
     setSelectedRequest(request);
     setModalMode(mode);
+    setInitialVmId(vmId);
     setIsModalOpen(true);
   };
 
@@ -109,6 +127,7 @@ export default function CustomizationRequestsPage() {
     setIsModalOpen(false);
     setSelectedRequest(null);
     setModalMode("view");
+    setInitialVmId(undefined);
     fetchData();
   };
 
@@ -117,7 +136,7 @@ export default function CustomizationRequestsPage() {
     try {
       await deleteCustomizationRequest(id);
       await fetchData();
-      setRequests(requests.filter((req) => req.id !== id));
+      setRequests((prev) => prev.filter((req) => req.id !== id));
     } catch (error) {
       console.error("Failed to delete request:", error);
     }
@@ -250,7 +269,28 @@ export default function CustomizationRequestsPage() {
         vms={vms}
         selectedRequest={selectedRequest}
         mode={modalMode}
+        initialVmId={initialVmId}
       />
     </div>
+  );
+}
+
+export default function CustomizationRequestsPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-6 md:p-10 max-w-7xl mx-auto space-y-6">
+        <div className="flex justify-between items-center h-10">
+          <div className="h-8 w-48 bg-slate-200 animate-pulse rounded" />
+          <div className="h-10 w-32 bg-slate-200 animate-pulse rounded" />
+        </div>
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-24 bg-slate-100 animate-pulse rounded-xl border border-slate-200" />
+          ))}
+        </div>
+      </div>
+    }>
+      <CustomizationRequestsContent />
+    </Suspense>
   );
 }

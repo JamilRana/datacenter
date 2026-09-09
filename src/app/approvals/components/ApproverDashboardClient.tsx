@@ -30,7 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
-import { canUserApprove } from "@/lib/roles";
+import { canUserApprove, getUserActionableLevels } from "@/lib/roles";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { handleApprovalDecision, executeRequest, forwardToLevel } from "@/app/actions/approval-actions";
@@ -100,11 +100,11 @@ const REQUEST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: 
 export function ApproverDashboardClient({ 
   initialRequests, 
   userRoles,
-  currentUserId
+  currentUserId: _currentUserId
 }: { 
   initialRequests: ApproverRequest[], 
   userRoles: string[],
-  currentUserId: string,
+  currentUserId?: string,
 }) {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
@@ -181,13 +181,15 @@ export function ApproverDashboardClient({
     existingVmsCount: number;
     defaultSubdomain: string;
     requesterId: string;
+    vmSpecifications: any[];
   }>({ 
     open: false, 
     requestId: "", 
     requestQuantity: 1, 
     existingVmsCount: 0,
     defaultSubdomain: "",
-    requesterId: ""
+    requesterId: "",
+    vmSpecifications: []
   });
 
   const [provisionK8sModal, setProvisionK8sModal] = useState<{
@@ -199,39 +201,25 @@ export function ApproverDashboardClient({
   });
 
   // ✅ DETERMINE CURRENT APPROVAL LEVEL FROM STATUS (returns number)
-  const getCurrentLevel = (status: string): number | null => {
+  const getCurrentLevel = (status?: string): number | null => {
+    if (!status) return null;
     const match = status.match(/^PENDING_L(\d+)$/);
     if (match) return parseInt(match[1], 10);
-    if (status === "APPROVED") return 99; // DCOPS execution level
     return null;
   };
 
-  // ✅ GET ALL LEVELS THIS USER CAN ACT ON
-  const getUserActionableLevels = (roles: string[]): number[] => {
-    return roles
-      .map(role => {
-        if (role.startsWith("APPROVER_L")) {
-          const level = parseInt(role.replace("APPROVER_L", ""), 10);
-          return Number.isFinite(level) ? level : null;
-        }
-        if (role === "L4_APPROVER") return 4;
-        return null;
-      })
-      .filter((lvl): lvl is number => lvl !== null);
-  };
-
-  // ✅ FIND THE SPECIFIC APPROVAL ID FOR THIS USER + REQUEST + LEVEL
+  // ✅ FIND THE SPECIFIC APPROVAL ID FOR THIS REQUEST + LEVEL
   const findApprovalId = (request: ApproverRequest, userLevels: number[]): string | null => {
-    if (!request.approvals || !currentUserId) return null;
+    const requestLevel = getCurrentLevel(request.status);
+    if (!requestLevel || !userLevels.includes(requestLevel)) return null;
     
-    const relevantApproval = request.approvals.find(approval => 
-      approval.level && 
-      userLevels.includes(approval.level) && 
-      approval.approverId === currentUserId && 
+    // Find pending approval for this request level
+    const relevantApproval = request.approvals?.find(approval => 
+      approval.level === requestLevel && 
       approval.decision === "PENDING"
     );
     
-    return relevantApproval?.id || null;
+    return relevantApproval?.id || request.id;
   };
 
   const getEntityType = (requestType?: string): "REQUEST" | "CUSTOMIZATION" => {
@@ -326,10 +314,11 @@ export function ApproverDashboardClient({
   }
 
   function openProvisionModal(req: ApproverRequest) {
-    const requestQuantity = req.quantity || 1;
+    const requestQuantity = req.quantity || req.vmSpecifications?.length || 1;
     const existingVmsCount = req.vmInstances?.length || 0;
-    const requesterId = req.requester?.id || "";
+    const requesterId = req.requester?.id || req.requesterId || "";
     const subdomain = req.subdomain || "";
+    const vmSpecifications = req.vmSpecifications || [];
     
     setProvisionModal({
       open: true,
@@ -338,6 +327,7 @@ export function ApproverDashboardClient({
       existingVmsCount,
       defaultSubdomain: subdomain,
       requesterId,
+      vmSpecifications,
     });
   }
 
@@ -615,8 +605,8 @@ export function ApproverDashboardClient({
                   // ✅ Permission check (extra safety layer)
                   const canShowApprovalButtons = isActionableLevel && canUserApprove(userRoles, `L${requestLevel}`);
                   
-                  // ✅ Execute button: only for DCOPS on APPROVED requests
-                  const canShowExecuteButton = req.status === "APPROVED" && userRoles.includes(ROLES.DCOPS);
+                  // ✅ Execute button: for DCOPS on APPROVED or PARTIALLY_PROVISIONED requests
+                  const canShowExecuteButton = (req.status === "APPROVED" || req.status === "PARTIALLY_PROVISIONED") && userRoles.includes(ROLES.DCOPS);
                   
                   // ✅ FIND THE SPECIFIC APPROVAL ID FOR THIS REQUEST + USER
                   const approvalId = findApprovalId(req, userLevels);
@@ -769,8 +759,8 @@ export function ApproverDashboardClient({
                               size="sm"
                               className="h-8 bg-blue-600 hover:bg-blue-700 text-white border-blue-600 text-xs shadow"
                               onClick={() => {
-                                // For NEW_VM, show the modal to collect VM details
-                                if (req.requestType === "NEW_VM") {
+                                // For NEW_VM and CLONE_VM, show the modal to collect VM details
+                                if (req.requestType === "NEW_VM" || req.requestType === "CLONE_VM") {
                                   openProvisionModal(req);
                                 } else if (req.requestType === "K8S_NAMESPACE") {
                                   setProvisionK8sModal({ open: true, requestId: req.id });
@@ -925,6 +915,7 @@ export function ApproverDashboardClient({
         existingVmsCount={provisionModal.existingVmsCount}
         defaultSubdomain={provisionModal.defaultSubdomain}
         requesterId={provisionModal.requesterId}
+        vmSpecifications={provisionModal.vmSpecifications}
         onSuccess={() => router.refresh()}
       />
 

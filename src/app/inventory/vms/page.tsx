@@ -8,14 +8,15 @@ import { CapacityDashboardClient } from "@/app/inventory/components/CapacityDash
 import { BarChart3, ChevronLeft, Server, HardDrive, Activity, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useSession } from "next-auth/react";
-import { fetchAllVms } from "@/app/actions/vm-actions";
+import { fetchAllVms, getVmInventorySummary, VmInventorySummary } from "@/app/actions/vm-actions";
 import { useEffect, useState } from "react";
 import { SerializedVmInstance } from "@/types/vm";
 import { ManualVmModal } from "@/app/inventory/components/ManualVmModal";
 import Link from "next/link";
 import { exportToCsv } from "@/lib/export-utils";
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { StatCard } from "@/components/analytics/StatCard";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
 import { StatusDistribution } from "@/components/analytics/StatusDistribution";
@@ -26,15 +27,18 @@ import { useSearchParams } from "next/navigation";
 export default function VmInventoryPage() {
   const { data: session, status } = useSession();
   const [metrics, setMetrics] = useState<InventoryMetrics | null>(null);
+  const [summary, setSummary] = useState<VmInventorySummary | null>(null);
   const [vms, setVms] = useState<SerializedVmInstance[]>([]);
   const [totalVms, setTotalVms] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [vmAnalytics, setVmAnalytics] = useState<Awaited<ReturnType<typeof fetchVmAnalytics>> | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [vmAnalytics, setVmAnalytics] = useState<Awaited<ReturnType<typeof fetchVmAnalytics>> | null>(null);
 
   const queryParams = useSearchParams();
   const page = queryParams.get("page") ? parseInt(queryParams.get("page")!, 10) : 1;
   const statusFilter = queryParams.get("status") || undefined;
+  const searchParam = queryParams.get("search") || undefined;
 
   useEffect(() => {
     if (status === "loading" || !session?.user?.id) return;
@@ -42,15 +46,17 @@ export default function VmInventoryPage() {
     const fetchVmLists = async () => {
       setLoading(true);
       try {
-        const [metricsRes, vmsData, analytics] = await Promise.all([
+        const [metricsRes, vmsData, analytics, summaryRes] = await Promise.all([
           getInventoryMetrics(),
-          fetchAllVms(page, 20, statusFilter),
-          fetchVmAnalytics()
+          fetchAllVms(page, 20, statusFilter, searchParam),
+          fetchVmAnalytics(),
+          getVmInventorySummary()
         ]);
         setMetrics(metricsRes);
         setVms(vmsData.vms);
         setTotalVms(vmsData.total);
         setVmAnalytics(analytics);
+        setSummary(summaryRes);
       } catch (error) {
         console.error("Failed to fetch VM lists:", error);
       } finally {
@@ -60,7 +66,7 @@ export default function VmInventoryPage() {
     };
     
     fetchVmLists();
-  }, [session?.user?.id, status, page]);
+  }, [session?.user?.id, status, page, statusFilter, searchParam]);
 
   if (status === "loading" || (loading && isInitialLoad)) {
     return (
@@ -84,23 +90,34 @@ export default function VmInventoryPage() {
     ["ADMIN", "DC_OPS"].includes(r.toUpperCase())
   );
 
-  const handleExport = () => {
-    const exportData = vms.map(vm => ({
-      Hostname: vm.hostname || "",
-      IP_Address: vm.ipAddress || "",
-      Public_IP: vm.publicIpAddress || "",
-      Status: vm.status,
-      Owner: vm.owner?.name || "",
-      Owner_Email: vm.owner?.email || "",
-      vCPU: vm.currentSpec?.vcpu || "",
-      RAM_GB: vm.currentSpec?.ramGb || "",
-      Storage_GB: vm.currentSpec?.storageGb || "",
-      OS: vm.currentSpec?.osName || "",
-      OS_Version: vm.currentSpec?.osVersion || "",
-      Subdomain: vm.subdomain || "",
-      Provisioned_At: vm.provisionedAt ? new Date(vm.provisionedAt).toLocaleDateString() : "",
-    }));
-    exportToCsv(`vm-instances-${new Date().toISOString().split('T')[0]}.csv`, exportData);
+  const handleExport = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing export for all matching VMs...");
+      const fullData = await fetchAllVms(1, 0, statusFilter, searchParam, true);
+      const exportData = fullData.vms.map(vm => ({
+        Hostname: vm.hostname || "",
+        IP_Address: vm.ipAddress || "",
+        Public_IP: vm.publicIpAddress || "",
+        Status: vm.status,
+        Owner: vm.owner?.name || "",
+        Owner_Email: vm.owner?.email || "",
+        vCPU: vm.currentSpec?.vcpu || "",
+        RAM_GB: vm.currentSpec?.ramGb || "",
+        Storage_GB: vm.currentSpec?.storageGb || "",
+        OS: vm.currentSpec?.osName || "",
+        OS_Version: vm.currentSpec?.osVersion || "",
+        Subdomain: vm.subdomain || "",
+        Provisioned_At: vm.provisionedAt ? new Date(vm.provisionedAt).toLocaleDateString() : "",
+      }));
+      exportToCsv(`vm-instances-${new Date().toISOString().split('T')[0]}.csv`, exportData);
+      toast.success(`Exported ${exportData.length} VMs successfully.`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export VMs");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -125,8 +142,8 @@ export default function VmInventoryPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExport} className="gap-2">
-            <Download className="h-4 w-4" /> Export
+          <Button variant="outline" disabled={isExporting} onClick={handleExport} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export
           </Button>
           {canAddManually && (
             <ManualVmModal actorId={session.user.id} />
@@ -138,27 +155,27 @@ export default function VmInventoryPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatsCard 
           title="Active VMs" 
-          value={vms.filter(v => v.status === "ACTIVE").length}
+          value={summary ? summary.activeVms : vms.filter(v => v.status === "ACTIVE").length}
           icon={Server}
           color="indigo"
         />
         <StatsCard 
           title="Total vCPU" 
-          value={vms.reduce((acc, v) => acc + (v.currentSpec?.vcpu || 0), 0)}
+          value={summary ? summary.totalVcpu : vms.reduce((acc, v) => acc + (v.currentSpec?.vcpu || 0), 0)}
           icon={BarChart3}
           color="blue"
           suffix=" cores"
         />
         <StatsCard 
           title="Total RAM" 
-          value={vms.reduce((acc, v) => acc + (v.currentSpec?.ramGb || 0), 0)}
+          value={summary ? summary.totalRamGb : vms.reduce((acc, v) => acc + (v.currentSpec?.ramGb || 0), 0)}
           icon={Server}
           color="emerald"
           suffix=" GB"
         />
         <StatsCard 
           title="Retired" 
-          value={vms.filter(v => v.status === "RETIRED").length}
+          value={summary ? summary.retiredVms : vms.filter(v => v.status === "RETIRED").length}
           icon={Server}
           color="slate"
         />

@@ -54,6 +54,8 @@ import {
   fetchActiveVmsList,
   fetchActiveNamespacesList
 } from "@/app/actions/endpoint-actions";
+import { Combobox } from "@/components/ui/combobox";
+import { getAllActiveUsers } from "@/app/actions/user-actions";
 
 export default function VpnPage() {
   const { data: session, status } = useSession();
@@ -68,6 +70,7 @@ export default function VpnPage() {
   const [isPending, startTransition] = useTransition();
 
   const [search, setSearch] = useState("");
+  const [systemUsers, setSystemUsers] = useState<any[]>([]);
   
   // Dialog Open States
   const [userDialogOpen, setUserDialogOpen] = useState(false);
@@ -79,10 +82,11 @@ export default function VpnPage() {
 
   // User Form states
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [selectedSystemUserId, setSelectedSystemUserId] = useState<string>("custom");
   const [username, setUsername] = useState("");
   const [fullName, setFullName] = useState("");
   const [vpnIp, setVpnIp] = useState("");
-  const [vpnProfile, setVpnProfile] = useState("Split Tunnel");
+  const [vpnProfile, setVpnProfile] = useState("Full Tunnel");
   const [vpnStatus, setVpnStatus] = useState("ACTIVE");
 
   // Assignment Form states
@@ -95,19 +99,21 @@ export default function VpnPage() {
 
   const page = searchParams.get("page") ? parseInt(searchParams.get("page")!, 10) : 1;
   const pageSize = 10;
-  const totalPages = Math.ceil(total / pageSize);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const loadData = useCallback(async () => {
     try {
-      const [usersRes, vmsRes, nsRes] = await Promise.all([
+      const [usersRes, vmsRes, nsRes, activeUsers] = await Promise.all([
         fetchVpnAssignments(page, pageSize, search),
         fetchActiveVmsList(),
-        fetchActiveNamespacesList()
+        fetchActiveNamespacesList(),
+        getAllActiveUsers()
       ]);
       setUsers(usersRes.data);
       setTotal(usersRes.total);
       setVms(vmsRes);
       setNamespaces(nsRes);
+      setSystemUsers(activeUsers || []);
     } catch (err) {
       console.error("Failed to load VPN data", err);
       toast.error("Failed to load VPN user data");
@@ -136,11 +142,24 @@ export default function VpnPage() {
     loadData();
   }, [session, status, router, loadData]);
 
-  const handlePageChange = (newPage: number) => {
+  const handlePageChange = useCallback((newPage: number) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", newPage.toString());
     router.push(`/inventory/vpn?${params.toString()}`);
+  }, [searchParams, router]);
+
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    if (page !== 1) {
+      handlePageChange(1);
+    }
   };
+
+  useEffect(() => {
+    if (total > 0 && page > totalPages) {
+      handlePageChange(totalPages);
+    }
+  }, [total, totalPages, page, handlePageChange]);
 
   const toggleRow = (userId: string) => {
     setExpandedUserIds(prev => 
@@ -148,13 +167,59 @@ export default function VpnPage() {
     );
   };
 
+  const handleSystemUserSelect = (val: string) => {
+    setSelectedSystemUserId(val);
+    if (val && val !== "custom") {
+      const u = systemUsers.find(su => su.id === val);
+      if (u) {
+        setFullName(u.name || "");
+        if (u.email) {
+          const prefix = u.email.split("@")[0].toLowerCase().replace(/[^a-z0-9._-]/g, "");
+          setUsername(`vpn.${prefix}`);
+        }
+      }
+    }
+  };
+
+  const getVisiblePages = (): (number | string)[] => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pageSet = new Set<number>();
+    pageSet.add(1);
+    pageSet.add(2);
+    pageSet.add(totalPages - 1);
+    pageSet.add(totalPages);
+    for (let i = page - 1; i <= page + 1; i++) {
+      if (i >= 1 && i <= totalPages) {
+        pageSet.add(i);
+      }
+    }
+    const sorted = Array.from(pageSet).sort((a, b) => a - b);
+    const pages: (number | string)[] = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const current = sorted[i];
+      if (i > 0) {
+        const prev = sorted[i - 1];
+        if (current - prev === 2) {
+          pages.push(prev + 1);
+        } else if (current - prev > 2) {
+          pages.push("...");
+        }
+      }
+      pages.push(current);
+    }
+    return pages;
+  };
+
   // User Actions
   const openCreateUserDialog = () => {
     setCurrentUserId(null);
+    setSelectedSystemUserId("custom");
     setUsername("");
     setFullName("");
     setVpnIp("");
-    setVpnProfile("Split Tunnel");
+    setVpnProfile("Full Tunnel");
     setVpnStatus("ACTIVE");
     setUserDialogOpen(true);
   };
@@ -162,10 +227,11 @@ export default function VpnPage() {
   const openEditUserDialog = (user: any, e: React.MouseEvent) => {
     e.stopPropagation();
     setCurrentUserId(user.id);
+    setSelectedSystemUserId(user.userId || "custom");
     setUsername(user.username);
     setFullName(user.fullName);
     setVpnIp(user.vpnIp);
-    setVpnProfile(user.vpnProfile);
+    setVpnProfile(user.vpnProfile || "Full Tunnel");
     setVpnStatus(user.status);
     setUserEditDialogOpen(true);
   };
@@ -192,6 +258,7 @@ export default function VpnPage() {
             vpnIp,
             vpnProfile,
             status: vpnStatus,
+            userId: selectedSystemUserId === "custom" ? null : selectedSystemUserId,
           });
           toast.success("VPN user updated successfully!");
           setUserEditDialogOpen(false);
@@ -200,8 +267,9 @@ export default function VpnPage() {
             username,
             fullName,
             vpnIp,
-            vpnProfile,
+            vpnProfile: "Full Tunnel",
             status: vpnStatus,
+            userId: selectedSystemUserId === "custom" ? undefined : selectedSystemUserId,
           });
           toast.success("VPN user created successfully!");
           setUserDialogOpen(false);
@@ -326,10 +394,10 @@ export default function VpnPage() {
           <div className="flex-1 relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input 
-              placeholder="Search VPN users by username or VPN IP..." 
+              placeholder="Search VPN users by username, IP, or tagged user..." 
               className="pl-9 h-11 bg-white border-slate-200"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
             />
           </div>
           <div className="text-sm text-slate-500 font-medium bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-sm flex items-center gap-2">
@@ -375,7 +443,14 @@ export default function VpnPage() {
                             <div className="h-9 w-9 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center font-bold">
                               <UserIcon className="h-4.5 w-4.5" />
                             </div>
-                            <span className="font-bold text-slate-800">{user.username}</span>
+                            <div>
+                              <div className="font-bold text-slate-800">{user.username}</div>
+                              {user.user && (
+                                <div className="text-[11px] text-indigo-600 font-medium flex items-center gap-1">
+                                  <span className="text-slate-400">Tagged:</span> {user.user.name}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
@@ -528,21 +603,72 @@ export default function VpnPage() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-100">
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Page <span className="text-indigo-600 font-black">{page}</span> of <span className="text-slate-600">{totalPages}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Button variant="outline" size="sm" onClick={() => handlePageChange(page - 1)} disabled={page <= 1} className="h-9 w-9 p-0">
+          <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-100 gap-4">
+            <div className="text-xs font-semibold text-slate-500">
+              {total > 0 ? (
+                <>
+                  Showing <strong className="text-slate-800">{(page - 1) * pageSize + 1}</strong> to{" "}
+                  <strong className="text-slate-800">{Math.min(page * pageSize, total)}</strong> of{" "}
+                  <strong className="text-slate-800">{total}</strong> VPN users
+                </>
+              ) : (
+                "0 VPN users"
+              )}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => handlePageChange(page - 1)} 
+                  disabled={page <= 1} 
+                  className="h-9 w-9 p-0 border-slate-200 hover:bg-white hover:text-indigo-600 hover:border-indigo-200 transition-all active:scale-95 disabled:opacity-30 shadow-sm"
+                >
                   <ChevronLeftIcon className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => handlePageChange(page + 1)} disabled={page >= totalPages} className="h-9 w-9 p-0">
+
+                <div className="flex items-center gap-1">
+                  {getVisiblePages().map((item, idx) => {
+                    if (typeof item !== "number") {
+                      return (
+                        <span key={`ellipsis-${idx}`} className="px-1.5 text-slate-400 font-bold text-xs select-none">
+                          ...
+                        </span>
+                      );
+                    }
+
+                    const isActive = item === page;
+                    return (
+                      <Button
+                        key={`page-${item}`}
+                        variant={isActive ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => handlePageChange(item)}
+                        className={`h-9 min-w-[36px] px-2.5 font-bold text-xs transition-all active:scale-95 shadow-sm ${
+                          isActive 
+                            ? "bg-indigo-600 hover:bg-indigo-700 text-white border-transparent" 
+                            : "border-slate-200 hover:border-indigo-200 hover:text-indigo-600 bg-white"
+                        }`}
+                      >
+                        {item}
+                      </Button>
+                    );
+                  })}
+                </div>
+
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => handlePageChange(page + 1)} 
+                  disabled={page >= totalPages} 
+                  className="h-9 w-9 p-0 border-slate-200 hover:bg-white hover:text-indigo-600 hover:border-indigo-200 transition-all active:scale-95 disabled:opacity-30 shadow-sm"
+                >
                   <ChevronRightIcon className="h-4 w-4" />
                 </Button>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -555,6 +681,24 @@ export default function VpnPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="font-bold">Tag Existing System User (Optional)</Label>
+              <Combobox
+                options={[
+                  { label: "Custom / Untagged User", value: "custom", description: "Enter details manually below" },
+                  ...systemUsers.map(su => ({
+                    label: su.name,
+                    value: su.id,
+                    description: `${su.email}${su.designation ? ` • ${su.designation}` : ""}`
+                  }))
+                ]}
+                value={selectedSystemUserId}
+                onValueChange={handleSystemUserSelect}
+                placeholder="Select system user to tag..."
+                searchPlaceholder="Search by name or email..."
+              />
+              <p className="text-[11px] text-slate-400">Selecting a user auto-populates their full name and suggests a VPN username.</p>
+            </div>
             <div className="space-y-2">
               <Label className="font-bold">VPN Username *</Label>
               <Input 
@@ -582,19 +726,6 @@ export default function VpnPage() {
                 className="border-slate-200 focus:border-indigo-500"
               />
               <p className="text-[10px] text-slate-400">Must be a unique static IPv4 allocation on the VPN subnet.</p>
-            </div>
-            <div className="space-y-2">
-              <Label className="font-bold">VPN Profile Type *</Label>
-              <Select value={vpnProfile} onValueChange={setVpnProfile}>
-                <SelectTrigger className="border-slate-200">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Split Tunnel">Split Tunnel</SelectItem>
-                  <SelectItem value="Full Tunnel">Full Tunnel</SelectItem>
-                  <SelectItem value="Management Network">Management Network</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-2">
               <Label className="font-bold">Status *</Label>
@@ -628,6 +759,23 @@ export default function VpnPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="font-bold">Tag Existing System User (Optional)</Label>
+              <Combobox
+                options={[
+                  { label: "Custom / Untagged User", value: "custom", description: "No system user tagged" },
+                  ...systemUsers.map(su => ({
+                    label: su.name,
+                    value: su.id,
+                    description: `${su.email}${su.designation ? ` • ${su.designation}` : ""}`
+                  }))
+                ]}
+                value={selectedSystemUserId}
+                onValueChange={handleSystemUserSelect}
+                placeholder="Select system user to tag..."
+                searchPlaceholder="Search by name or email..."
+              />
+            </div>
             <div className="space-y-2">
               <Label className="font-bold">VPN Username *</Label>
               <Input 

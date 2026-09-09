@@ -24,14 +24,20 @@ import {
   Cpu,
   Globe,
   Printer,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Pencil,
+  Trash2,
+  Minus
 } from "lucide-react";
 import { ApprovalPanel } from "@/app/approvals/components/ApprovalPanel";
 import { Timeline } from "@/app/approvals/components/Timeline";
 import { VmInstanceList } from "./VmInstanceList";
 import { getDetailedRequest, submitRequest } from "@/app/actions/request-actions";
+import { updateApprovalK8sNodeGroup, deleteApprovalK8sNodeGroup } from "@/app/actions/approval-actions";
+import { EditK8sRequestNodeGroupModal } from "@/app/approvals/components/EditK8sRequestNodeGroupModal";
 import { detailsRequest, Person } from "@/types/requests";
 import { toast } from "sonner";
+import { canUserApprove } from "@/lib/roles";
 import type { ReactNode } from "react";
 
 export function RequestDetails({
@@ -68,6 +74,63 @@ export function RequestDetails({
     if (!requestId) return;
     fetchRequestData();
   }, [requestId, fetchRequestData]);
+
+  const [editingK8sGroup, setEditingK8sGroup] = useState<any | null>(null);
+  const [updatingGroupId, setUpdatingGroupId] = useState<string | null>(null);
+
+  const userRoles = session?.user?.roles || [];
+  const requestLevel = data?.status?.startsWith("PENDING_L")
+    ? parseInt(data.status.replace("PENDING_L", ""), 10)
+    : null;
+  const canApproverEdit = requestLevel !== null && canUserApprove(userRoles, requestLevel);
+
+  const handleDecrementNode = async (group: any) => {
+    if (group.nodeCount <= 1) {
+      toast.error("Node count cannot be less than 1. Use 'Remove' to delete this group.");
+      return;
+    }
+    setUpdatingGroupId(group.id);
+    try {
+      const res = await updateApprovalK8sNodeGroup({
+        groupId: group.id,
+        role: group.role,
+        nodeCount: group.nodeCount - 1,
+        vcpu: group.vcpu,
+        ramGb: group.ramGb,
+        storageGb: group.storageGb,
+      });
+      if (res.success) {
+        toast.success(`Reduced ${group.role} node count to ${group.nodeCount - 1}`);
+        fetchRequestData();
+      } else {
+        toast.error(res.error || "Failed to update node count");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update node count");
+    } finally {
+      setUpdatingGroupId(null);
+    }
+  };
+
+  const handleDeleteGroup = async (group: any) => {
+    if (!confirm(`Are you sure you want to remove the ${group.role} node group (${group.nodeCount} nodes) from this request?`)) {
+      return;
+    }
+    setUpdatingGroupId(group.id);
+    try {
+      const res = await deleteApprovalK8sNodeGroup(group.id);
+      if (res.success) {
+        toast.success(`Removed ${group.role} node group from request`);
+        fetchRequestData();
+      } else {
+        toast.error(res.error || "Failed to remove node group");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to remove node group");
+    } finally {
+      setUpdatingGroupId(null);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!data) return;
@@ -739,32 +802,96 @@ export function RequestDetails({
             ) : data.requestType === "K8S_NAMESPACE" ? (
               <Card title="K8s Namespace Spec" icon={Code}>
                 <div className="space-y-4">
-                  <div className="bg-indigo-50/50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 flex items-center gap-2 mb-2">
-                    <span className="font-semibold">Note:</span> This request specifies Kubernetes node groups to be provisioned.
+                  <div className="bg-indigo-50/50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800 flex items-center justify-between gap-2 mb-2">
+                    <div>
+                      <span className="font-semibold">Note:</span> This request specifies Kubernetes node groups to be provisioned.
+                    </div>
+                    {canApproverEdit && (
+                      <span className="text-[10px] font-semibold text-indigo-700 bg-white border border-indigo-200 px-2 py-0.5 rounded shadow-xs">
+                        Approver Controls Active
+                      </span>
+                    )}
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                           <th className="py-2">Role</th>
+                          <th className="py-2">Action / Target</th>
                           <th className="py-2 text-center">Node Count</th>
                           <th className="py-2 text-center">vCPU</th>
                           <th className="py-2 text-center">RAM</th>
-                          <th className="py-2 text-right">Storage</th>
+                          <th className="py-2 text-center">Storage</th>
+                          {canApproverEdit && <th className="py-2 text-right">Approver Actions</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50 text-xs">
                         {data.k8sRequestNodeGroups?.map((group: any) => (
                           <tr key={group.id} className="text-slate-700">
                             <td className="py-2.5 font-bold text-indigo-700">{group.role}</td>
+                            <td className="py-2.5">
+                              {group.targetNodeGroupId ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                                  Scaling Existing Group
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  New Node Group
+                                </span>
+                              )}
+                            </td>
                             <td className="py-2.5 text-center font-semibold">{group.nodeCount}</td>
                             <td className="py-2.5 text-center">{group.vcpu} Cores</td>
                             <td className="py-2.5 text-center">{group.ramGb} GB</td>
-                            <td className="py-2.5 text-right font-medium">{group.storageGb} GB</td>
+                            <td className="py-2.5 text-center font-medium">{group.storageGb} GB</td>
+                            {canApproverEdit && (
+                              <td className="py-2.5 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {group.nodeCount > 1 && (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={updatingGroupId === group.id}
+                                      onClick={() => handleDecrementNode(group)}
+                                      title="Reduce 1 Node"
+                                      className="h-7 px-2 text-[11px] text-slate-600 hover:text-amber-700 hover:bg-amber-50 border-slate-200"
+                                    >
+                                      <Minus className="h-3 w-3 mr-1" />
+                                      -1 Node
+                                    </Button>
+                                  )}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={updatingGroupId === group.id}
+                                    onClick={() => setEditingK8sGroup(group)}
+                                    title="Customize node specs (vCPU, RAM, Storage, Count)"
+                                    className="h-7 px-2 text-[11px] text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-200"
+                                  >
+                                    <Pencil className="h-3 w-3 mr-1" />
+                                    Edit Specs
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={updatingGroupId === group.id || (data.k8sRequestNodeGroups?.length || 0) <= 1}
+                                    onClick={() => handleDeleteGroup(group)}
+                                    title={(data.k8sRequestNodeGroups?.length ?? 0) <= 1 ? "At least 1 node group is required" : "Remove Node Group"}
+                                    className="h-7 px-2 text-[11px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 disabled:opacity-40"
+                                  >
+                                    <Trash2 className="h-3 w-3 mr-1" />
+                                    Remove
+                                  </Button>
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         )) || (
                           <tr>
-                            <td colSpan={5} className="py-4 text-center text-slate-400 italic">No node groups defined</td>
+                            <td colSpan={canApproverEdit ? 7 : 6} className="py-4 text-center text-slate-400 italic">No node groups defined</td>
                           </tr>
                         )}
                       </tbody>
@@ -938,11 +1065,13 @@ export function RequestDetails({
             approvals={data.approvals || []}
             requestType={data.requestType || ""}
             requestId={data.id}
+            requestStatus={data.status || ""}
             initialVcpu={data.vcpu}
             initialRamGb={data.ramGb}
             initialStorageGb={data.storageGb}
             initialQuantity={data.quantity}
             requestResources={data.requestResources || []}
+            k8sRequestNodeGroups={data.k8sRequestNodeGroups || []}
           />
           {!hideTimeline && (
             <Card title="Approval Progress & Timeline" icon={Clock}>
@@ -1059,6 +1188,18 @@ export function RequestDetails({
           </div>
         )}
       </div>
+
+      {editingK8sGroup && (
+        <EditK8sRequestNodeGroupModal
+          open={Boolean(editingK8sGroup)}
+          onOpenChange={(open) => !open && setEditingK8sGroup(null)}
+          group={editingK8sGroup}
+          onSuccess={() => {
+            setEditingK8sGroup(null);
+            fetchRequestData();
+          }}
+        />
+      )}
     </div>
 
       {/* Printable view (only shown during window.print()) */}
@@ -1209,7 +1350,14 @@ export function RequestDetails({
                 <tbody>
                   {data.k8sRequestNodeGroups.map((g: any, i: number) => (
                     <tr key={i} className="border-b border-slate-300">
-                      <td className="p-0.5 font-bold">{g.role}</td>
+                      <td className="p-0.5 font-bold">
+                        {g.role}
+                        {g.targetNodeGroupId && (
+                          <span className="ml-1 text-[7px] text-amber-800 bg-amber-50 border border-amber-300 px-1 rounded font-normal">
+                            Scaling Existing
+                          </span>
+                        )}
+                      </td>
                       <td className="p-0.5 text-center">{g.nodeCount}</td>
                       <td className="p-0.5 text-center">{g.vcpu} Cores</td>
                       <td className="p-0.5 text-center">{g.ramGb} GB</td>

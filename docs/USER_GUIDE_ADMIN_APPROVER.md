@@ -1,6 +1,6 @@
 # MIS Datacenter Portal — Admin & Approver User Guide
 
-This guide describes how **Approvers** (Section Officers, Deputy Directors, and Directors) and **Administrators** evaluate incoming requests, manage approval queues, configure workflow chains, and manage system users.
+This guide describes how **Approvers** (Maintenance Engineers and other) and **Administrators** evaluate incoming requests, manage approval queues, configure workflow chains, and manage system users.
 
 ---
 
@@ -67,8 +67,8 @@ System Administrators can access the **User Management** panel under **Admin Too
 The portal routes requests based on rules configured under **Admin Tools** > **Workflows**.
 
 ### Key Rules
-- **NEW_VM / CLONE_VM / K8S_NAMESPACE / VIRTUAL_IP / CUSTOMIZED**: Configured for 4 levels (L1: Section Officer → L2: Deputy Director → L3: Director MIS → L4: DC Operations Execution).
-- **DECOMMISSION**: Configured for a shorter 2-level chain (L1: Section Officer Approval → L2: DC Operations Execution).
+- **NEW_VM / CLONE_VM / K8S_NAMESPACE / VIRTUAL_IP / CUSTOMIZED**: Configured for 4 levels (L1: Assistant Maintenance Engineer → L2: Maintenance Engineer → L3: System Analyst → L4: DC Operations Execution).
+- **DECOMMISSION**: Configured for a shorter 2-level chain (L1:Assistant Maintenance Engineer → L2: DC Operations Execution).
 - **Customizing levels**: Admins can change which role is responsible for which level.
 
 ---

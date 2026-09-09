@@ -40,6 +40,7 @@ import { UserAllocationSummary } from "@/types/reports";
 import { exportToExcel, exportToCSV } from "@/lib/export-utils";
 import { format } from "date-fns";
 import { Pagination } from "@/components/Pagination";
+import { toast } from "sonner";
 
 export function UserAllocationTable({ 
   onUserClick,
@@ -51,6 +52,7 @@ export function UserAllocationTable({
   const [data, setData] = useState<UserAllocationSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [searchTerm, setSearchTerm] = useState("");
@@ -157,24 +159,41 @@ export function UserAllocationTable({
     manualSorting: true,
   });
 
-  const handleExport = (exportFormat: 'xlsx' | 'csv') => {
-    const dataToExport = data.map(item => ({
-      "User Name": item.name,
-      "Designation": item.designation,
-      "Organization": item.organization,
-      "Total VMs": item.totalVms,
-      "vCPU": item.vcpuAllocated,
-      "RAM (GB)": item.ramAllocatedGb,
-      "Storage (GB)": item.storageAllocatedGb,
-      "Active": item.activeVms,
-      "Suspended": item.suspendedVms,
-      "Last Activity": format(new Date(item.lastActivity), "yyyy-MM-dd")
-    }));
-    
-    if (exportFormat === 'xlsx') {
-      exportToExcel('User_Allocation_Report', dataToExport);
-    } else {
-      exportToCSV('User_Allocation_Report', dataToExport);
+  const handleExport = async (exportFormat: 'xlsx' | 'csv') => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing export for all matching user allocations...");
+      const result = await getUserAllocationReport({
+        getAll: true,
+        searchTerm,
+        from: dateRange?.from,
+        to: dateRange?.to
+      });
+
+      const dataToExport = result.data.map(item => ({
+        "User Name": item.name,
+        "Designation": item.designation,
+        "Organization": item.organization,
+        "Total VMs": item.totalVms,
+        "vCPU": item.vcpuAllocated,
+        "RAM (GB)": item.ramAllocatedGb,
+        "Storage (GB)": item.storageAllocatedGb,
+        "Active": item.activeVms,
+        "Suspended": item.suspendedVms,
+        "Last Activity": format(new Date(item.lastActivity), "yyyy-MM-dd")
+      }));
+      
+      if (exportFormat === 'xlsx') {
+        exportToExcel('User_Allocation_Report', dataToExport);
+      } else {
+        exportToCSV('User_Allocation_Report', dataToExport);
+      }
+      toast.success(`Exported ${dataToExport.length} user allocations successfully.`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export user allocations");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -222,11 +241,11 @@ export function UserAllocationTable({
             />
           </div>
           <div className="flex gap-2 w-full md:w-auto overflow-hidden">
-             <Button size="sm" variant="outline" className="h-9 gap-2 whitespace-nowrap" onClick={() => handleExport('xlsx')}>
-                <Download size={15} /> Export XLSX
+             <Button size="sm" variant="outline" className="h-9 gap-2 whitespace-nowrap" disabled={isExporting} onClick={() => handleExport('xlsx')}>
+                {isExporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Export XLSX
               </Button>
-              <Button size="sm" variant="outline" className="h-9 gap-2 whitespace-nowrap" onClick={() => handleExport('csv')}>
-                <Download size={15} /> Export CSV
+              <Button size="sm" variant="outline" className="h-9 gap-2 whitespace-nowrap" disabled={isExporting} onClick={() => handleExport('csv')}>
+                {isExporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Export CSV
               </Button>
               <Button size="sm" className="h-9 md:px-3 bg-indigo-600 hover:bg-indigo-700" onClick={loadData}>
                 Refresh

@@ -118,16 +118,20 @@ async function createAuditLog(
   details?: unknown,
   vmId?: string
 ) {
-  await prisma.auditLog.create({
-    data: {
-      actorId,
-      action,
-      entityType,
-      entityId,
-      details: details ? JSON.stringify(details) : undefined,
-      vmId,
-    },
-  });
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId,
+        action,
+        entityType,
+        entityId,
+        details: details ? JSON.stringify(details) : undefined,
+        vmId,
+      },
+    });
+  } catch (err) {
+    console.warn("[VM] Failed to write audit log:", err);
+  }
 }
 
 export async function getVmList({
@@ -389,8 +393,92 @@ export async function fetchVmDetails(id: string) {
   return vm;
 }
 
-export async function fetchAllVms(page: number = 1, pageSize: number = 20, statusParam?: string): Promise<{ vms: SerializedVmInstance[], total: number }> {
-  const skip = (page - 1) * pageSize;
+export interface VmInventorySummary {
+  totalVms: number;
+  activeVms: number;
+  suspendedVms: number;
+  retiredVms: number;
+  totalVcpu: number;
+  totalRamGb: number;
+  totalStorageGb: number;
+}
+
+export async function getVmInventorySummary(): Promise<VmInventorySummary> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const where: Prisma.VmInstanceWhereInput = isAdmin(session.user.roles) 
+    ? {} 
+    : { ownerId: session.user.id };
+
+  const [counts, specs] = await Promise.all([
+    prisma.vmInstance.groupBy({
+      by: ["status"],
+      where,
+      _count: true,
+    }),
+    prisma.vmInstance.findMany({
+      where: {
+        ...where,
+        currentSpecId: { not: null },
+      },
+      select: {
+        status: true,
+        currentSpec: {
+          select: {
+            vcpu: true,
+            ramGb: true,
+            storageGb: true,
+          }
+        }
+      }
+    })
+  ]);
+
+  let activeVms = 0;
+  let suspendedVms = 0;
+  let retiredVms = 0;
+  let totalVms = 0;
+
+  for (const c of counts) {
+    totalVms += c._count;
+    if (c.status === "ACTIVE") activeVms = c._count;
+    else if (c.status === "SUSPENDED") suspendedVms = c._count;
+    else if (c.status === "RETIRED") retiredVms = c._count;
+  }
+
+  let totalVcpu = 0;
+  let totalRamGb = 0;
+  let totalStorageGb = 0;
+
+  for (const s of specs) {
+    if (s.currentSpec) {
+      totalVcpu += s.currentSpec.vcpu || 0;
+      totalRamGb += s.currentSpec.ramGb || 0;
+      totalStorageGb += s.currentSpec.storageGb || 0;
+    }
+  }
+
+  return {
+    totalVms,
+    activeVms,
+    suspendedVms,
+    retiredVms,
+    totalVcpu,
+    totalRamGb,
+    totalStorageGb,
+  };
+}
+
+export async function fetchAllVms(
+  page: number = 1, 
+  pageSize: number = 20, 
+  statusParam?: string,
+  searchParam?: string,
+  getAll: boolean = false
+): Promise<{ vms: SerializedVmInstance[], total: number }> {
+  const skip = getAll || pageSize <= 0 ? undefined : (page - 1) * pageSize;
+  const take = getAll || pageSize <= 0 ? undefined : pageSize;
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
 
@@ -402,12 +490,25 @@ export async function fetchAllVms(page: number = 1, pageSize: number = 20, statu
     where.status = statusParam.toUpperCase() as any;
   }
 
+  const cleanSearch = searchParam?.trim();
+  if (cleanSearch) {
+    where.OR = [
+      { hostname: { contains: cleanSearch, mode: "insensitive" } },
+      { ipAddress: { contains: cleanSearch, mode: "insensitive" } },
+      { publicIpAddress: { contains: cleanSearch, mode: "insensitive" } },
+      { subdomain: { contains: cleanSearch, mode: "insensitive" } },
+      { systemName: { contains: cleanSearch, mode: "insensitive" } },
+      { owner: { name: { contains: cleanSearch, mode: "insensitive" } } },
+      { owner: { email: { contains: cleanSearch, mode: "insensitive" } } },
+    ];
+  }
+
   const [vms, total] = await Promise.all([
     prisma.vmInstance.findMany({
       where,
       orderBy: { updatedAt: "desc" },
       skip,
-      take: pageSize,
+      take,
       select: {
         id: true,
         hostname: true,

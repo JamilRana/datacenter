@@ -49,6 +49,7 @@ interface Props {
   vms: SerializedVmInstance[];
   selectedRequest?: CustomizationRequest | null;
   mode: "create" | "view" | "edit";
+  initialVmId?: string;
 }
 
 export function CustomizationModal({
@@ -57,6 +58,7 @@ export function CustomizationModal({
   vms,
   selectedRequest,
   mode,
+  initialVmId,
 }: Props) {
   const router = useRouter();
   const [currentMode, setCurrentMode] = useState<"view" | "edit">("view");
@@ -74,7 +76,10 @@ export function CustomizationModal({
     if (open) {
       if (mode === "create") {
         setCurrentMode("edit");
-        setSelectedVmId(vms.length > 0 ? vms[0].id : "");
+        const defaultVmId = (initialVmId && vms.some(v => v.id === initialVmId))
+          ? initialVmId
+          : (vms.length > 0 ? vms[0].id : "");
+        setSelectedVmId(defaultVmId);
         setFormData({ vcpu: "", ramGb: "", storageGb: "", purpose: "" });
       } else if (mode === "view" || mode === "edit") {
         setCurrentMode(mode === "edit" ? "edit" : "view");
@@ -89,7 +94,7 @@ export function CustomizationModal({
         }
       }
     }
-  }, [open, mode, selectedRequest, vms]);
+  }, [open, mode, selectedRequest, vms, initialVmId]);
 
   const selectedVm = vms.find((vm) => vm.id === selectedVmId);
   const isCreateMode = mode === "create";
@@ -391,11 +396,17 @@ function EditModeContent({
                 <SelectValue placeholder="Choose a VM" />
               </SelectTrigger>
               <SelectContent>
-                {vms.map((vm) => (
-                  <SelectItem key={vm.id} value={vm.id}>
-                    {vm.hostname || `VM ${vm.id}`} — {vm.currentSpec?.vcpu} vCPU / {vm.currentSpec?.ramGb} GB RAM
+                {vms.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    No active virtual machines found
                   </SelectItem>
-                ))}
+                ) : (
+                  vms.map((vm) => (
+                    <SelectItem key={vm.id} value={vm.id}>
+                      {vm.hostname || `VM ${vm.id}`} — {vm.currentSpec?.vcpu ?? "?"} vCPU / {vm.currentSpec?.ramGb ?? "?"} GB RAM{vm.ipAddress ? ` (${vm.ipAddress})` : ""}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>

@@ -25,13 +25,17 @@ interface Attachment {
  * Returns VMs owned by the current requester that are ACTIVE and eligible
  * for an upgrade request (no pending upgrade already in flight).
  */
-export async function getUpgradeableVms() {
+export async function getUpgradeableVms(requesterId?: string) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) throw new Error("Unauthorized");
+    if (!session?.user) throw new Error("Unauthorized");
 
-    const userId = session.user.id;
     const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
+    const isDeveloper = hasRole(session.user.roles, ROLES.DEVELOPER);
+
+    // If an admin or developer explicitly specifies a target requester, use that requester's ID;
+    // otherwise default to the session user's ID so that requesters only see their own VMs.
+    const targetUserId = ((isAdmin || isDeveloper) && requesterId) ? requesterId : session.user.id;
 
     // Get all upgrade requests that are not COMPLETED (PROVISIONED), REJECTED, or CLOSED
     const pendingUpgradeVmIds = await prisma.request.findMany({
@@ -48,12 +52,15 @@ export async function getUpgradeableVms() {
       .map((r: { upgradeVmId: string | null }) => r.upgradeVmId)
       .filter(Boolean) as string[];
 
-    const whereClause = isAdmin 
-      ? { status: VmStatus.ACTIVE, id: { notIn: lockedIds } } 
-      : { ownerId: userId, status: VmStatus.ACTIVE, id: { notIn: lockedIds } };
-
     const vms = await prisma.vmInstance.findMany({
-      where: whereClause,
+      where: {
+        status: VmStatus.ACTIVE,
+        id: { notIn: lockedIds },
+        OR: [
+          { ownerId: targetUserId },
+          { request: { requesterId: targetUserId } }
+        ]
+      },
       include: {
         currentSpec: true,
         request: { select: { systemName: true } },

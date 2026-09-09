@@ -43,11 +43,13 @@ import { exportToExcel, exportToCSV } from "@/lib/export-utils";
 import { format } from "date-fns";
 import { Pagination } from "@/components/Pagination";
 import { RequestStatus } from "@prisma/client";
+import { toast } from "sonner";
 
 export function RequestsTable({ dateRange }: { dateRange?: { from: Date; to: Date } }) {
   const [data, setData] = useState<RequestDashboardItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [searchTerm, setSearchTerm] = useState("");
@@ -179,23 +181,41 @@ export function RequestsTable({ dateRange }: { dateRange?: { from: Date; to: Dat
     manualSorting: true,
   });
 
-  const handleExport = (formatType: 'xlsx' | 'csv') => {
-    const dataToExport = data.map(item => ({
-      "Request ID": item.requestId,
-      "Type": item.type,
-      "Requester": item.requester,
-      "Project": item.project,
-      "Environment": item.environment,
-      "Status": item.status,
-      "Approver": item.currentApprover,
-      "Submitted At": format(new Date(item.submittedAt), "yyyy-MM-dd HH:mm"),
-      "Aging (Days)": item.agingDays
-    }));
-    
-    if (formatType === 'xlsx') {
-      exportToExcel('Request_Report', dataToExport);
-    } else {
-      exportToCSV('Request_Report', dataToExport);
+  const handleExport = async (formatType: 'xlsx' | 'csv') => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing export for all matching requests...");
+      const result = await getRequestsReport({
+        getAll: true,
+        status: statusFilter === "ALL" ? undefined : statusFilter as RequestStatus,
+        searchTerm,
+        startDate: dateRange?.from?.toISOString(),
+        endDate: dateRange?.to?.toISOString()
+      });
+
+      const dataToExport = result.data.map(item => ({
+        "Request ID": item.requestId,
+        "Type": item.type,
+        "Requester": item.requester,
+        "Project": item.project,
+        "Environment": item.environment,
+        "Status": item.status,
+        "Approver": item.currentApprover,
+        "Submitted At": format(new Date(item.submittedAt), "yyyy-MM-dd HH:mm"),
+        "Aging (Days)": item.agingDays
+      }));
+      
+      if (formatType === 'xlsx') {
+        exportToExcel('Request_Report', dataToExport);
+      } else {
+        exportToCSV('Request_Report', dataToExport);
+      }
+      toast.success(`Exported ${dataToExport.length} requests successfully.`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export requests");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -229,11 +249,11 @@ export function RequestsTable({ dateRange }: { dateRange?: { from: Date; to: Dat
             </Select>
           </div>
           <div className="flex gap-2">
-             <Button size="sm" variant="outline" className="h-10 gap-2" onClick={() => handleExport('xlsx')}>
-                <Download size={16} /> Export XLSX
+             <Button size="sm" variant="outline" className="h-10 gap-2" disabled={isExporting} onClick={() => handleExport('xlsx')}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Export XLSX
               </Button>
-              <Button size="sm" variant="outline" className="h-10 gap-2" onClick={() => handleExport('csv')}>
-                <Download size={16} /> Export CSV
+              <Button size="sm" variant="outline" className="h-10 gap-2" disabled={isExporting} onClick={() => handleExport('csv')}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Export CSV
               </Button>
           </div>
         </div>

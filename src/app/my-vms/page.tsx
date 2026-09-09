@@ -70,6 +70,7 @@ export default function DashboardVmsPage() {
   });
   const [systemSummary, setSystemSummary] = useState<SystemSummary[]>([]);
   const [k8sNamespaces, setK8sNamespaces] = useState<any[]>([]);
+  const [k8sLoading, setK8sLoading] = useState(false);
   const [vmsData, setVmsData] = useState<{
     vms: UserVmData[];
     total: number;
@@ -101,6 +102,7 @@ export default function DashboardVmsPage() {
   }, [filters.search]);
 
   const fetchStats = async () => {
+    setK8sLoading(true);
     try {
       const [statsData, systems, k8sRes] = await Promise.all([
         getUserVmStats(),
@@ -114,6 +116,8 @@ export default function DashboardVmsPage() {
       }
     } catch (err) {
       console.error("Failed to fetch stats", err);
+    } finally {
+      setK8sLoading(false);
     }
   };
 
@@ -647,7 +651,7 @@ export default function DashboardVmsPage() {
       ) : (
         <K8sDashboard
           namespaces={k8sNamespaces}
-          loading={listLoading}
+          loading={k8sLoading}
           onRefresh={fetchStats}
         />
       )}

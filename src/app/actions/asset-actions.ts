@@ -157,13 +157,14 @@ export async function fetchAssetDetailsWithLicenses(id: string) {
   };
 }
 
-export async function fetchAllAssets(page: number = 1, pageSize: number = 20) {
-  const skip = (page - 1) * pageSize;
+export async function fetchAllAssets(page: number = 1, pageSize: number = 20, getAll: boolean = false) {
+  const skip = getAll || pageSize <= 0 ? undefined : (page - 1) * pageSize;
+  const take = getAll || pageSize <= 0 ? undefined : pageSize;
   const [assets, total] = await Promise.all([
     prisma.asset.findMany({
       orderBy: { name: "asc" },
       skip,
-      take: pageSize,
+      take,
       include: { cluster: true },
     }),
     prisma.asset.count()

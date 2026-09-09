@@ -6,12 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AdminDashboardData } from "@/types/dashboard";
-import { 
-  Server, 
-  Clock, 
-  Cpu, 
-  Activity, 
-  CheckCircle2, 
+import {
+  Server,
+  Clock,
+  Cpu,
+  Activity,
+  CheckCircle2,
   Database,
   Gauge,
   Users,
@@ -250,28 +250,28 @@ export function AdminWidgets({ data }: AdminWidgetsProps) {
             <Link href="/approvals" className="p-3 bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/60 rounded-xl border border-amber-200 dark:border-amber-900/50 text-center transition-all group">
               <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">2. Level 1</span>
               <span className="text-2xl font-black text-amber-700 dark:text-amber-300 block mt-1 group-hover:scale-105 transition-transform">{requestPipeline.l1}</span>
-              <span className="text-[10px] text-amber-600/80 block mt-0.5">Section Officer</span>
+              <span className="text-[10px] text-amber-600/80 block mt-0.5">Assistant Maintenance Engineer</span>
             </Link>
 
             {/* Stage 3: L2 */}
             <Link href="/approvals" className="p-3 bg-blue-50/60 dark:bg-blue-950/30 hover:bg-blue-100/60 rounded-xl border border-blue-200 dark:border-blue-900/50 text-center transition-all group">
               <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider block">3. Level 2</span>
               <span className="text-2xl font-black text-blue-700 dark:text-blue-300 block mt-1 group-hover:scale-105 transition-transform">{requestPipeline.l2}</span>
-              <span className="text-[10px] text-blue-600/80 block mt-0.5">Deputy Director</span>
+              <span className="text-[10px] text-blue-600/80 block mt-0.5">Maintenance Engineer</span>
             </Link>
 
             {/* Stage 4: L3 */}
             <Link href="/approvals" className="p-3 bg-purple-50/60 dark:bg-purple-950/30 hover:bg-purple-100/60 rounded-xl border border-purple-200 dark:border-purple-900/50 text-center transition-all group">
               <span className="text-[10px] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider block">4. Level 3</span>
               <span className="text-2xl font-black text-purple-700 dark:text-purple-300 block mt-1 group-hover:scale-105 transition-transform">{requestPipeline.l3}</span>
-              <span className="text-[10px] text-purple-600/80 block mt-0.5">Director MIS</span>
+              <span className="text-[10px] text-purple-600/80 block mt-0.5">System Analyst</span>
             </Link>
 
             {/* Stage 5: L4 */}
             <Link href="/approvals" className="p-3 bg-rose-50/60 dark:bg-rose-950/30 hover:bg-rose-100/60 rounded-xl border border-rose-200 dark:border-rose-900/50 text-center transition-all group">
               <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">5. Level 4</span>
               <span className="text-2xl font-black text-rose-700 dark:text-rose-300 block mt-1 group-hover:scale-105 transition-transform">{requestPipeline.l4}</span>
-              <span className="text-[10px] text-rose-600/80 block mt-0.5">Line Director</span>
+              <span className="text-[10px] text-rose-600/80 block mt-0.5">Director</span>
             </Link>
 
             {/* Stage 6: DC_OPS */}
@@ -336,9 +336,9 @@ export function AdminWidgets({ data }: AdminWidgetsProps) {
                       <div className="flex items-center justify-end gap-2">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">{resourceOverview.cpu.utilizationPercent}%</span>
                         <div className="w-16 bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full ${resourceOverview.cpu.utilizationPercent > 85 ? "bg-rose-500" : "bg-indigo-600"}`} 
-                            style={{ width: `${Math.min(100, resourceOverview.cpu.utilizationPercent)}%` }} 
+                          <div
+                            className={`h-full ${resourceOverview.cpu.utilizationPercent > 85 ? "bg-rose-500" : "bg-indigo-600"}`}
+                            style={{ width: `${Math.min(100, resourceOverview.cpu.utilizationPercent)}%` }}
                           />
                         </div>
                       </div>
@@ -366,9 +366,9 @@ export function AdminWidgets({ data }: AdminWidgetsProps) {
                       <div className="flex items-center justify-end gap-2">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">{resourceOverview.ram.utilizationPercent}%</span>
                         <div className="w-16 bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full ${resourceOverview.ram.utilizationPercent > 85 ? "bg-rose-500" : "bg-blue-600"}`} 
-                            style={{ width: `${Math.min(100, resourceOverview.ram.utilizationPercent)}%` }} 
+                          <div
+                            className={`h-full ${resourceOverview.ram.utilizationPercent > 85 ? "bg-rose-500" : "bg-blue-600"}`}
+                            style={{ width: `${Math.min(100, resourceOverview.ram.utilizationPercent)}%` }}
                           />
                         </div>
                       </div>
@@ -396,9 +396,9 @@ export function AdminWidgets({ data }: AdminWidgetsProps) {
                       <div className="flex items-center justify-end gap-2">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">{resourceOverview.storage.utilizationPercent}%</span>
                         <div className="w-16 bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full ${resourceOverview.storage.utilizationPercent > 85 ? "bg-rose-500" : "bg-teal-600"}`} 
-                            style={{ width: `${Math.min(100, resourceOverview.storage.utilizationPercent)}%` }} 
+                          <div
+                            className={`h-full ${resourceOverview.storage.utilizationPercent > 85 ? "bg-rose-500" : "bg-teal-600"}`}
+                            style={{ width: `${Math.min(100, resourceOverview.storage.utilizationPercent)}%` }}
                           />
                         </div>
                       </div>
@@ -420,8 +420,8 @@ export function AdminWidgets({ data }: AdminWidgetsProps) {
           </CardHeader>
           <CardContent className="p-4 space-y-3">
             {systemHealth.map((service) => (
-              <div 
-                key={service.name} 
+              <div
+                key={service.name}
                 className="flex items-center justify-between p-2.5 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 text-xs"
               >
                 <div className="flex items-center gap-2.5">
@@ -584,56 +584,56 @@ export function AdminWidgets({ data }: AdminWidgetsProps) {
         </CardHeader>
         <CardContent className="p-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
-            <Link 
-              href="/admin/users" 
+            <Link
+              href="/admin/users"
               className="flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 font-medium text-xs text-center transition-all group"
             >
               <UserPlus className="h-4 w-4 text-indigo-600" />
               <span>Manage Users</span>
             </Link>
 
-            <Link 
-              href="/admin/workflows" 
+            <Link
+              href="/admin/workflows"
               className="flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 font-medium text-xs text-center transition-all group"
             >
               <Workflow className="h-4 w-4 text-purple-600" />
               <span>Workflows</span>
             </Link>
 
-            <Link 
-              href="/admin/audit-logs" 
+            <Link
+              href="/admin/audit-logs"
               className="flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 font-medium text-xs text-center transition-all group"
             >
               <ShieldCheck className="h-4 w-4 text-emerald-600" />
               <span>Audit Logs</span>
             </Link>
 
-            <Link 
-              href="/inventory" 
+            <Link
+              href="/inventory"
               className="flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 font-medium text-xs text-center transition-all group"
             >
               <Database className="h-4 w-4 text-blue-600" />
               <span>Inventory</span>
             </Link>
 
-            <Link 
-              href="/reports" 
+            <Link
+              href="/reports"
               className="flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 font-medium text-xs text-center transition-all group"
             >
               <FileText className="h-4 w-4 text-amber-600" />
               <span>Reports</span>
             </Link>
 
-            <Link 
-              href="/admin/settings" 
+            <Link
+              href="/admin/settings"
               className="flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 font-medium text-xs text-center transition-all group"
             >
               <Settings className="h-4 w-4 text-slate-600" />
               <span>Settings</span>
             </Link>
 
-            <Link 
-              href="/admin/settings" 
+            <Link
+              href="/admin/settings"
               className="flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:bg-indigo-50/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 font-medium text-xs text-center transition-all group"
             >
               <Mail className="h-4 w-4 text-rose-600" />

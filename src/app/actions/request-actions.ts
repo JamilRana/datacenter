@@ -714,6 +714,21 @@ export async function editRequest(formData: FormData) {
               storageGb: g.storageGb
             }))
           });
+
+          const totalNodeVcpu = k8sNodeGroupsInput.reduce((acc: number, g: any) => acc + ((Number(g.vcpu) || 0) * (Number(g.nodeCount) || 1)), 0);
+          const totalNodeRam = k8sNodeGroupsInput.reduce((acc: number, g: any) => acc + ((Number(g.ramGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+          const totalNodeStorage = k8sNodeGroupsInput.reduce((acc: number, g: any) => acc + ((Number(g.storageGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+          const totalNodeCount = k8sNodeGroupsInput.reduce((acc: number, g: any) => acc + (Number(g.nodeCount) || 1), 0);
+
+          await tx.request.update({
+            where: { id: updated.id },
+            data: {
+              quantity: totalNodeCount || 1,
+              vcpu: totalNodeVcpu,
+              ramGb: totalNodeRam,
+              storageGb: totalNodeStorage,
+            }
+          });
         }
       }
 
@@ -1037,6 +1052,17 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
           namespace: true,
           nodeGroups: {
             include: { nodes: true }
+          }
+        }
+      },
+      existingNamespace: {
+        include: {
+          clusters: {
+            include: {
+              nodeGroups: {
+                include: { nodes: true }
+              }
+            }
           }
         }
       },

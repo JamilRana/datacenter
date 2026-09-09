@@ -33,6 +33,8 @@ model User {
   vpnAssigned           VpnAssignment[]        @relation("VpnAssignedBy")
   subdomainsRequested   K8sSubdomain[]         @relation("SubdomainRequester")
   subdomainsApproved    K8sSubdomain[]         @relation("SubdomainApprover")
+  horizonAccounts       HorizonUser[]          @relation("UserToHorizon")
+  vpnAccounts           VpnUser[]              @relation("UserToVpn")
 }
 
 model Role {
@@ -722,6 +724,7 @@ model K8sNodeGroup {
   nodeCount  Int
   vcpu       Int
   ramGb      Int
+  storageGb  Int?        @default(0)
   isClonable Boolean     @default(true)
   nodes      K8sNode[]
 }
@@ -774,14 +777,15 @@ model VmTag {
 }
 
 model K8sRequestNodeGroup {
-  id        String      @id @default(uuid())
-  requestId String
-  request   Request     @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  role      K8sNodeRole
-  nodeCount Int
-  vcpu      Int
-  ramGb     Int
-  storageGb Int
+  id                String       @id @default(uuid())
+  requestId         String
+  request           Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  targetNodeGroupId String?
+  role              K8sNodeRole
+  nodeCount         Int
+  vcpu              Int
+  ramGb             Int
+  storageGb         Int
 }
 
 model K8sNode {
@@ -831,6 +835,8 @@ model PasswordResetOtp {
 
 model HorizonUser {
   id          String              @id @default(uuid())
+  userId      String?             @map("user_id")
+  user        User?               @relation("UserToHorizon", fields: [userId], references: [id], onDelete: SetNull)
   username    String              @unique @map("horizon_username")
   fullName    String              @map("full_name")
   email       String?
@@ -868,9 +874,11 @@ model HorizonAssignment {
 
 model VpnUser {
   id          String          @id @default(uuid())
+  userId      String?         @map("user_id")
+  user        User?           @relation("UserToVpn", fields: [userId], references: [id], onDelete: SetNull)
   username    String          @unique @map("vpn_username")
   fullName    String          @map("full_name")
-  vpnProfile  String          @map("vpn_profile")
+  vpnProfile  String          @default("Full Tunnel") @map("vpn_profile")
   vpnIp       String          @unique @map("vpn_ip")
   status      String          @default("ACTIVE") // ACTIVE, EXPIRED, REVOKED
   createdAt   DateTime        @default(now())

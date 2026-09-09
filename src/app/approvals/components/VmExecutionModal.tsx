@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -43,15 +43,21 @@ export function VmExecutionModal({
   onExecute,
 }: VmExecutionModalProps) {
   const [isPending, startTransition] = useTransition();
-  const [vmInputs, setVmInputs] = useState<VmExecutionInput[]>(() => {
-    return Array.from({ length: quantity }, (_, i) => ({
-      sequenceNumber: i + 1,
-      hostname: quantity > 1 ? `${systemName}-${i + 1}` : systemName,
-      ipAddress: "",
-      publicIpAddress: "",
-      subdomain: requestSubdomain || "",
-    }));
-  });
+  const [vmInputs, setVmInputs] = useState<VmExecutionInput[]>([]);
+
+  useEffect(() => {
+    if (open) {
+      setVmInputs(
+        Array.from({ length: Math.max(quantity || 1, 1) }, (_, i) => ({
+          sequenceNumber: i + 1,
+          hostname: (quantity || 1) > 1 ? `${systemName}-${i + 1}` : systemName,
+          ipAddress: "",
+          publicIpAddress: "",
+          subdomain: requestSubdomain || "",
+        }))
+      );
+    }
+  }, [open, requestId, quantity, systemName, requestSubdomain]);
 
   const updateVmInput = (index: number, field: keyof VmExecutionInput, value: string) => {
     setVmInputs((prev) => {

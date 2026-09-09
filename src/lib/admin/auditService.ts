@@ -117,16 +117,48 @@ export async function createAuditLog(
   entityId?: string,
   details?: Record<string, unknown>
 ) {
-  return prisma.auditLog.create({
-    data: {
-      actorId,
-      action,
-      entityType: entityType || null,
-      entityId: entityId || null,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      details: details as any,
-    },
-  });
+  try {
+    return await prisma.auditLog.create({
+      data: {
+        actorId,
+        action,
+        entityType: entityType || null,
+        entityId: entityId || null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        details: details as any,
+      },
+    });
+  } catch (error: any) {
+    if (error?.code === "P2003") {
+      console.warn(`[AuditLog] Foreign key constraint violated for actorId ${actorId}. Attempting fallback...`);
+      try {
+        const fallbackActor = await prisma.user.findFirst({
+          where: { isActive: true, roles: { some: { role: { name: "ADMIN" } } } },
+          select: { id: true },
+        }) || await prisma.user.findFirst({ select: { id: true } });
+
+        if (fallbackActor) {
+          return await prisma.auditLog.create({
+            data: {
+              actorId: fallbackActor.id,
+              action,
+              entityType: entityType || null,
+              entityId: entityId || null,
+              details: {
+                ...(details || {}),
+                _originalActorId: actorId,
+                _auditFallback: true,
+              } as any,
+            },
+          });
+        }
+      } catch (fallbackError) {
+        console.error("[AuditLog] Fallback audit log creation also failed:", fallbackError);
+      }
+    }
+    console.error("[AuditLog] Failed to create audit log:", error);
+    return null;
+  }
 }
 
 export async function getAuditStats(days: number = 30) {

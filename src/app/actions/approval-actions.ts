@@ -11,10 +11,11 @@ import {
   RequestStatus,
   RequestType,
   VmStatus,
-  CustomizationStatus
+  CustomizationStatus,
+  K8sNodeRole
 } from "@prisma/client";
 import { RoleService } from "@/lib/services/role.service";
-import { ROLES } from "@/lib/roles";
+import { canUserApprove } from "@/lib/roles";
 import { NotificationService } from "@/lib/services/notification.service";
 import { UserRole } from "@/lib/types/enums";
 import { ApiResponse } from "@/types";
@@ -190,17 +191,12 @@ export async function handleApprovalDecision(
       return { success: false, error: `This approval has already been processed: ${approval.decision}` };
     }
     
-    // Check permission: assigned approver, or admin, or user having the required approver role for this level
+    // Check permission: user having the required approver role for this level, or assigned approver
     const userRoles = session.user.roles || [];
-    const isAdmin = userRoles.includes(ROLES.ADMIN);
     const isAssigned = approval.approverId === session.user.id;
-    const hasRoleForLevel = 
-      (approval.level === 1 && (userRoles.includes("APPROVER_L1") || userRoles.includes(ROLES.L1_APPROVER))) ||
-      (approval.level === 2 && (userRoles.includes("APPROVER_L2") || userRoles.includes(ROLES.L2_APPROVER))) ||
-      (approval.level === 3 && (userRoles.includes("APPROVER_L3") || userRoles.includes(ROLES.L3_APPROVER))) ||
-      (approval.level === 4 && (userRoles.includes("APPROVER_L4") || userRoles.includes(ROLES.L4_APPROVER) || userRoles.includes(ROLES.DCOPS)));
+    const isAuthorized = canUserApprove(userRoles, approval.level) || isAssigned;
 
-    if (!isAssigned && !isAdmin && !hasRoleForLevel) {
+    if (!isAuthorized) {
       return { success: false, error: "You are not authorized to act on this approval level" };
     }
 
@@ -560,6 +556,7 @@ export async function executeRequest(requestId: string, notes?: string): Promise
       vmInstances: true,
       targetVm: true,
       requester: true,
+      k8sRequestNodeGroups: true,
     },
   });
 
@@ -592,11 +589,24 @@ export async function executeRequest(requestId: string, notes?: string): Promise
     if (request) {
       // DECOMMISSION: Retire VMs immediately
       if (request.requestType === RequestType.DECOMMISSION) {
-        const vms = request.vmInstances.length > 0
+        let vms = request.vmInstances.length > 0
           ? request.vmInstances
           : request.targetVm
             ? [request.targetVm]
             : [];
+
+        if (vms.length === 0 && request.targetVmId) {
+          const found = await tx.vmInstance.findUnique({ where: { id: request.targetVmId } });
+          if (found) vms = [found];
+        }
+
+        if (vms.length === 0) {
+          const resources = await tx.requestResource.findMany({
+            where: { requestId },
+            include: { vm: true }
+          });
+          vms = resources.map((r: any) => r.vm).filter(Boolean);
+        }
 
         if (vms.length === 0) {
           return { success: false, error: "No VMs found to decommission" };
@@ -614,6 +624,20 @@ export async function executeRequest(requestId: string, notes?: string): Promise
           where: { id: requestId },
           data: { status: RequestStatus.CLOSED },
         });
+
+        await tx.auditLog.create({
+          data: {
+            actorId: session.user.id,
+            action: "EXECUTE_DECOMMISSION",
+            entityType: "REQUEST",
+            entityId: requestId,
+            details: {
+              vmIds: vms.map((v: any) => v.id),
+              vmHostnames: vms.map((v: any) => v.hostname),
+              executedBy: session.user.name,
+            },
+          },
+        });
       }
       // VPN_ACCESS/HORIZON_ACCESS: Confirm externally and mark as provisioned
       else if (request.requestType === RequestType.VPN_ACCESS || request.requestType === RequestType.HORIZON_ACCESS) {
@@ -625,17 +649,134 @@ export async function executeRequest(requestId: string, notes?: string): Promise
           },
         });
       }
-      // K8S_NAMESPACE: Provision namespace
+      // K8S_NAMESPACE: Provision namespace and apply node group scaling / creation
       else if (request.requestType === RequestType.K8S_NAMESPACE) {
-        let namespaceId = request.existingNamespaceId;
-        if (!request.underExistingNamespace) {
-          const createdNs = await tx.k8sNamespace.create({
+        let namespace: any;
+        if (request.existingNamespaceId) {
+          namespace = await tx.k8sNamespace.findUnique({ where: { id: request.existingNamespaceId } });
+        } else if (request.kubernetesNamespace) {
+          namespace = await tx.k8sNamespace.findUnique({ where: { name: request.kubernetesNamespace } });
+        }
+        if (!namespace) {
+          namespace = await tx.k8sNamespace.create({
             data: {
               name: request.kubernetesNamespace || `ns-${request.id.slice(0, 8)}`,
               supervisorIp: "10.0.1.100"
             }
           });
-          namespaceId = createdNs.id;
+        }
+        const namespaceId = namespace.id;
+
+        // Calculate total storage across all requested node groups
+        const totalNodeStorage = (request.k8sRequestNodeGroups || []).reduce(
+          (sum: number, g: any) => sum + ((Number(g.storageGb) || 0) * (Number(g.nodeCount) || 1)),
+          0
+        );
+
+        // Find or create cluster
+        let cluster = await tx.k8sCluster.findFirst({
+          where: { namespaceId: namespace.id }
+        });
+        if (!cluster) {
+          cluster = await tx.k8sCluster.create({
+            data: {
+              namespaceId: namespace.id,
+              requestId: request.id,
+              clusterName: `${namespace.name}-cluster`,
+              totalSpaceGb: totalNodeStorage || request.storageGb || 0,
+              status: "ACTIVE"
+            }
+          });
+        } else {
+          await tx.k8sCluster.update({
+            where: { id: cluster.id },
+            data: {
+              totalSpaceGb: (cluster.totalSpaceGb || 0) + (totalNodeStorage || request.storageGb || 0),
+              ...(!cluster.requestId ? { requestId: request.id } : {})
+            }
+          });
+        }
+
+        // Apply node group scaling or creation
+        for (const group of (request.k8sRequestNodeGroups || [])) {
+          if (group.targetNodeGroupId) {
+            const existingGroup = await tx.k8sNodeGroup.findUnique({
+              where: { id: group.targetNodeGroupId },
+              include: { nodes: true }
+            });
+
+            if (existingGroup) {
+              await tx.k8sNodeGroup.update({
+                where: { id: existingGroup.id },
+                data: {
+                  role: group.role,
+                  nodeCount: group.nodeCount,
+                  vcpu: group.vcpu,
+                  ramGb: group.ramGb,
+                  storageGb: group.storageGb || 0,
+                }
+              });
+
+              const currentNodes = existingGroup.nodes || [];
+              const currentNodeCount = currentNodes.length;
+              const targetCount = group.nodeCount;
+
+              if (targetCount > currentNodeCount) {
+                // Scale UP: Add nodes
+                for (let i = currentNodeCount + 1; i <= targetCount; i++) {
+                  await tx.k8sNode.create({
+                    data: {
+                      nodeGroupId: existingGroup.id,
+                      name: `${namespace.name}-${group.role.toLowerCase()}-${i}`,
+                      ipAddress: `10.0.1.${50 + i}`,
+                      subdomainStatus: "PENDING"
+                    }
+                  });
+                }
+              } else if (targetCount < currentNodeCount) {
+                // Scale DOWN: Remove excess nodes from the end
+                const nodesToRemove = currentNodes.slice(targetCount);
+                for (const node of nodesToRemove) {
+                  await tx.k8sNode.delete({ where: { id: node.id } });
+                }
+              }
+              continue;
+            }
+          }
+
+          // New node group: check if already exists in cluster
+          const alreadyCreatedGroup = await tx.k8sNodeGroup.findFirst({
+            where: {
+              clusterId: cluster.id,
+              role: group.role,
+              nodeCount: group.nodeCount,
+              vcpu: group.vcpu,
+              ramGb: group.ramGb
+            }
+          });
+          if (!alreadyCreatedGroup) {
+            const nodeGroup = await tx.k8sNodeGroup.create({
+              data: {
+                clusterId: cluster.id,
+                role: group.role,
+                nodeCount: group.nodeCount,
+                vcpu: group.vcpu,
+                ramGb: group.ramGb,
+                storageGb: group.storageGb || 0,
+                isClonable: true
+              }
+            });
+            for (let i = 1; i <= group.nodeCount; i++) {
+              await tx.k8sNode.create({
+                data: {
+                  nodeGroupId: nodeGroup.id,
+                  name: `${namespace.name}-${group.role.toLowerCase()}-${i}`,
+                  ipAddress: `10.0.1.${50 + i}`,
+                  subdomainStatus: "PENDING"
+                }
+              });
+            }
+          }
         }
 
         await tx.request.update({
@@ -722,8 +863,67 @@ export async function executeRequest(requestId: string, notes?: string): Promise
             provisionedAt: new Date(),
           },
         });
+
+        await tx.auditLog.create({
+          data: {
+            actorId: session.user.id,
+            action: "EXECUTE_UPGRADE",
+            entityType: "REQUEST",
+            entityId: requestId,
+            details: {
+              targetVmId: request.targetVmId,
+              vcpu,
+              ramGb,
+              storageGb,
+              executedBy: session.user.name,
+            },
+          },
+        });
       }
-      // NEW_VM/RENEWAL: Mark as provisioned (VMs created via executeRequestWithVmInputs)
+      // RENEWAL: Extend VM renewalDate and mark provisioned
+      else if (request.requestType === RequestType.RENEWAL) {
+        const targetVmId = request.targetVmId || request.vmInstances?.[0]?.id;
+        const extendedMonths = request.renewalPeriodMonths || 12;
+        if (targetVmId) {
+          const targetVm = await tx.vmInstance.findUnique({ where: { id: targetVmId } });
+          const baseDate = targetVm?.renewalDate && targetVm.renewalDate > new Date()
+            ? targetVm.renewalDate
+            : new Date();
+          const newRenewalDate = new Date(baseDate);
+          newRenewalDate.setMonth(newRenewalDate.getMonth() + extendedMonths);
+
+          await tx.vmInstance.update({
+            where: { id: targetVmId },
+            data: {
+              renewalDate: newRenewalDate,
+              status: VmStatus.ACTIVE,
+            }
+          });
+        }
+
+        await tx.request.update({
+          where: { id: requestId },
+          data: {
+            status: RequestStatus.PROVISIONED,
+            provisionedAt: new Date(),
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            actorId: session.user.id,
+            action: "EXECUTE_RENEWAL",
+            entityType: "REQUEST",
+            entityId: requestId,
+            details: {
+              targetVmId,
+              extendedMonths,
+              executedBy: session.user.name,
+            },
+          },
+        });
+      }
+      // NEW_VM/OTHER: Mark as provisioned (VMs created via executeRequestWithVmInputs)
       else {
         await tx.request.update({
           where: { id: requestId },
@@ -1227,7 +1427,7 @@ export async function provisionVMs(
               ipAddress: trimmedIpAddress,
               publicIpAddress: vm.publicIpAddress,
               subdomain: vm.subdomain || matchedSpec?.subdomain || request.subdomain || null,
-              ownerId: requesterId,
+              ownerId: request.requesterId || requesterId,
               status: VmStatus.ACTIVE,
               provisionedAt: new Date(),
               renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 6)),
@@ -1379,6 +1579,15 @@ export interface InFlightModifications {
   quantity?: number;
   resourceIdsToRemove?: string[];
   notes?: string;
+  k8sNodeGroups?: Array<{
+    id: string;
+    role?: K8sNodeRole;
+    nodeCount?: number;
+    vcpu?: number;
+    ramGb?: number;
+    storageGb?: number;
+  }>;
+  k8sNodeGroupIdsToRemove?: string[];
 }
 
 export interface ModifyAndApproveParams {
@@ -1391,7 +1600,7 @@ export interface ModifyAndApproveParams {
 
 /**
  * In-flight Modification & Approval Action
- * Allows approvers (L1-L4, DC_OPS) and Admins to modify requested resources (e.g. prune VMs from Horizon/VPN, downsize RAM/vCPU)
+ * Allows approvers (L1-L4, DC_OPS) and Admins to modify requested resources (e.g. prune VMs from Horizon/VPN, downsize RAM/vCPU, customize K8s node groups)
  * and approve the request in a single atomic transaction with complete audit diff logging and requester notification.
  */
 export async function modifyAndApproveRequest(params: ModifyAndApproveParams): Promise<ApiResponse> {
@@ -1424,7 +1633,8 @@ export async function modifyAndApproveRequest(params: ModifyAndApproveParams): P
             namespace: true
           }
         },
-        vmSpecifications: true
+        vmSpecifications: true,
+        k8sRequestNodeGroups: true,
       }
     });
 
@@ -1472,6 +1682,16 @@ export async function modifyAndApproveRequest(params: ModifyAndApproveParams): P
       }
     }
 
+    if (modifications.k8sNodeGroupIdsToRemove && modifications.k8sNodeGroupIdsToRemove.length > 0) {
+      diffs.push(`Removed ${modifications.k8sNodeGroupIdsToRemove.length} K8s Node Group(s)`);
+    }
+
+    if (modifications.k8sNodeGroups && modifications.k8sNodeGroups.length > 0) {
+      modifications.k8sNodeGroups.forEach(ng => {
+        diffs.push(`Adjusted Node Group (${ng.role || "NODE"}): ${ng.nodeCount} nodes, ${ng.vcpu} vCPU, ${ng.ramGb}GB RAM, ${ng.storageGb}GB Disk`);
+      });
+    }
+
     // Apply adjustments in transaction
     await prisma.$transaction(async (tx) => {
       // 1. Remove pruned resources from requestResources
@@ -1484,12 +1704,53 @@ export async function modifyAndApproveRequest(params: ModifyAndApproveParams): P
         });
       }
 
-      // 2. Update Request specs
+      // 2. Handle K8s node groups removal
+      if (modifications.k8sNodeGroupIdsToRemove && modifications.k8sNodeGroupIdsToRemove.length > 0) {
+        await tx.k8sRequestNodeGroup.deleteMany({
+          where: {
+            id: { in: modifications.k8sNodeGroupIdsToRemove },
+            requestId
+          }
+        });
+      }
+
+      // 3. Handle K8s node groups modification
+      if (modifications.k8sNodeGroups && modifications.k8sNodeGroups.length > 0) {
+        for (const ng of modifications.k8sNodeGroups) {
+          await tx.k8sRequestNodeGroup.update({
+            where: { id: ng.id },
+            data: {
+              ...(ng.role && { role: ng.role }),
+              ...(ng.nodeCount !== undefined && { nodeCount: Math.max(1, ng.nodeCount) }),
+              ...(ng.vcpu !== undefined && { vcpu: Math.max(1, ng.vcpu) }),
+              ...(ng.ramGb !== undefined && { ramGb: Math.max(1, ng.ramGb) }),
+              ...(ng.storageGb !== undefined && { storageGb: Math.max(10, ng.storageGb) }),
+            }
+          });
+        }
+      }
+
+      // 4. Update Request specs
       const updateData: any = {};
       if (modifications.vcpu !== undefined) updateData.vcpu = modifications.vcpu;
       if (modifications.ramGb !== undefined) updateData.ramGb = modifications.ramGb;
       if (modifications.storageGb !== undefined) updateData.storageGb = modifications.storageGb;
       if (modifications.quantity !== undefined) updateData.quantity = modifications.quantity;
+
+      // If K8s node groups were updated/removed, compute and apply new total resources
+      if ((modifications.k8sNodeGroups && modifications.k8sNodeGroups.length > 0) ||
+          (modifications.k8sNodeGroupIdsToRemove && modifications.k8sNodeGroupIdsToRemove.length > 0)) {
+        const remainingK8s = await tx.k8sRequestNodeGroup.findMany({ where: { requestId } });
+        const newTotalCount = remainingK8s.reduce((acc, g) => acc + (Number(g.nodeCount) || 1), 0);
+        const newTotalVcpu = remainingK8s.reduce((acc, g) => acc + ((Number(g.vcpu) || 0) * (Number(g.nodeCount) || 1)), 0);
+        const newTotalRam = remainingK8s.reduce((acc, g) => acc + ((Number(g.ramGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+        const newTotalStorage = remainingK8s.reduce((acc, g) => acc + ((Number(g.storageGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+
+        updateData.quantity = newTotalCount || 1;
+        updateData.vcpu = newTotalVcpu;
+        updateData.ramGb = newTotalRam;
+        updateData.storageGb = newTotalStorage;
+      }
 
       if (Object.keys(updateData).length > 0) {
         await tx.request.update({
@@ -1497,18 +1758,20 @@ export async function modifyAndApproveRequest(params: ModifyAndApproveParams): P
           data: updateData
         });
 
-        // Also update any associated vmSpecifications
-        await tx.vmSpecification.updateMany({
-          where: { requestId },
-          data: {
-            vcpu: updateData.vcpu !== undefined ? updateData.vcpu : undefined,
-            ramGb: updateData.ramGb !== undefined ? updateData.ramGb : undefined,
-            storageGb: updateData.storageGb !== undefined ? updateData.storageGb : undefined,
-          }
-        });
+        // Also update any associated vmSpecifications if VM request
+        if (request.vmSpecifications && request.vmSpecifications.length > 0) {
+          await tx.vmSpecification.updateMany({
+            where: { requestId },
+            data: {
+              vcpu: updateData.vcpu !== undefined ? updateData.vcpu : undefined,
+              ramGb: updateData.ramGb !== undefined ? updateData.ramGb : undefined,
+              storageGb: updateData.storageGb !== undefined ? updateData.storageGb : undefined,
+            }
+          });
+        }
       }
 
-      // 3. Create AuditLog entry with full diff metadata
+      // 5. Create AuditLog entry with full diff metadata
       await tx.auditLog.create({
         data: {
           actorId: session.user.id,
@@ -1527,7 +1790,7 @@ export async function modifyAndApproveRequest(params: ModifyAndApproveParams): P
       });
     });
 
-    // 4. Process approval decision with diff summary
+    // 6. Process approval decision with diff summary
     const diffSummary = diffs.length > 0 ? diffs.join("; ") : "No spec changes";
     const fullComments = comments?.trim()
       ? `${comments.trim()} (Modifications: ${diffSummary})`
@@ -1540,7 +1803,7 @@ export async function modifyAndApproveRequest(params: ModifyAndApproveParams): P
       escalateToLevel
     );
 
-    // 5. Notify requester about modifications
+    // 7. Notify requester about modifications
     if (request.requesterId && diffs.length > 0) {
       NotificationService.notifyRequester(
         request.requesterId,
@@ -1560,6 +1823,237 @@ export async function modifyAndApproveRequest(params: ModifyAndApproveParams): P
   } catch (error) {
     console.error("modifyAndApproveRequest failed:", error);
     return { success: false, error: error instanceof Error ? error.message : "Failed to modify and approve request" };
+  }
+}
+
+/**
+ * Approver Customization: Update individual K8s node group spec
+ * Recalculates request total storage, vcpu, ram, and quantity.
+ */
+export async function updateApprovalK8sNodeGroup(params: {
+  groupId: string;
+  role: K8sNodeRole;
+  nodeCount: number;
+  vcpu: number;
+  ramGb: number;
+  storageGb: number;
+}): Promise<ApiResponse> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
+
+  const userRoles = session.user.roles || [];
+  const isAdmin = userRoles.includes("ADMIN");
+  const isDCOps = userRoles.includes("DC_OPS");
+  const isApprover = isAdmin || isDCOps || userRoles.some(r => r.includes("APPROVER"));
+
+  if (!isApprover) {
+    return { success: false, error: "Only approvers or admins can modify requested node specs", code: "FORBIDDEN" };
+  }
+
+  try {
+    const nodeGroup = await prisma.k8sRequestNodeGroup.findUnique({
+      where: { id: params.groupId },
+      include: {
+        request: {
+          include: {
+            approvals: true,
+            k8sRequestNodeGroups: true
+          }
+        }
+      }
+    });
+
+    if (!nodeGroup) {
+      return { success: false, error: "Requested node group not found", code: "NOT_FOUND" };
+    }
+
+    const request = nodeGroup.request;
+    if (!request.status.startsWith("PENDING") && request.status !== RequestStatus.DRAFT) {
+      return { success: false, error: `Cannot modify node group for request in ${request.status} status` };
+    }
+
+    const safeNodeCount = Math.max(1, Math.min(100, Number(params.nodeCount) || 1));
+    const safeVcpu = Math.max(1, Math.min(128, Number(params.vcpu) || 1));
+    const safeRamGb = Math.max(1, Math.min(1024, Number(params.ramGb) || 1));
+    const safeStorageGb = Math.max(10, Math.min(10000, Number(params.storageGb) || 10));
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Update the K8sRequestNodeGroup
+      await tx.k8sRequestNodeGroup.update({
+        where: { id: params.groupId },
+        data: {
+          role: params.role,
+          nodeCount: safeNodeCount,
+          vcpu: safeVcpu,
+          ramGb: safeRamGb,
+          storageGb: safeStorageGb,
+        }
+      });
+
+      // 2. Fetch all groups to recalculate request totals
+      const allGroups = await tx.k8sRequestNodeGroup.findMany({
+        where: { requestId: request.id }
+      });
+
+      const totalQuantity = allGroups.reduce((acc, g) => acc + (Number(g.nodeCount) || 1), 0);
+      const totalVcpu = allGroups.reduce((acc, g) => acc + ((Number(g.vcpu) || 0) * (Number(g.nodeCount) || 1)), 0);
+      const totalRam = allGroups.reduce((acc, g) => acc + ((Number(g.ramGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+      const totalStorage = allGroups.reduce((acc, g) => acc + ((Number(g.storageGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+
+      await tx.request.update({
+        where: { id: request.id },
+        data: {
+          quantity: totalQuantity,
+          vcpu: totalVcpu,
+          ramGb: totalRam,
+          storageGb: totalStorage,
+        }
+      });
+
+      // 3. Audit Log
+      await tx.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: "APPROVER_CUSTOMIZE_K8S_NODE_SPEC",
+          entityType: "REQUEST",
+          entityId: request.id,
+          details: {
+            groupId: params.groupId,
+            previous: {
+              role: nodeGroup.role,
+              nodeCount: nodeGroup.nodeCount,
+              vcpu: nodeGroup.vcpu,
+              ramGb: nodeGroup.ramGb,
+              storageGb: nodeGroup.storageGb,
+            },
+            updated: {
+              role: params.role,
+              nodeCount: safeNodeCount,
+              vcpu: safeVcpu,
+              ramGb: safeRamGb,
+              storageGb: safeStorageGb,
+            },
+            newTotals: {
+              quantity: totalQuantity,
+              vcpu: totalVcpu,
+              ramGb: totalRam,
+              storageGb: totalStorage,
+            }
+          }
+        }
+      });
+    });
+
+    revalidatePath(`/requests/${request.id}`);
+    revalidatePath(`/requests/${request.id}/view`);
+    revalidatePath(`/approvals/${request.id}`);
+    revalidatePath("/approvals");
+
+    return { success: true, message: "Node group specification updated successfully" };
+  } catch (error) {
+    console.error("updateApprovalK8sNodeGroup failed:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Failed to update node group spec" };
+  }
+}
+
+/**
+ * Approver Customization: Remove a node group from request
+ */
+export async function deleteApprovalK8sNodeGroup(groupId: string): Promise<ApiResponse> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
+
+  const userRoles = session.user.roles || [];
+  const isAdmin = userRoles.includes("ADMIN");
+  const isDCOps = userRoles.includes("DC_OPS");
+  const isApprover = isAdmin || isDCOps || userRoles.some(r => r.includes("APPROVER"));
+
+  if (!isApprover) {
+    return { success: false, error: "Only approvers or admins can remove node groups", code: "FORBIDDEN" };
+  }
+
+  try {
+    const nodeGroup = await prisma.k8sRequestNodeGroup.findUnique({
+      where: { id: groupId },
+      include: {
+        request: {
+          include: {
+            k8sRequestNodeGroups: true
+          }
+        }
+      }
+    });
+
+    if (!nodeGroup) {
+      return { success: false, error: "Requested node group not found", code: "NOT_FOUND" };
+    }
+
+    const request = nodeGroup.request;
+    if (!request.status.startsWith("PENDING") && request.status !== RequestStatus.DRAFT) {
+      return { success: false, error: `Cannot remove node group from request in ${request.status} status` };
+    }
+
+    if (request.k8sRequestNodeGroups.length <= 1) {
+      return {
+        success: false,
+        error: "A Kubernetes namespace request must retain at least one node group. You can reduce its node count instead."
+      };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.k8sRequestNodeGroup.delete({
+        where: { id: groupId }
+      });
+
+      const remainingGroups = await tx.k8sRequestNodeGroup.findMany({
+        where: { requestId: request.id }
+      });
+
+      const totalQuantity = remainingGroups.reduce((acc, g) => acc + (Number(g.nodeCount) || 1), 0);
+      const totalVcpu = remainingGroups.reduce((acc, g) => acc + ((Number(g.vcpu) || 0) * (Number(g.nodeCount) || 1)), 0);
+      const totalRam = remainingGroups.reduce((acc, g) => acc + ((Number(g.ramGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+      const totalStorage = remainingGroups.reduce((acc, g) => acc + ((Number(g.storageGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+
+      await tx.request.update({
+        where: { id: request.id },
+        data: {
+          quantity: totalQuantity,
+          vcpu: totalVcpu,
+          ramGb: totalRam,
+          storageGb: totalStorage,
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: "APPROVER_DELETE_K8S_NODE_GROUP",
+          entityType: "REQUEST",
+          entityId: request.id,
+          details: {
+            deletedGroupId: groupId,
+            deletedGroupRole: nodeGroup.role,
+            deletedGroupNodeCount: nodeGroup.nodeCount,
+            newTotals: {
+              quantity: totalQuantity,
+              vcpu: totalVcpu,
+              ramGb: totalRam,
+              storageGb: totalStorage,
+            }
+          }
+        }
+      });
+    });
+
+    revalidatePath(`/requests/${request.id}`);
+    revalidatePath(`/requests/${request.id}/view`);
+    revalidatePath(`/approvals/${request.id}`);
+    revalidatePath("/approvals");
+
+    return { success: true, message: "Node group removed from request successfully" };
+  } catch (error) {
+    console.error("deleteApprovalK8sNodeGroup failed:", error);
+    return { success: false, error: error instanceof Error ? error.message : "Failed to remove node group" };
   }
 }
 

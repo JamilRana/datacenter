@@ -11,15 +11,17 @@ import { CustomizationModal } from "../customize/components/CustomizationModal";
 export function VmList({ vms }: { vms: SerializedVmInstanceDetail [] }) {
   const {data:session} = useSession();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedVmId, setSelectedVmId] = useState<string | undefined>(undefined);
   if(!session?.user) return null;
 
   if (vms.length === 0) {
     return <p className="text-muted-foreground">No VMs provisioned yet.</p>;
   }
 
-    const handleOpenModal = () => {
-      setIsModalOpen(true);
-    };
+  const handleOpenModal = (vmId: string) => {
+    setSelectedVmId(vmId);
+    setIsModalOpen(true);
+  };
 
   return (
     <div className="border rounded-md">
@@ -57,7 +59,7 @@ export function VmList({ vms }: { vms: SerializedVmInstanceDetail [] }) {
               <td className="p-3">
                 <div className="flex gap-2">
 
-                    <Button size="sm" variant="outline" onClick={handleOpenModal}>
+                    <Button size="sm" variant="outline" onClick={() => handleOpenModal(vm.id)}>
                       Customize
                     </Button>
 
@@ -69,11 +71,12 @@ export function VmList({ vms }: { vms: SerializedVmInstanceDetail [] }) {
         </tbody>
       </table>
       <CustomizationModal
-  open={isModalOpen}
-  onOpenChange={setIsModalOpen}
-  vms={vms}
-  mode="create"
-/>
+        open={isModalOpen}
+        onOpenChange={setIsModalOpen}
+        vms={vms}
+        mode="create"
+        initialVmId={selectedVmId}
+      />
     </div>
   );
 }

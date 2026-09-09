@@ -9,10 +9,11 @@ import { AssetListClient } from "../components/AssetListClient";
 import { PhysicalAsset } from "@/types/inventory";
 import { fetchAllAssets } from "@/app/actions/asset-actions";
 import { AssetModal } from "../components/AssetModal";
-import { ChevronLeft, Server, MapPin, HardDrive, Download } from "lucide-react";
+import { ChevronLeft, Server, MapPin, HardDrive, Download, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { exportToCsv } from "@/lib/export-utils";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatCard } from "@/components/analytics/StatCard";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
@@ -30,6 +31,7 @@ export default function AssetsPage() {
   const [totalAssets, setTotalAssets] = useState(0);
   const [loading, setLoading] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [hardwareAnalytics, setHardwareAnalytics] = useState<HardwareAnalytics | null>(null);
 
   useEffect(() => {
@@ -85,20 +87,31 @@ export default function AssetsPage() {
 
   const canEdit = session.user.roles.includes(ROLES.ADMIN) || session.user.roles.includes(ROLES.DCOPS);
 
-  const handleExport = () => {
-    const exportData = assets.map(asset => ({
-      Name: asset.name,
-      Type: asset.type,
-      Provider: asset.vendor || "",
-      Model: asset.model || "",
-      Serial: asset.serial || "",
-      Location: asset.location || "",
-      CPU_Cores: asset.cpuCores || "",
-      RAM_GB: asset.ramGb || "",
-      Storage_GB: asset.storageGb || "",
-      Warranty_Expiry: asset.warrantyExpiry ? new Date(asset.warrantyExpiry).toLocaleDateString() : "",
-    }));
-    exportToCsv(`hardware-assets-${new Date().toISOString().split('T')[0]}.csv`, exportData);
+  const handleExport = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing export for all hardware assets...");
+      const fullData = await fetchAllAssets(1, 0, true);
+      const exportData = fullData.assets.map(asset => ({
+        Name: asset.name,
+        Type: asset.type,
+        Provider: asset.vendor || "",
+        Model: asset.model || "",
+        Serial: asset.serial || "",
+        Location: asset.location || "",
+        CPU_Cores: asset.cpuCores || "",
+        RAM_GB: asset.ramGb || "",
+        Storage_GB: asset.storageGb || "",
+        Warranty_Expiry: asset.warrantyExpiry ? new Date(asset.warrantyExpiry).toLocaleDateString() : "",
+      }));
+      exportToCsv(`hardware-assets-${new Date().toISOString().split('T')[0]}.csv`, exportData);
+      toast.success(`Exported ${exportData.length} hardware assets successfully.`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export hardware assets");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -121,8 +134,8 @@ export default function AssetsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExport} className="gap-2">
-            <Download className="h-4 w-4" /> Export
+          <Button variant="outline" disabled={isExporting} onClick={handleExport} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export
           </Button>
           {canEdit && (
             <AssetModal mode="create" />

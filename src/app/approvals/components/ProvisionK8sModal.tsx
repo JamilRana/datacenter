@@ -12,6 +12,8 @@ interface ProvisionK8sModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   requestId: string;
+  defaultNamespaceName?: string;
+  defaultSupervisorIp?: string;
   onSuccess: () => void;
 }
 
@@ -19,6 +21,8 @@ export function ProvisionK8sModal({
   open,
   onOpenChange,
   requestId,
+  defaultNamespaceName,
+  defaultSupervisorIp,
   onSuccess,
 }: ProvisionK8sModalProps) {
   const [namespaceName, setNamespaceName] = useState("");
@@ -28,11 +32,11 @@ export function ProvisionK8sModal({
 
   useEffect(() => {
     if (open) {
-      setNamespaceName("");
-      setSupervisorIp("10.0.1.100");
+      setNamespaceName(defaultNamespaceName || "");
+      setSupervisorIp(defaultSupervisorIp || "10.0.1.100");
       setError(null);
     }
-  }, [open]);
+  }, [open, defaultNamespaceName, defaultSupervisorIp]);
 
   const handleSubmit = async () => {
     // Validate Namespace Name: only letters, numbers, dashes allowed in K8s namespaces

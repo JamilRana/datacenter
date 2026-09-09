@@ -5,6 +5,7 @@ import { Prisma, RequestStatus } from "@prisma/client";
 export interface ApprovalReportParams {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   dateFrom?: Date;
   dateTo?: Date;
   status?: string;
@@ -48,6 +49,7 @@ export async function getApprovalReport(params: ApprovalReportParams): Promise<A
   const { 
     page = 1, 
     pageSize = 10, 
+    getAll = false,
     dateFrom, 
     dateTo, 
     status, 
@@ -57,7 +59,8 @@ export async function getApprovalReport(params: ApprovalReportParams): Promise<A
     userRoles 
   } = params;
 
-  const skip = (page - 1) * pageSize;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
   const isAdmin = userRoles?.some((r: any) => ["ADMIN", "DC_OPS", "APPROVER_L1", "APPROVER_L2", "APPROVER_L3", "APPROVER_L4"].includes(r.toUpperCase()));
 
   const where: Prisma.RequestWhereInput = {};
@@ -87,7 +90,7 @@ export async function getApprovalReport(params: ApprovalReportParams): Promise<A
     prisma.request.findMany({
       where,
       skip,
-      take: pageSize,
+      take,
       orderBy: { createdAt: "desc" },
       include: {
         requester: { select: { name: true, email: true } },

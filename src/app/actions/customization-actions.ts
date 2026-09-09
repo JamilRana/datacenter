@@ -15,6 +15,7 @@ import {
 import { generateApprovals } from "./approval-actions";
 import { isAdmin } from "@/lib/utils";
 import { Environment, VmStatus, CustomizationStatus as CustomizationStatusEnum } from "@/types/enums";
+import { SerializedVmInstance } from "@/types/vm";
 
 /* ------------------------------------------------------------------ */
 /* Zod Validation Schemas */
@@ -96,15 +97,19 @@ async function createAuditLog(
   entityId: string,
   details?: Record<string, unknown>
 ) {
-  await prisma.auditLog.create({
-    data: {
-      actorId,
-      action,
-      entityType: "CUSTOMIZATION",
-      entityId,
-      details: details ? JSON.stringify(details) : undefined,
-    },
-  });
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId,
+        action,
+        entityType: "CUSTOMIZATION",
+        entityId,
+        details: details ? JSON.stringify(details) : undefined,
+      },
+    });
+  } catch (err) {
+    console.warn("[Customization] Failed to write audit log:", err);
+  }
 }
 
 export async function createCustomizationRequest(formData: FormData) {
@@ -569,4 +574,65 @@ function isPendingStatus(status: CustomizationStatus): boolean {
     default:
       return false;
   }
+}
+
+/**
+ * Returns all active virtual machines owned or requested by the user,
+ * eligible for customization requests.
+ */
+export async function getCustomizableVms(requesterId?: string): Promise<SerializedVmInstance[]> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const isAdmin = (session.user.roles || []).includes("ADMIN");
+  const isDeveloper = (session.user.roles || []).includes("DEVELOPER");
+  const targetUserId = ((isAdmin || isDeveloper) && requesterId) ? requesterId : session.user.id;
+
+  const vms = await prisma.vmInstance.findMany({
+    where: {
+      status: "ACTIVE",
+      OR: [
+        { ownerId: targetUserId },
+        { request: { requesterId: targetUserId } }
+      ]
+    },
+    include: {
+      currentSpec: true,
+      owner: { select: { id: true, name: true, email: true } },
+      request: { select: { requestId: true, systemName: true, environment: true } }
+    },
+    orderBy: { hostname: "asc" }
+  });
+
+  return vms.map((vm: any) => ({
+    id: vm.id,
+    systemName: vm.request?.systemName || null,
+    hostname: vm.hostname,
+    ipAddress: vm.ipAddress,
+    publicIpAddress: vm.publicIpAddress,
+    status: vm.status as VmStatus,
+    renewalDate: vm.renewalDate ? vm.renewalDate.toISOString() : null,
+    hasRemoteAccess: vm.hasRemoteAccess ?? false,
+    vpnRequired: vm.vpnRequired ?? false,
+    subdomain: vm.subdomain,
+    updatedAt: vm.updatedAt.toISOString(),
+    provisionedAt: vm.provisionedAt ? vm.provisionedAt.toISOString() : null,
+    currentSpec: vm.currentSpec ? {
+      vcpu: vm.currentSpec.vcpu,
+      ramGb: vm.currentSpec.ramGb,
+      storageGb: vm.currentSpec.storageGb,
+      osName: vm.currentSpec.osName,
+      osVersion: vm.currentSpec.osVersion,
+    } : null,
+    owner: vm.owner ? {
+      id: vm.owner.id,
+      name: vm.owner.name,
+      email: vm.owner.email,
+    } : null,
+    request: vm.request ? {
+      requestId: vm.request.requestId,
+      systemName: vm.request.systemName,
+      environment: vm.request.environment as any,
+    } : null,
+  }));
 }

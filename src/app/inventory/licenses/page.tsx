@@ -16,7 +16,8 @@ import { LicenseModal } from "../components/LicenseModal";
 import { DeleteConfirmationModal } from "../components/DeleteConfirmationModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { exportToCsv } from "@/lib/export-utils";
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { StatCard } from "@/components/analytics/StatCard";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
 import { RecentActivity } from "@/components/analytics/RecentActivity";
@@ -32,6 +33,7 @@ export default function LicensesPage({
   const router = useRouter();
   const [licenses, setLicenses] = useState<SoftwareLicense[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [licenseAnalytics, setLicenseAnalytics] = useState<LicenseAnalytics | null>(null);
 
   const page = searchParams.page ? parseInt(searchParams.page, 10) : 1;
@@ -77,16 +79,27 @@ export default function LicensesPage({
 
   const canEdit = !!(session?.user?.roles?.includes(ROLES.ADMIN) || session?.user?.roles?.includes(ROLES.DCOPS));
 
-  const handleExport = () => {
-    const exportData = licenses.map(lic => ({
-      Name: lic.name,
-      Vendor: lic.vendor,
-      Type: lic.type || "",
-      Expiry_Date: lic.expiryDate ? new Date(lic.expiryDate).toLocaleDateString() : "Perpetual",
-      Maintenance_Expiry: lic.maintenanceExpiry ? new Date(lic.maintenanceExpiry).toLocaleDateString() : "",
-      Notes: lic.notes || "",
-    }));
-    exportToCsv(`software-licenses-${new Date().toISOString().split('T')[0]}.csv`, exportData);
+  const handleExport = async () => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing export for all software licenses...");
+      const fullData = await fetchLicenseDetails(1, undefined, undefined, true);
+      const exportData = (fullData.licenses || []).map(lic => ({
+        Name: lic.name,
+        Vendor: lic.vendor,
+        Type: lic.type || "",
+        Expiry_Date: lic.expiryDate ? new Date(lic.expiryDate).toLocaleDateString() : "Perpetual",
+        Maintenance_Expiry: lic.maintenanceExpiry ? new Date(lic.maintenanceExpiry).toLocaleDateString() : "",
+        Notes: lic.notes || "",
+      }));
+      exportToCsv(`software-licenses-${new Date().toISOString().split('T')[0]}.csv`, exportData);
+      toast.success(`Exported ${exportData.length} software licenses successfully.`);
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export software licenses");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (status === "loading" || loading) {
@@ -121,8 +134,8 @@ export default function LicensesPage({
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExport} className="gap-2">
-            <Download className="h-4 w-4" /> Export
+          <Button variant="outline" disabled={isExporting} onClick={handleExport} className="gap-2">
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export
           </Button>
           {canEdit && (
             <LicenseModal mode="create" />

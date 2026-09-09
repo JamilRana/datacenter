@@ -5,11 +5,11 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
-import { 
-  AttachmentType, 
-  Environment, 
-  RequestStatus, 
-  RequestType, 
+import {
+  AttachmentType,
+  Environment,
+  RequestStatus,
+  RequestType,
   ServerType,
   K8sNodeRole,
   SSLProvider,
@@ -82,11 +82,11 @@ export async function createK8sNamespaceRequest(formData: FormData) {
     if (securityFile && securityFile.size > 0) {
       const buffer = Buffer.from(await securityFile.arrayBuffer());
       const uploadResult = await uploadBuffer(buffer, securityFile.name, `requests/${requestId}`);
-      
+
       if (!uploadResult.success) {
         throw new Error(`Failed to upload security report: ${uploadResult.error}`);
       }
-      
+
       attachments.push({
         fileName: securityFile.name,
         filePath: uploadResult.key || "",
@@ -99,11 +99,11 @@ export async function createK8sNamespaceRequest(formData: FormData) {
     if (justificationFile && justificationFile.size > 0) {
       const buffer = Buffer.from(await justificationFile.arrayBuffer());
       const uploadResult = await uploadBuffer(buffer, justificationFile.name, `requests/${requestId}`);
-      
+
       if (!uploadResult.success) {
         throw new Error(`Failed to upload justification: ${uploadResult.error}`);
       }
-      
+
       attachments.push({
         fileName: justificationFile.name,
         filePath: uploadResult.key || "",
@@ -112,104 +112,109 @@ export async function createK8sNamespaceRequest(formData: FormData) {
       });
     }
 
+    const totalNodeVcpu = k8sNodeGroupsInput.reduce((acc: number, g: any) => acc + ((Number(g.vcpu) || 0) * (Number(g.nodeCount) || 1)), 0);
+    const totalNodeRam = k8sNodeGroupsInput.reduce((acc: number, g: any) => acc + ((Number(g.ramGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+    const totalNodeStorage = k8sNodeGroupsInput.reduce((acc: number, g: any) => acc + ((Number(g.storageGb) || 0) * (Number(g.nodeCount) || 1)), 0);
+    const totalNodeCount = k8sNodeGroupsInput.reduce((acc: number, g: any) => acc + (Number(g.nodeCount) || 1), 0);
+
     // ✅ CREATE REQUEST WITH CORRECT FIELDS
     const newCreatedRequest = await prisma.request.create({
-        data: {
-          requestType: RequestType.K8S_NAMESPACE,
-          status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
-          quantity: 1,
-          systemName: formData.get("systemName")?.toString() || "",
-          projectName: formData.get("projectName")?.toString() || null,
-          purpose: formData.get("purpose")?.toString() || "",
-          environment: env as Environment,
+      data: {
+        requestType: RequestType.K8S_NAMESPACE,
+        status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
+        quantity: totalNodeCount || 1,
+        systemName: formData.get("systemName")?.toString() || "",
+        projectName: formData.get("projectName")?.toString() || null,
+        purpose: formData.get("purpose")?.toString() || "",
+        environment: env as Environment,
 
-          requesterId: isDeveloper && assignedRequesterId 
-            ? assignedRequesterId
-            : userId,
+        requesterId: isDeveloper && assignedRequesterId
+          ? assignedRequesterId
+          : userId,
 
-          ...(isDeveloper && { 
-            developerId: userId,
-            developerName: session.user.name || "",
-            developerDesignation: session.user.designation || "",
-            developerOrganization: session.user.organization || "",
-            developerContact: session.user.contact || "",
-            developerEmail: session.user.email || "",
-          }),
+        ...(isDeveloper && {
+          developerId: userId,
+          developerName: session.user.name || "",
+          developerDesignation: session.user.designation || "",
+          developerOrganization: session.user.organization || "",
+          developerContact: session.user.contact || "",
+          developerEmail: session.user.email || "",
+        }),
 
-          // K8s Namespace fields - minimal specs
-          vcpu: 0,
-          ramGb: 0,
-          storageGb: 0,
-          serverType: ServerType.OTHER,
-          osName: null,
-          osVersion: null,
-          subdomain: formData.get("subdomain")?.toString() || null,
-          sslProvider: SSLProvider.MIS,
-          vpnRequired: networkAccess.includes("VPN"),
-          vpnDetails: formData.get("vpnDetails")?.toString() || null,
+        // K8s Namespace fields - calculated node specs
+        vcpu: totalNodeVcpu,
+        ramGb: totalNodeRam,
+        storageGb: totalNodeStorage,
+        serverType: ServerType.OTHER,
+        osName: null,
+        osVersion: null,
+        subdomain: formData.get("subdomain")?.toString() || null,
+        sslProvider: SSLProvider.MIS,
+        vpnRequired: networkAccess.includes("VPN"),
+        vpnDetails: formData.get("vpnDetails")?.toString() || null,
 
-          // K8s specific
-          kubernetesOption: true,
-          kubernetesNamespace: null,
-          underExistingNamespace: false,
-          existingNamespaceId: null,
-          k8sRequestNodeGroups: {
-            create: k8sNodeGroupsInput.map((g: any) => ({
-              role: g.role as K8sNodeRole,
-              nodeCount: g.nodeCount,
-              vcpu: g.vcpu,
-              ramGb: g.ramGb,
-              storageGb: g.storageGb
-            }))
-          },
-
-          // Tech Stack
-          frontendTech: formData.get("frontendTech")?.toString() || null,
-          backendTech: formData.get("backendTech")?.toString() || null,
-          dataBase: formData.get("dataBase")?.toString() || null,
-          serverArchitecture: formData.get("serverArchitecture")?.toString() || null,
-          additionalTechNotes: formData.get("additionalTechNotes")?.toString() || null,
-
-          // Alternate Person
-          alternativePersonName: formData.get("alternativePersonName")?.toString() || null,
-          alternativePersonDesignation: formData.get("alternativePersonDesignation")?.toString() || null,
-          alternativePersonOrganization: formData.get("alternativePersonOrganization")?.toString() || null,
-          alternativePersonContact: formData.get("alternativePersonContact")?.toString() || null,
-          alternativePersonEmail: formData.get("alternativePersonEmail")?.toString() || null,
-
-          // Compliance
-          vaReportSubmitted: formData.get("vaReportSubmitted") === "true",
-          justificationSubmitted: formData.get("justificationSubmitted") === "true",
-
-          // Relations
-          additionalDisks: {
-            create: additionalDisks
-              .filter((d: AdditionalDisk) => d.sizeGb && d.sizeGb > 0)
-              .map((d: AdditionalDisk, index: number) => ({
-                sizeGb: d.sizeGb,
-                purpose: d.purpose || null,
-                sequence: index + 1,
-              })),
-          },
-          firewallPorts: {
-            create: firewallPorts
-              .filter((p: FirewallPort) => p.port && p.port > 0)
-              .map((p: FirewallPort) => ({
-                port: p.port,
-                protocol: p.protocol as Protocol,
-                purpose: p.purpose || "N/A",
-                source: p.source || null,
-              })),
-          },
-          networkAccess: {
-            create: networkAccess
-              .filter((type: string) => type)
-              .map((type: string) => ({
-                accessType: type as NetworkAccess,
-              })),
-          },
+        // K8s specific
+        kubernetesOption: true,
+        kubernetesNamespace: null,
+        underExistingNamespace: false,
+        existingNamespaceId: null,
+        k8sRequestNodeGroups: {
+          create: k8sNodeGroupsInput.map((g: any) => ({
+            role: g.role as K8sNodeRole,
+            nodeCount: g.nodeCount,
+            vcpu: g.vcpu,
+            ramGb: g.ramGb,
+            storageGb: g.storageGb
+          }))
         },
-      });
+
+        // Tech Stack
+        frontendTech: formData.get("frontendTech")?.toString() || null,
+        backendTech: formData.get("backendTech")?.toString() || null,
+        dataBase: formData.get("dataBase")?.toString() || null,
+        serverArchitecture: formData.get("serverArchitecture")?.toString() || null,
+        additionalTechNotes: formData.get("additionalTechNotes")?.toString() || null,
+
+        // Alternate Person
+        alternativePersonName: formData.get("alternativePersonName")?.toString() || null,
+        alternativePersonDesignation: formData.get("alternativePersonDesignation")?.toString() || null,
+        alternativePersonOrganization: formData.get("alternativePersonOrganization")?.toString() || null,
+        alternativePersonContact: formData.get("alternativePersonContact")?.toString() || null,
+        alternativePersonEmail: formData.get("alternativePersonEmail")?.toString() || null,
+
+        // Compliance
+        vaReportSubmitted: formData.get("vaReportSubmitted") === "true",
+        justificationSubmitted: formData.get("justificationSubmitted") === "true",
+
+        // Relations
+        additionalDisks: {
+          create: additionalDisks
+            .filter((d: AdditionalDisk) => d.sizeGb && d.sizeGb > 0)
+            .map((d: AdditionalDisk, index: number) => ({
+              sizeGb: d.sizeGb,
+              purpose: d.purpose || null,
+              sequence: index + 1,
+            })),
+        },
+        firewallPorts: {
+          create: firewallPorts
+            .filter((p: FirewallPort) => p.port && p.port > 0)
+            .map((p: FirewallPort) => ({
+              port: p.port,
+              protocol: p.protocol as Protocol,
+              purpose: p.purpose || "N/A",
+              source: p.source || null,
+            })),
+        },
+        networkAccess: {
+          create: networkAccess
+            .filter((type: string) => type)
+            .map((type: string) => ({
+              accessType: type as NetworkAccess,
+            })),
+        },
+      },
+    });
 
     // ✅ GENERATE APPROVALS ONLY FOR SUBMITTED REQUESTS (not drafts)
     if (newCreatedRequest.status === RequestStatus.PENDING_L1) {
@@ -429,35 +434,132 @@ export async function provisionK8sNamespace(
       return { success: false, message: `Request status must be APPROVED (current: ${request.status})` };
     }
 
-    // Check if namespace name already exists
-    const existingNamespace = await prisma.k8sNamespace.findUnique({
-      where: { name: namespaceName }
-    });
-    if (existingNamespace) {
-      return { success: false, message: `Namespace "${namespaceName}" already exists. Please choose a unique name.` };
+    let targetNamespaceId: string | null = null;
+
+    if (request.underExistingNamespace) {
+      const existingNs = request.existingNamespaceId
+        ? await prisma.k8sNamespace.findUnique({ where: { id: request.existingNamespaceId } })
+        : await prisma.k8sNamespace.findUnique({ where: { name: namespaceName } });
+
+      if (existingNs) {
+        targetNamespaceId = existingNs.id;
+      }
+    }
+
+    if (!targetNamespaceId) {
+      // Check if namespace name already exists when creating brand new namespace
+      const existingNamespace = await prisma.k8sNamespace.findUnique({
+        where: { name: namespaceName }
+      });
+      if (existingNamespace) {
+        return { success: false, message: `Namespace "${namespaceName}" already exists. Please choose a unique name.` };
+      }
     }
 
     await prisma.$transaction(async (tx: any) => {
-      // 1. Create Namespace
-      const namespace = await tx.k8sNamespace.create({
-        data: {
-          name: namespaceName,
-          supervisorIp: supervisorIp
+      // 1. Create or fetch Namespace
+      let namespace: any;
+      if (targetNamespaceId) {
+        namespace = await tx.k8sNamespace.findUnique({
+          where: { id: targetNamespaceId }
+        });
+        if (supervisorIp && supervisorIp !== namespace.supervisorIp) {
+          namespace = await tx.k8sNamespace.update({
+            where: { id: targetNamespaceId },
+            data: { supervisorIp }
+          });
         }
-      });
+      } else {
+        namespace = await tx.k8sNamespace.create({
+          data: {
+            name: namespaceName,
+            supervisorIp: supervisorIp
+          }
+        });
+      }
 
-      // 2. Create Cluster
-      const cluster = await tx.k8sCluster.create({
-        data: {
-          namespaceId: namespace.id,
-          requestId: request.id,
-          clusterName: `${namespaceName}-cluster`,
-          status: "ACTIVE"
-        }
-      });
+      // Calculate total storage across all requested node groups
+      const totalNodeStorage = (request.k8sRequestNodeGroups || []).reduce(
+        (acc: number, g: any) => acc + ((Number(g.storageGb) || 0) * (Number(g.nodeCount) || 1)),
+        0
+      );
 
-      // 3. Create Node Groups & Nodes
+      // 2. Find or Create Cluster
+      let cluster = await tx.k8sCluster.findFirst({
+        where: { namespaceId: namespace.id }
+      });
+      if (!cluster) {
+        cluster = await tx.k8sCluster.create({
+          data: {
+            namespaceId: namespace.id,
+            requestId: request.id,
+            clusterName: `${namespace.name}-cluster`,
+            totalSpaceGb: totalNodeStorage || request.storageGb || 0,
+            status: "ACTIVE"
+          }
+        });
+      } else {
+        await tx.k8sCluster.update({
+          where: { id: cluster.id },
+          data: {
+            totalSpaceGb: (cluster.totalSpaceGb || 0) + (totalNodeStorage || request.storageGb || 0),
+            ...(!cluster.requestId ? { requestId: request.id } : {})
+          }
+        });
+      }
+
+      // 3. Create or Update Node Groups & Nodes
       for (const group of request.k8sRequestNodeGroups) {
+        if (group.targetNodeGroupId) {
+          const existingGroup = await tx.k8sNodeGroup.findUnique({
+            where: { id: group.targetNodeGroupId },
+            include: { nodes: true }
+          });
+
+          if (existingGroup) {
+            // Update node group specs (vCPU, RAM, Role, NodeCount, Storage)
+            await tx.k8sNodeGroup.update({
+              where: { id: existingGroup.id },
+              data: {
+                role: group.role,
+                nodeCount: group.nodeCount,
+                vcpu: group.vcpu,
+                ramGb: group.ramGb,
+                storageGb: group.storageGb || 0,
+              }
+            });
+
+            const currentNodes = existingGroup.nodes || [];
+            const currentNodeCount = currentNodes.length;
+            const targetCount = group.nodeCount;
+
+            if (targetCount > currentNodeCount) {
+              // Scale UP: Add new nodes
+              for (let i = currentNodeCount + 1; i <= targetCount; i++) {
+                await tx.k8sNode.create({
+                  data: {
+                    nodeGroupId: existingGroup.id,
+                    name: `${namespace.name}-${group.role.toLowerCase()}-${i}`,
+                    ipAddress: `10.0.1.${50 + i}`,
+                    subdomainStatus: "PENDING"
+                  }
+                });
+              }
+            } else if (targetCount < currentNodeCount) {
+              // Scale DOWN: Remove excess nodes from the end
+              const nodesToRemove = currentNodes.slice(targetCount);
+              for (const node of nodesToRemove) {
+                await tx.k8sNode.delete({
+                  where: { id: node.id }
+                });
+              }
+            }
+            // If targetCount === currentNodeCount, node instances remain intact while specs are updated
+            continue;
+          }
+        }
+
+        // Fallback / New Node Group creation
         const nodeGroup = await tx.k8sNodeGroup.create({
           data: {
             clusterId: cluster.id,
@@ -465,6 +567,7 @@ export async function provisionK8sNamespace(
             nodeCount: group.nodeCount,
             vcpu: group.vcpu,
             ramGb: group.ramGb,
+            storageGb: group.storageGb || 0,
             isClonable: true
           }
         });
@@ -474,7 +577,7 @@ export async function provisionK8sNamespace(
           await tx.k8sNode.create({
             data: {
               nodeGroupId: nodeGroup.id,
-              name: `${namespaceName}-${group.role.toLowerCase()}-${i}`,
+              name: `${namespace.name}-${group.role.toLowerCase()}-${i}`,
               ipAddress: `10.0.1.${50 + i}`, // placeholder IP
               subdomainStatus: "PENDING"
             }
@@ -521,65 +624,50 @@ export async function getUserK8sNamespaces() {
     const session = await getServerSession(authOptions);
     if (!session?.user) throw new Error("Unauthorized");
 
-    const userRoles = session.user.roles || [];
-    const isDCOps = userRoles.includes("DC_OPS");
-    const isAdmin = userRoles.includes("ADMIN");
+    const userId = session.user.id;
 
-    let namespaces;
-    if (isDCOps || isAdmin) {
-      namespaces = await prisma.k8sNamespace.findMany({
-        include: {
-          subdomains: {
-            include: {
-              requestedBy: { select: { id: true, name: true, email: true } },
-              approvedBy: { select: { id: true, name: true, email: true } }
-            },
-            orderBy: { createdAt: "desc" }
-          },
-          clusters: {
-            include: {
-              nodeGroups: {
-                include: {
-                  nodes: true
+    const namespaces = await prisma.k8sNamespace.findMany({
+      where: {
+        OR: [
+          {
+            clusters: {
+              some: {
+                request: {
+                  requesterId: userId
                 }
               }
             }
-          }
-        },
-        orderBy: { name: "asc" }
-      });
-    } else {
-      namespaces = await prisma.k8sNamespace.findMany({
-        where: {
-          clusters: {
-            some: {
-              request: {
-                requesterId: session.user.id
-              }
-            }
-          }
-        },
-        include: {
-          subdomains: {
-            include: {
-              requestedBy: { select: { id: true, name: true, email: true } },
-              approvedBy: { select: { id: true, name: true, email: true } }
-            },
-            orderBy: { createdAt: "desc" }
           },
-          clusters: {
-            include: {
-              nodeGroups: {
-                include: {
-                  nodes: true
-                }
+          {
+            requests: {
+              some: {
+                requesterId: userId,
+                status: "PROVISIONED"
               }
             }
           }
+        ]
+      },
+      include: {
+        subdomains: {
+          include: {
+            requestedBy: { select: { id: true, name: true, email: true } },
+            approvedBy: { select: { id: true, name: true, email: true } }
+          },
+          orderBy: { createdAt: "desc" }
         },
-        orderBy: { name: "asc" }
-      });
-    }
+        clusters: {
+          include: {
+            nodeGroups: {
+              include: {
+                nodes: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { name: "asc" }
+    });
 
     return { success: true, namespaces };
   } catch (error) {
@@ -607,6 +695,12 @@ export async function requestK8sSubdomain(data: {
           include: {
             request: true
           }
+        },
+        requests: {
+          where: {
+            requesterId: session.user.id,
+            status: "PROVISIONED"
+          }
         }
       }
     });
@@ -614,7 +708,9 @@ export async function requestK8sSubdomain(data: {
     if (!namespace) throw new Error("Namespace not found");
 
     const userRoles = session.user.roles || [];
-    const isOwner = namespace.clusters.some((c: any) => c.request?.requesterId === session.user.id);
+    const isOwner =
+      namespace.clusters.some((c: any) => c.request?.requesterId === session.user.id) ||
+      (namespace.requests && namespace.requests.length > 0);
     const isDCOps = userRoles.includes("DC_OPS");
     const isAdmin = userRoles.includes("ADMIN");
 
@@ -695,10 +791,10 @@ export async function requestK8sSubdomain(data: {
     revalidatePath("/inventory/namespaces");
     revalidatePath("/approvals");
 
-    return { 
-      success: true, 
-      message: `Subdomain route "${cleanSubdomain}" submitted for Approver 1 approval.`, 
-      subdomain: newSubdomain 
+    return {
+      success: true,
+      message: `Subdomain route "${cleanSubdomain}" submitted for Approver 1 approval.`,
+      subdomain: newSubdomain
     };
   } catch (error) {
     console.error("Error requesting K8s subdomain:", error);
@@ -720,6 +816,12 @@ export async function deleteK8sSubdomain(subdomainId: string) {
               include: {
                 request: true
               }
+            },
+            requests: {
+              where: {
+                requesterId: session.user.id,
+                status: "PROVISIONED"
+              }
             }
           }
         }
@@ -730,7 +832,9 @@ export async function deleteK8sSubdomain(subdomainId: string) {
 
     const userRoles = session.user.roles || [];
     const isRequester = subdomain.requestedById === session.user.id;
-    const isOwner = subdomain.namespace.clusters.some((c: any) => c.request?.requesterId === session.user.id);
+    const isOwner =
+      subdomain.namespace.clusters.some((c: any) => c.request?.requesterId === session.user.id) ||
+      (subdomain.namespace.requests && subdomain.namespace.requests.length > 0);
     const isDCOps = userRoles.includes("DC_OPS");
     const isAdmin = userRoles.includes("ADMIN");
 
@@ -774,7 +878,16 @@ export async function addK8sNode(nodeGroupId: string) {
       include: {
         cluster: {
           include: {
-            namespace: true,
+            namespace: {
+              include: {
+                requests: {
+                  where: {
+                    requesterId: session.user.id,
+                    status: "PROVISIONED"
+                  }
+                }
+              }
+            },
             request: true
           }
         },
@@ -786,7 +899,9 @@ export async function addK8sNode(nodeGroupId: string) {
 
     // Check permission
     const userRoles = session.user.roles || [];
-    const isOwner = nodeGroup.cluster.request?.requesterId === session.user.id;
+    const isOwner =
+      nodeGroup.cluster.request?.requesterId === session.user.id ||
+      (nodeGroup.cluster.namespace?.requests && nodeGroup.cluster.namespace.requests.length > 0);
     const isDCOps = userRoles.includes("DC_OPS");
     const isAdmin = userRoles.includes("ADMIN");
 
@@ -821,8 +936,8 @@ export async function addK8sNode(nodeGroupId: string) {
         data: {
           actorId: session.user.id,
           action: "ADD_K8S_NODE",
-          entityType: "REQUEST",
-          entityId: nodeGroup.cluster.requestId || "",
+          entityType: "K8S_CLUSTER",
+          entityId: nodeGroup.cluster.requestId || nodeGroup.cluster.id,
           details: JSON.stringify({ nodeGroupId, nodeId: newNode.id, nodeName: newNode.name }),
         }
       });
@@ -830,11 +945,154 @@ export async function addK8sNode(nodeGroupId: string) {
       return newNode;
     });
 
+    revalidatePath("/inventory/namespaces");
     revalidatePath("/my-vms");
     return { success: true, message: `Node ${result.name} added successfully`, node: result };
   } catch (error) {
     console.error("Error adding K8s node:", error);
     return { success: false, message: error instanceof Error ? error.message : "Unknown error" };
+  }
+}
+
+export async function submitK8sResourceCustomization(data: {
+  namespaceId: string;
+  role: "MASTER" | "WORKER";
+  nodeCount: number;
+  vcpu: number;
+  ramGb: number;
+  storageGb: number;
+  purpose: string;
+  targetNodeGroupId?: string | null;
+  targetNodeId?: string | null;
+  targetNodeName?: string | null;
+}) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) throw new Error("Unauthorized");
+
+    const namespace = await prisma.k8sNamespace.findUnique({
+      where: { id: data.namespaceId },
+      include: {
+        clusters: {
+          include: {
+            request: true,
+            nodeGroups: true
+          }
+        },
+        requests: {
+          where: {
+            requesterId: session.user.id,
+            status: "PROVISIONED"
+          }
+        }
+      }
+    });
+
+    if (!namespace) throw new Error("Namespace not found");
+
+    const userRoles = session.user.roles || [];
+    const isOwner =
+      namespace.clusters.some((c: any) => c.request?.requesterId === session.user.id) ||
+      (namespace.requests && namespace.requests.length > 0);
+    const isDCOps = userRoles.includes("DC_OPS");
+    const isAdmin = userRoles.includes("ADMIN");
+
+    if (!isOwner && !isDCOps && !isAdmin) {
+      throw new Error("You do not have permission to request resource customization for this namespace");
+    }
+
+    const nodeCount = Math.max(1, Number(data.nodeCount) || 1);
+    const vcpu = Math.max(1, Number(data.vcpu) || 1);
+    const ramGb = Math.max(1, Number(data.ramGb) || 1);
+    const storageGb = Math.max(10, Number(data.storageGb) || 10);
+    const purpose = data.purpose?.trim();
+
+    if (!purpose) {
+      throw new Error("Justification / Purpose is required");
+    }
+
+    const newRequest = await prisma.$transaction(async (tx: any) => {
+      const created = await tx.request.create({
+        data: {
+          requestType: RequestType.K8S_NAMESPACE,
+          status: RequestStatus.PENDING_L1,
+          systemName: data.targetNodeName
+            ? `Resource Customization: ${namespace.name} (Node: ${data.targetNodeName})`
+            : data.targetNodeGroupId
+              ? `Resource Scaling: ${namespace.name} (${data.role} Node Group)`
+              : `Resource Customization: ${namespace.name}`,
+          purpose: purpose,
+          additionalTechNotes: data.targetNodeName
+            ? `Target Node: ${data.targetNodeName}${data.targetNodeId ? ` (ID: ${data.targetNodeId})` : ""}`
+            : null,
+          environment: Environment.PRODUCTION,
+          quantity: nodeCount,
+          requesterId: session.user.id,
+          underExistingNamespace: true,
+          existingNamespaceId: namespace.id,
+          kubernetesNamespace: namespace.name,
+          kubernetesOption: true,
+          vcpu: vcpu * nodeCount,
+          ramGb: ramGb * nodeCount,
+          storageGb: storageGb * nodeCount,
+          serverType: ServerType.OTHER,
+          k8sRequestNodeGroups: {
+            create: [
+              {
+                targetNodeGroupId: data.targetNodeGroupId || null,
+                role: data.role as K8sNodeRole,
+                nodeCount: nodeCount,
+                vcpu: vcpu,
+                ramGb: ramGb,
+                storageGb: storageGb
+              }
+            ]
+          }
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: "CREATE_K8S_RESOURCE_CUSTOMIZATION_REQUEST",
+          entityType: "REQUEST",
+          entityId: created.id,
+          details: JSON.stringify({
+            namespaceId: namespace.id,
+            namespaceName: namespace.name,
+            targetNodeGroupId: data.targetNodeGroupId || null,
+            targetNodeId: data.targetNodeId || null,
+            targetNodeName: data.targetNodeName || null,
+            role: data.role,
+            nodeCount,
+            vcpu,
+            ramGb,
+            storageGb,
+            purpose
+          })
+        }
+      });
+
+      return created;
+    });
+
+    await generateApprovals(
+      prisma,
+      newRequest.id,
+      "REQUEST",
+      RequestType.K8S_NAMESPACE
+    );
+
+    revalidatePath("/my-vms");
+    revalidatePath("/requests");
+    return {
+      success: true,
+      message: `Resource customization request for namespace "${namespace.name}" submitted successfully.`,
+      requestId: newRequest.id
+    };
+  } catch (error) {
+    console.error("Error submitting K8s resource customization:", error);
+    return { success: false, message: error instanceof Error ? error.message : "Failed to submit resource customization request" };
   }
 }
 
@@ -854,6 +1112,16 @@ export async function updateK8sNodeIpAndSubdomain(
           include: {
             cluster: {
               include: {
+                namespace: {
+                  include: {
+                    requests: {
+                      where: {
+                        requesterId: session.user.id,
+                        status: "PROVISIONED"
+                      }
+                    }
+                  }
+                },
                 request: true
               }
             }
@@ -866,7 +1134,9 @@ export async function updateK8sNodeIpAndSubdomain(
 
     // Check permission
     const userRoles = session.user.roles || [];
-    const isOwner = node.nodeGroup.cluster.request?.requesterId === session.user.id;
+    const isOwner =
+      node.nodeGroup.cluster.request?.requesterId === session.user.id ||
+      (node.nodeGroup.cluster.namespace?.requests && node.nodeGroup.cluster.namespace.requests.length > 0);
     const isDCOps = userRoles.includes("DC_OPS");
     const isAdmin = userRoles.includes("ADMIN");
 
@@ -972,7 +1242,7 @@ export async function getPendingSubdomains() {
 }
 
 export async function approveSubdomain(
-  subdomainId: string, 
+  subdomainId: string,
   decision: "ACTIVE" | "REJECTED",
   rejectionReason?: string
 ) {
@@ -1017,7 +1287,7 @@ export async function approveSubdomain(
             link: "/my-vms"
           }
         });
-      } catch (_) {}
+      } catch (_) { }
 
       // Audit Log
       await prisma.auditLog.create({
@@ -1026,12 +1296,12 @@ export async function approveSubdomain(
           action: `SUBDOMAIN_${decision}`,
           entityType: "REQUEST",
           entityId: subdomain.namespaceId,
-          details: JSON.stringify({ 
-            subdomainId, 
-            subdomain: subdomain.subdomain, 
-            decision, 
+          details: JSON.stringify({
+            subdomainId,
+            subdomain: subdomain.subdomain,
+            decision,
             rejectionReason,
-            executedBy: "APPROVER_1" 
+            executedBy: "APPROVER_1"
           }),
         }
       });
@@ -1039,9 +1309,9 @@ export async function approveSubdomain(
       revalidatePath("/approvals");
       revalidatePath("/my-vms");
       revalidatePath("/inventory/namespaces");
-      return { 
-        success: true, 
-        message: `Subdomain "${subdomain.subdomain}" has been directly ${decision === "ACTIVE" ? "approved & activated" : "rejected"} by Approver 1.` 
+      return {
+        success: true,
+        message: `Subdomain "${subdomain.subdomain}" has been directly ${decision === "ACTIVE" ? "approved & activated" : "rejected"} by Approver 1.`
       };
     }
 
@@ -1079,4 +1349,770 @@ export async function approveSubdomain(
     console.error("Error approving subdomain:", error);
     return { success: false, message: error instanceof Error ? error.message : "Unknown error" };
   }
+}
+
+export interface K8sInventorySummary {
+  totalNamespaces: number;
+  totalClusters: number;
+  totalNodes: number;
+  totalMasterNodes: number;
+  totalWorkerNodes: number;
+  totalVcpu: number;
+  totalRamGb: number;
+  totalStorageGb: number;
+  totalSubdomains: number;
+}
+
+export async function getK8sInventorySummary(): Promise<K8sInventorySummary> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const [
+    totalNamespaces,
+    totalClusters,
+    clustersWithGroups,
+    nodes,
+    totalSubdomains
+  ] = await Promise.all([
+    prisma.k8sNamespace.count(),
+    prisma.k8sCluster.count(),
+    prisma.k8sCluster.findMany({
+      select: {
+        totalSpaceGb: true,
+        nodeGroups: {
+          select: {
+            role: true,
+            nodeCount: true,
+            vcpu: true,
+            ramGb: true,
+          }
+        }
+      }
+    }),
+    prisma.k8sNode.findMany({
+      select: {
+        id: true,
+        nodeGroup: {
+          select: {
+            role: true,
+          }
+        }
+      }
+    }),
+    prisma.k8sSubdomain.count({
+      where: { status: "ACTIVE" }
+    })
+  ]);
+
+  let totalStorageGb = 0;
+  let totalVcpu = 0;
+  let totalRamGb = 0;
+
+  for (const c of clustersWithGroups) {
+    totalStorageGb += c.totalSpaceGb || 0;
+    for (const ng of c.nodeGroups) {
+      totalVcpu += (ng.vcpu || 0) * (ng.nodeCount || 0);
+      totalRamGb += (ng.ramGb || 0) * (ng.nodeCount || 0);
+    }
+  }
+
+  let totalMasterNodes = 0;
+  let totalWorkerNodes = 0;
+  for (const n of nodes) {
+    if (n.nodeGroup?.role === "MASTER") {
+      totalMasterNodes++;
+    } else {
+      totalWorkerNodes++;
+    }
+  }
+
+  return {
+    totalNamespaces,
+    totalClusters,
+    totalNodes: nodes.length,
+    totalMasterNodes,
+    totalWorkerNodes,
+    totalVcpu,
+    totalRamGb,
+    totalStorageGb,
+    totalSubdomains,
+  };
+}
+
+export interface CreateK8sNamespaceNodeGroupInput {
+  role: "MASTER" | "WORKER";
+  nodeCount: number;
+  vcpu: number;
+  ramGb: number;
+}
+
+export interface CreateK8sNamespaceInput {
+  name: string;
+  supervisorIp: string;
+  clusterName?: string;
+  totalSpaceGb?: number;
+  subdomain?: string;
+  subdomainIp?: string;
+  nodeGroups?: CreateK8sNamespaceNodeGroupInput[];
+}
+
+export async function createK8sNamespace(data: CreateK8sNamespaceInput) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles || [];
+  const isDCOps = userRoles.includes("DC_OPS");
+  const isAdminUser = userRoles.includes("ADMIN");
+
+  if (!isDCOps && !isAdminUser) {
+    throw new Error("Only Admin or DC_OPS can create Kubernetes namespaces");
+  }
+
+  const name = data.name.trim().toLowerCase();
+  const supervisorIp = data.supervisorIp.trim();
+
+  if (!name) {
+    throw new Error("Namespace name is required");
+  }
+
+  const k8sNameRegex = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+  if (!k8sNameRegex.test(name)) {
+    throw new Error("Namespace name must consist of lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character (RFC 1123).");
+  }
+
+  if (!supervisorIp) {
+    throw new Error("Supervisor IP is required");
+  }
+
+  const existing = await prisma.k8sNamespace.findUnique({
+    where: { name }
+  });
+  if (existing) {
+    throw new Error(`Namespace "${name}" already exists`);
+  }
+
+  const namespace = await prisma.$transaction(async (tx) => {
+    const ns = await tx.k8sNamespace.create({
+      data: {
+        name,
+        supervisorIp,
+      }
+    });
+
+    const clusterName = data.clusterName?.trim() || `${name}-cluster`;
+    const cluster = await tx.k8sCluster.create({
+      data: {
+        namespaceId: ns.id,
+        clusterName,
+        totalSpaceGb: data.totalSpaceGb ? Number(data.totalSpaceGb) : null,
+        status: "ACTIVE"
+      }
+    });
+
+    // Create subdomain if provided
+    if (data.subdomain && data.subdomain.trim()) {
+      const cleanSub = data.subdomain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+      await tx.k8sSubdomain.create({
+        data: {
+          namespaceId: ns.id,
+          subdomain: cleanSub,
+          externalIp: data.subdomainIp?.trim() || null,
+          status: "ACTIVE",
+          requestedById: session.user.id,
+          approvedById: session.user.id,
+        }
+      });
+    }
+
+    // Create node groups and nodes if provided
+    if (data.nodeGroups && data.nodeGroups.length > 0) {
+      for (const group of data.nodeGroups) {
+        if (group.nodeCount > 0) {
+          const ng = await tx.k8sNodeGroup.create({
+            data: {
+              clusterId: cluster.id,
+              role: group.role,
+              nodeCount: group.nodeCount,
+              vcpu: group.vcpu,
+              ramGb: group.ramGb,
+              isClonable: true,
+            }
+          });
+
+          const rolePrefix = group.role.toLowerCase();
+          for (let i = 1; i <= group.nodeCount; i++) {
+            await tx.k8sNode.create({
+              data: {
+                nodeGroupId: ng.id,
+                name: `${name}-${rolePrefix}-${i}`,
+                subdomainStatus: "PENDING",
+              }
+            });
+          }
+        }
+      }
+    }
+
+    return ns;
+  });
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "CREATE_K8S_NAMESPACE",
+        entityType: "K8S_NAMESPACE",
+        entityId: namespace.id,
+        details: JSON.stringify({ name, supervisorIp, clusterName: data.clusterName })
+      }
+    });
+  } catch (auditErr) {
+    console.warn("[K8s] Failed to write audit log:", auditErr);
+  }
+
+  revalidatePath("/inventory/namespaces");
+  return { success: true, namespace, message: "Namespace created successfully" };
+}
+
+export async function updateK8sNamespace(
+  id: string,
+  data: {
+    name: string;
+    supervisorIp: string;
+    clusterName?: string;
+    totalSpaceGb?: number;
+  }
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles || [];
+  if (!userRoles.includes("ADMIN") && !userRoles.includes("DC_OPS")) {
+    throw new Error("Only Admin or DC_OPS can edit Kubernetes namespaces");
+  }
+
+  const name = data.name.trim().toLowerCase();
+  const supervisorIp = data.supervisorIp.trim();
+
+  if (!name || !supervisorIp) {
+    throw new Error("Namespace name and supervisor IP are required");
+  }
+
+  const k8sNameRegex = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+  if (!k8sNameRegex.test(name)) {
+    throw new Error("Namespace name must consist of lowercase alphanumeric characters or '-' (RFC 1123).");
+  }
+
+  // Check unique name if changed
+  const existing = await prisma.k8sNamespace.findFirst({
+    where: { name, NOT: { id } }
+  });
+  if (existing) {
+    throw new Error(`Namespace name "${name}" is already in use`);
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const ns = await tx.k8sNamespace.update({
+      where: { id },
+      data: {
+        name,
+        supervisorIp,
+      }
+    });
+
+    if (data.clusterName !== undefined || data.totalSpaceGb !== undefined) {
+      const cluster = await tx.k8sCluster.findFirst({ where: { namespaceId: id } });
+      if (cluster) {
+        await tx.k8sCluster.update({
+          where: { id: cluster.id },
+          data: {
+            clusterName: data.clusterName?.trim() || cluster.clusterName,
+            totalSpaceGb: data.totalSpaceGb !== undefined ? Number(data.totalSpaceGb) : cluster.totalSpaceGb,
+          }
+        });
+      }
+    }
+
+    return ns;
+  });
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "UPDATE_K8S_NAMESPACE",
+        entityType: "K8S_NAMESPACE",
+        entityId: id,
+        details: JSON.stringify(data),
+      }
+    });
+  } catch (err) {
+    console.warn("[K8s] Failed to record audit log:", err);
+  }
+
+  revalidatePath("/inventory/namespaces");
+  return { success: true, namespace: updated, message: "Namespace updated successfully" };
+}
+
+export async function deleteK8sNamespace(id: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles || [];
+  if (!userRoles.includes("ADMIN") && !userRoles.includes("DC_OPS")) {
+    throw new Error("Only Admin or DC_OPS can delete Kubernetes namespaces");
+  }
+
+  const ns = await prisma.k8sNamespace.findUnique({
+    where: { id },
+    include: { clusters: true }
+  });
+
+  if (!ns) {
+    throw new Error("Namespace not found");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // 1. Delete subdomains
+    await tx.k8sSubdomain.deleteMany({ where: { namespaceId: id } });
+
+    // 2. Find clusters
+    const clusters = await tx.k8sCluster.findMany({ where: { namespaceId: id }, select: { id: true } });
+    const clusterIds = clusters.map(c => c.id);
+
+    if (clusterIds.length > 0) {
+      // 3. Find node groups
+      const groups = await tx.k8sNodeGroup.findMany({ where: { clusterId: { in: clusterIds } }, select: { id: true } });
+      const groupIds = groups.map(g => g.id);
+
+      if (groupIds.length > 0) {
+        // 4. Delete nodes
+        await tx.k8sNode.deleteMany({ where: { nodeGroupId: { in: groupIds } } });
+        // 5. Delete node groups
+        await tx.k8sNodeGroup.deleteMany({ where: { id: { in: groupIds } } });
+      }
+
+      // 6. Delete clusters
+      await tx.k8sCluster.deleteMany({ where: { id: { in: clusterIds } } });
+    }
+
+    // 7. Delete namespace
+    await tx.k8sNamespace.delete({ where: { id } });
+  });
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "DELETE_K8S_NAMESPACE",
+        entityType: "K8S_NAMESPACE",
+        entityId: id,
+        details: JSON.stringify({ name: ns.name, supervisorIp: ns.supervisorIp }),
+      }
+    });
+  } catch (err) {
+    console.warn("[K8s] Failed to record audit log:", err);
+  }
+
+  revalidatePath("/inventory/namespaces");
+  return { success: true, message: `Namespace "${ns.name}" deleted successfully` };
+}
+
+export async function deleteK8sNode(nodeId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles || [];
+  if (!userRoles.includes("ADMIN") && !userRoles.includes("DC_OPS")) {
+    throw new Error("Only Admin or DC_OPS can delete Kubernetes nodes");
+  }
+
+  const node = await prisma.k8sNode.findUnique({
+    where: { id: nodeId },
+    include: { nodeGroup: true }
+  });
+
+  if (!node) {
+    throw new Error("Node not found");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.k8sNode.delete({ where: { id: nodeId } });
+    await tx.k8sNodeGroup.update({
+      where: { id: node.nodeGroupId },
+      data: {
+        nodeCount: { decrement: 1 }
+      }
+    });
+  });
+
+  revalidatePath("/inventory/namespaces");
+  return { success: true, message: `Node "${node.name}" deleted successfully` };
+}
+
+export async function addNodeGroupToCluster(data: {
+  clusterId: string;
+  role: "MASTER" | "WORKER";
+  nodeCount: number;
+  vcpu: number;
+  ramGb: number;
+  storageGb?: number;
+}) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles || [];
+  if (!userRoles.includes("ADMIN") && !userRoles.includes("DC_OPS")) {
+    throw new Error("Only Admin or DC_OPS can add node groups");
+  }
+
+  const cluster = await prisma.k8sCluster.findUnique({
+    where: { id: data.clusterId },
+    include: { namespace: true }
+  });
+
+  if (!cluster) {
+    throw new Error("Cluster not found");
+  }
+
+  const count = Math.max(1, data.nodeCount || 1);
+  const vcpu = Math.max(1, data.vcpu || 4);
+  const ramGb = Math.max(1, data.ramGb || 8);
+  const storageGb = Math.max(10, data.storageGb || 50);
+
+  const newGroup = await prisma.$transaction(async (tx) => {
+    const ng = await tx.k8sNodeGroup.create({
+      data: {
+        clusterId: cluster.id,
+        role: data.role,
+        nodeCount: count,
+        vcpu,
+        ramGb,
+        storageGb,
+        isClonable: true,
+      }
+    });
+
+    await tx.k8sCluster.update({
+      where: { id: cluster.id },
+      data: {
+        totalSpaceGb: (cluster.totalSpaceGb || 0) + (storageGb * count)
+      }
+    });
+
+    const roleLower = data.role.toLowerCase();
+    for (let i = 1; i <= count; i++) {
+      await tx.k8sNode.create({
+        data: {
+          nodeGroupId: ng.id,
+          name: `${cluster.namespace.name}-${roleLower}-${i}`,
+          subdomainStatus: "PENDING",
+        }
+      });
+    }
+
+    return ng;
+  });
+
+  revalidatePath("/inventory/namespaces");
+  return { success: true, nodeGroup: newGroup, message: `${data.role} node group added successfully` };
+}
+
+export interface UpdateK8sNodeInput {
+  name: string;
+  ipAddress?: string | null;
+  externalIp?: string | null;
+  subdomain?: string | null;
+  subdomainStatus?: string;
+}
+
+export async function updateK8sNode(nodeId: string, data: UpdateK8sNodeInput) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles || [];
+  const isDCOps = userRoles.includes("DC_OPS");
+  const isAdmin = userRoles.includes("ADMIN");
+
+  const node = await prisma.k8sNode.findUnique({
+    where: { id: nodeId },
+    include: {
+      nodeGroup: {
+        include: {
+          cluster: {
+            include: {
+              namespace: {
+                include: {
+                  requests: {
+                    where: {
+                      requesterId: session.user.id,
+                      status: "PROVISIONED"
+                    }
+                  }
+                }
+              },
+              request: true
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (!node) throw new Error("Node not found");
+
+  const isOwner =
+    node.nodeGroup.cluster.request?.requesterId === session.user.id ||
+    (node.nodeGroup.cluster.namespace?.requests && node.nodeGroup.cluster.namespace.requests.length > 0);
+  if (!isOwner && !isDCOps && !isAdmin) {
+    throw new Error("Only Admin, DC_OPS, or cluster owner can update Kubernetes nodes");
+  }
+
+  const name = data.name.trim();
+  if (!name) throw new Error("Node name is required");
+
+  const updatedNode = await prisma.k8sNode.update({
+    where: { id: nodeId },
+    data: {
+      name,
+      ipAddress: data.ipAddress?.trim() || null,
+      externalIp: data.externalIp?.trim() || null,
+      subdomain: data.subdomain?.trim() || null,
+      subdomainStatus: data.subdomainStatus || (data.subdomain ? "ACTIVE" : "PENDING"),
+    }
+  });
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "UPDATE_K8S_NODE",
+        entityType: "K8S_NODE",
+        entityId: nodeId,
+        details: JSON.stringify({ nodeId, ...data }),
+      }
+    });
+  } catch (err) {
+    console.warn("[K8s] Failed to record audit log:", err);
+  }
+
+  revalidatePath("/inventory/namespaces");
+  revalidatePath("/my-vms");
+  return { success: true, message: `Node "${updatedNode.name}" updated successfully`, node: updatedNode };
+}
+
+export async function updateK8sNodeGroup(
+  nodeGroupId: string,
+  data: { vcpu?: number; ramGb?: number; storageGb?: number }
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles || [];
+  const isDCOps = userRoles.includes("DC_OPS");
+  const isAdmin = userRoles.includes("ADMIN");
+
+  if (!isDCOps && !isAdmin) {
+    throw new Error("Only Admin or DC_OPS can update node group specifications");
+  }
+
+  const ng = await prisma.k8sNodeGroup.findUnique({
+    where: { id: nodeGroupId }
+  });
+  if (!ng) throw new Error("Node group not found");
+
+  const updated = await prisma.k8sNodeGroup.update({
+    where: { id: nodeGroupId },
+    data: {
+      vcpu: data.vcpu ? Math.max(1, Number(data.vcpu)) : ng.vcpu,
+      ramGb: data.ramGb ? Math.max(1, Number(data.ramGb)) : ng.ramGb,
+      storageGb: data.storageGb ? Math.max(10, Number(data.storageGb)) : ng.storageGb,
+    }
+  });
+
+  // Recalculate cluster totalSpaceGb
+  if (data.storageGb && ng.clusterId) {
+    const allGroups = await prisma.k8sNodeGroup.findMany({
+      where: { clusterId: ng.clusterId }
+    });
+    const totalClusterStorage = allGroups.reduce((acc, g) => acc + ((g.storageGb || 0) * (g.nodeCount || 1)), 0);
+    await prisma.k8sCluster.update({
+      where: { id: ng.clusterId },
+      data: { totalSpaceGb: totalClusterStorage }
+    });
+  }
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "UPDATE_K8S_NODE_GROUP",
+        entityType: "K8S_NODE_GROUP",
+        entityId: nodeGroupId,
+        details: JSON.stringify(data),
+      }
+    });
+  } catch (err) {
+    console.warn("[K8s] Failed to record audit log:", err);
+  }
+
+  revalidatePath("/inventory/namespaces");
+  return { success: true, message: "Node group specifications updated successfully", nodeGroup: updated };
+}
+
+export interface AddK8sSubdomainInput {
+  namespaceId: string;
+  subdomain: string;
+  externalIp?: string;
+  serviceName?: string;
+  targetPort?: number;
+  purpose?: string;
+}
+
+export async function addSubdomainToNamespace(data: AddK8sSubdomainInput) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles || [];
+  const isDCOps = userRoles.includes("DC_OPS");
+  const isAdmin = userRoles.includes("ADMIN");
+
+  const namespace = await prisma.k8sNamespace.findUnique({
+    where: { id: data.namespaceId },
+    include: {
+      clusters: { include: { request: true } },
+      requests: {
+        where: {
+          requesterId: session.user.id,
+          status: "PROVISIONED"
+        }
+      }
+    }
+  });
+  if (!namespace) throw new Error("Namespace not found");
+
+  const isOwner =
+    namespace.clusters.some((c: any) => c.request?.requesterId === session.user.id) ||
+    (namespace.requests && namespace.requests.length > 0);
+  if (!isOwner && !isDCOps && !isAdmin) {
+    throw new Error("You do not have permission to add subdomains to this namespace");
+  }
+
+  const cleanSub = data.subdomain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (!cleanSub) throw new Error("Subdomain is required");
+
+  const status = (isAdmin || isDCOps) ? "ACTIVE" : "PENDING";
+
+  const newSub = await prisma.k8sSubdomain.create({
+    data: {
+      namespaceId: data.namespaceId,
+      subdomain: cleanSub,
+      externalIp: data.externalIp?.trim() || null,
+      serviceName: data.serviceName?.trim() || null,
+      targetPort: data.targetPort ? Number(data.targetPort) : 443,
+      purpose: data.purpose?.trim() || null,
+      status,
+      requestedById: session.user.id,
+      approvedById: (isAdmin || isDCOps) ? session.user.id : null,
+    }
+  });
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "ADD_K8S_SUBDOMAIN",
+        entityType: "K8S_SUBDOMAIN",
+        entityId: newSub.id,
+        details: JSON.stringify({
+          namespaceId: data.namespaceId,
+          namespaceName: namespace.name,
+          subdomain: cleanSub,
+          externalIp: data.externalIp,
+          status,
+        })
+      }
+    });
+  } catch (err) {
+    console.warn("[K8s] Failed to record audit log:", err);
+  }
+
+  revalidatePath("/inventory/namespaces");
+  revalidatePath("/my-vms");
+  return { success: true, subdomain: newSub, message: `Subdomain "${cleanSub}" added successfully` };
+}
+
+export async function updateK8sSubdomain(
+  id: string,
+  data: {
+    subdomain: string;
+    externalIp?: string | null;
+    serviceName?: string | null;
+    targetPort?: number | null;
+    status?: string;
+  }
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const userRoles = session.user.roles || [];
+  const isDCOps = userRoles.includes("DC_OPS");
+  const isAdmin = userRoles.includes("ADMIN");
+
+  const sub = await prisma.k8sSubdomain.findUnique({
+    where: { id },
+    include: {
+      namespace: {
+        include: {
+          clusters: { include: { request: true } },
+          requests: {
+            where: {
+              requesterId: session.user.id,
+              status: "PROVISIONED"
+            }
+          }
+        }
+      }
+    }
+  });
+  if (!sub) throw new Error("Subdomain not found");
+
+  const isOwner =
+    sub.namespace.clusters.some((c: any) => c.request?.requesterId === session.user.id) ||
+    (sub.namespace.requests && sub.namespace.requests.length > 0);
+  if (!isOwner && !isDCOps && !isAdmin) {
+    throw new Error("You do not have permission to update this subdomain");
+  }
+
+  const cleanSub = data.subdomain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (!cleanSub) throw new Error("Subdomain is required");
+
+  const updated = await prisma.k8sSubdomain.update({
+    where: { id },
+    data: {
+      subdomain: cleanSub,
+      externalIp: data.externalIp?.trim() || null,
+      serviceName: data.serviceName?.trim() || null,
+      targetPort: data.targetPort ? Number(data.targetPort) : sub.targetPort,
+      status: data.status || sub.status,
+    }
+  });
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "UPDATE_K8S_SUBDOMAIN",
+        entityType: "K8S_SUBDOMAIN",
+        entityId: id,
+        details: JSON.stringify(data)
+      }
+    });
+  } catch (err) {
+    console.warn("[K8s] Failed to record audit log:", err);
+  }
+
+  revalidatePath("/inventory/namespaces");
+  revalidatePath("/my-vms");
+  return { success: true, subdomain: updated, message: "Subdomain updated successfully" };
 }

@@ -27,11 +27,13 @@ import { format } from "date-fns";
 import { Pagination } from "@/components/Pagination";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 
 export function AuditTrailTable({ dateRange }: { dateRange?: { from: Date; to: Date } }) {
   const [data, setData] = useState<AuditTrailItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [selectedLog, setSelectedLog] = useState<AuditTrailItem | null>(null);
@@ -58,20 +60,36 @@ export function AuditTrailTable({ dateRange }: { dateRange?: { from: Date; to: D
     loadData();
   }, [loadData]);
 
-  const handleExport = (formatType: 'xlsx' | 'csv') => {
-    const dataToExport = data.map(item => ({
-      "Timestamp": format(new Date(item.timestamp), "yyyy-MM-dd HH:mm:ss"),
-      "Actor": item.actor,
-      "Roles": Array.isArray(item.role) ? item.role.join(", ") : item.role,
-      "Action": item.action,
-      "Entity Type": item.entityType,
-      "Entity ID": item.entityId
-    }));
-    
-    if (formatType === 'xlsx') {
-      exportToExcel('Audit_Trail_Report', dataToExport);
-    } else {
-      exportToCSV('Audit_Trail_Report', dataToExport);
+  const handleExport = async (formatType: 'xlsx' | 'csv') => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing export for all matching audit logs...");
+      const result = await getAuditTrailReport({
+        getAll: true,
+        startDate: dateRange?.from?.toISOString(),
+        endDate: dateRange?.to?.toISOString()
+      });
+
+      const dataToExport = result.data.map(item => ({
+        "Timestamp": format(new Date(item.timestamp), "yyyy-MM-dd HH:mm:ss"),
+        "Actor": item.actor,
+        "Roles": Array.isArray(item.role) ? item.role.join(", ") : item.role,
+        "Action": item.action,
+        "Entity Type": item.entityType,
+        "Entity ID": item.entityId
+      }));
+      
+      if (formatType === 'xlsx') {
+        exportToExcel('Audit_Trail_Report', dataToExport);
+      } else {
+        exportToCSV('Audit_Trail_Report', dataToExport);
+      }
+      toast.success(`Exported ${dataToExport.length} audit logs successfully.`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export audit trail");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -84,11 +102,11 @@ export function AuditTrailTable({ dateRange }: { dateRange?: { from: Date; to: D
             <h3 className="font-bold text-slate-800">Security & Activity Logs</h3>
           </div>
           <div className="flex gap-2">
-             <Button size="sm" variant="outline" className="h-9 gap-2 font-medium" onClick={() => handleExport('xlsx')}>
-                <Download size={16} /> Excel
+             <Button size="sm" variant="outline" className="h-9 gap-2 font-medium" disabled={isExporting} onClick={() => handleExport('xlsx')}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Excel
               </Button>
-              <Button size="sm" variant="outline" className="h-9 gap-2 font-medium" onClick={() => handleExport('csv')}>
-                <Download size={16} /> CSV
+              <Button size="sm" variant="outline" className="h-9 gap-2 font-medium" disabled={isExporting} onClick={() => handleExport('csv')}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} CSV
               </Button>
           </div>
         </div>

@@ -318,16 +318,26 @@ export async function getSourceVmDetails(vmId: string) {
   }
 }
 
-export async function getCloneableVms() {
+export async function getCloneableVms(requesterId?: string) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) throw new Error("Unauthorized");
+    if (!session?.user) throw new Error("Unauthorized");
 
     const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
-    const whereClause = isAdmin ? { status: VmStatus.ACTIVE } : { ownerId: session.user.id, status: VmStatus.ACTIVE };
+    const isDeveloper = hasRole(session.user.roles, ROLES.DEVELOPER);
+
+    // If an admin or developer explicitly specifies a target requester, use that requester's ID;
+    // otherwise default to the session user's ID so that requesters only see their own VMs.
+    const targetUserId = ((isAdmin || isDeveloper) && requesterId) ? requesterId : session.user.id;
 
     const vms = await prisma.vmInstance.findMany({
-      where: whereClause,
+      where: {
+        status: VmStatus.ACTIVE,
+        OR: [
+          { ownerId: targetUserId },
+          { request: { requesterId: targetUserId } }
+        ]
+      },
       include: {
         currentSpec: true,
         request: { select: { systemName: true } },

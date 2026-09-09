@@ -93,9 +93,11 @@ export async function fetchLicenseAssets() {
 export async function fetchLicenseDetails(
   page: number = 1,
   search?: string,
-  type?: string
+  type?: string,
+  getAll: boolean = false
 ) {
-  const skip = (page - 1) * PAGE_SIZE;
+  const skip = getAll ? undefined : (page - 1) * PAGE_SIZE;
+  const take = getAll ? undefined : PAGE_SIZE;
   const where: Prisma.SoftwareLicenseWhereInput = {};
 
   if (search) {
@@ -114,7 +116,7 @@ export async function fetchLicenseDetails(
       where,
       orderBy: { name: "asc" },
       skip,
-      take: PAGE_SIZE,
+      take,
       select: {
         id: true,
         name: true,

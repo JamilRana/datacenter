@@ -169,6 +169,7 @@ export interface RequestAuditLogItem {
 export interface K8sRequestNodeGroup {
   id: string;
   requestId: string;
+  targetNodeGroupId?: string | null;
   role: K8sNodeRole;
   nodeCount: number;
   vcpu: number;

@@ -19,6 +19,7 @@ interface AssetWithVms {
 export interface HardwareReportParams {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   dateFrom?: Date;
   dateTo?: Date;
   type?: string;
@@ -68,14 +69,16 @@ export async function getHardwareReport(params: HardwareReportParams): Promise<H
   const { 
     page = 1, 
     pageSize = 10, 
+    getAll = false,
     type, 
     location, 
-    search,
-    clusterId,
+    search, 
+    clusterId, 
     userRoles 
   } = params;
 
-  const skip = (page - 1) * pageSize;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
   const isAdmin = userRoles?.some((r: any) => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
 
   if (!isAdmin) {
@@ -106,7 +109,7 @@ export async function getHardwareReport(params: HardwareReportParams): Promise<H
     (prisma.asset.findMany as any)({
       where,
       skip,
-      take: pageSize,
+      take,
       orderBy: { createdAt: "desc" },
       include: {
         cluster: { select: { name: true } },

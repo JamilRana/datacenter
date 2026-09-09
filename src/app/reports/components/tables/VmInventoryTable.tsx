@@ -42,11 +42,13 @@ import { exportToExcel, exportToCSV } from "@/lib/export-utils";
 import { format } from "date-fns";
 import { Pagination } from "@/components/Pagination";
 import { Environment, VmStatus } from "@prisma/client";
+import { toast } from "sonner";
 
 export function VmInventoryTable({ dateRange }: { dateRange?: { from: Date; to: Date } }) {
   const [data, setData] = useState<VmInventoryItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [searchTerm, setSearchTerm] = useState("");
@@ -167,26 +169,45 @@ export function VmInventoryTable({ dateRange }: { dateRange?: { from: Date; to: 
     manualSorting: true,
   });
 
-  const handleExport = (formatType: 'xlsx' | 'csv') => {
-    const dataToExport = data.map(item => ({
-      "VM Name": item.hostname,
-      "Owner": item.owner,
-      "Project": item.project,
-      "Environment": item.environment,
-      "vCPU": item.vcpu,
-      "RAM (GB)": item.ramGb,
-      "Storage (GB)": item.storageGb,
-      "Cluster": item.cluster,
-      "Status": item.status,
-      "Provisioned Date": format(new Date(item.provisionedDate), "yyyy-MM-dd"),
-      "Renewal Date": item.renewalDate ? format(new Date(item.renewalDate), "yyyy-MM-dd") : "N/A",
-      "Request ID": item.requestId
-    }));
-    
-    if (formatType === 'xlsx') {
-      exportToExcel('VM_Inventory_Report', dataToExport);
-    } else {
-      exportToCSV('VM_Inventory_Report', dataToExport);
+  const handleExport = async (formatType: 'xlsx' | 'csv') => {
+    try {
+      setIsExporting(true);
+      toast.info("Preparing export for all matching VMs...");
+      const result = await getVmInventoryReport({
+        getAll: true,
+        environment: envFilter === "ALL" ? undefined : envFilter as Environment,
+        status: statusFilter === "ALL" ? undefined : statusFilter as VmStatus,
+        searchTerm,
+        from: dateRange?.from,
+        to: dateRange?.to
+      });
+
+      const dataToExport = result.data.map(item => ({
+        "VM Name": item.hostname,
+        "Owner": item.owner,
+        "Project": item.project,
+        "Environment": item.environment,
+        "vCPU": item.vcpu,
+        "RAM (GB)": item.ramGb,
+        "Storage (GB)": item.storageGb,
+        "Cluster": item.cluster,
+        "Status": item.status,
+        "Provisioned Date": format(new Date(item.provisionedDate), "yyyy-MM-dd"),
+        "Renewal Date": item.renewalDate ? format(new Date(item.renewalDate), "yyyy-MM-dd") : "N/A",
+        "Request ID": item.requestId
+      }));
+      
+      if (formatType === 'xlsx') {
+        exportToExcel('VM_Inventory_Report', dataToExport);
+      } else {
+        exportToCSV('VM_Inventory_Report', dataToExport);
+      }
+      toast.success(`Exported ${dataToExport.length} VMs successfully.`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export VM inventory");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -230,11 +251,11 @@ export function VmInventoryTable({ dateRange }: { dateRange?: { from: Date; to: 
             </Select>
           </div>
           <div className="flex gap-2">
-             <Button size="sm" variant="outline" className="h-10 gap-2 font-medium" onClick={() => handleExport('xlsx')}>
-                <Download size={16} /> XLSX
+             <Button size="sm" variant="outline" className="h-10 gap-2 font-medium" disabled={isExporting} onClick={() => handleExport('xlsx')}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} XLSX
               </Button>
-              <Button size="sm" variant="outline" className="h-10 gap-2 font-medium" onClick={() => handleExport('csv')}>
-                <Download size={16} /> CSV
+              <Button size="sm" variant="outline" className="h-10 gap-2 font-medium" disabled={isExporting} onClick={() => handleExport('csv')}>
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} CSV
               </Button>
           </div>
         </div>

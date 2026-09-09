@@ -29,6 +29,7 @@ import { startOfDay, endOfDay, differenceInDays } from "date-fns";
 export async function getUserAllocationReport(params: {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   searchTerm?: string;
   organization?: string;
   environment?: Environment;
@@ -39,9 +40,10 @@ export async function getUserAllocationReport(params: {
   if (!session?.user) throw new Error("Unauthorized");
   if (!canManageInventory(session.user.roles)) throw new Error("Forbidden");
 
-  const { page = 1, pageSize = 10, searchTerm, organization, environment, from, to } = params;
+  const { page = 1, pageSize = 10, getAll = false, searchTerm, organization, environment, from, to } = params;
   console.log("getUserAllocationReport called with:", { from, to, environment });
-  const skip = (page - 1) * pageSize;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
 
   const whereClause: Prisma.UserWhereInput = {
     AND: [
@@ -80,7 +82,7 @@ export async function getUserAllocationReport(params: {
         }
       },
       skip,
-      take: pageSize,
+      take,
     }),
     prisma.user.count({ where: whereClause })
   ]);
@@ -155,6 +157,7 @@ export async function getUserVmDetails(userId: string) {
 export async function getVmInventoryReport(params: {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   environment?: Environment;
   status?: VmStatus;
   searchTerm?: string;
@@ -166,8 +169,9 @@ export async function getVmInventoryReport(params: {
   if (!session?.user) throw new Error("Unauthorized");
 
   const isAdmin = canManageInventory(session.user.roles);
-  const { page = 1, pageSize = 10, environment, status, searchTerm, cluster, from, to } = params;
-  const skip = (page - 1) * pageSize;
+  const { page = 1, pageSize = 10, getAll = false, environment, status, searchTerm, cluster, from, to } = params;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
 
   const whereClause: Prisma.VmInstanceWhereInput = {
     AND: [
@@ -201,7 +205,7 @@ export async function getVmInventoryReport(params: {
         currentSpec: true,
       },
       skip,
-      take: pageSize,
+      take,
       orderBy: { createdAt: 'desc' }
     }),
     prisma.vmInstance.count({ where: whereClause })
@@ -274,6 +278,7 @@ export async function getDcCapacityReport() {
 export async function getRequestsReport(params: {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   status?: RequestStatus;
   environment?: Environment;
   searchTerm?: string;
@@ -284,8 +289,9 @@ export async function getRequestsReport(params: {
   if (!session?.user) throw new Error("Unauthorized");
 
   const isAdmin = canManageInventory(session.user.roles);
-  const { page = 1, pageSize = 10, status, environment, searchTerm, startDate, endDate } = params;
-  const skip = (page - 1) * pageSize;
+  const { page = 1, pageSize = 10, getAll = false, status, environment, searchTerm, startDate, endDate } = params;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
 
   const whereClause: Prisma.RequestWhereInput = {
     AND: [
@@ -317,7 +323,7 @@ export async function getRequestsReport(params: {
         }
       },
       skip,
-      take: pageSize,
+      take,
       orderBy: { createdAt: 'desc' }
     }),
     prisma.request.count({ where: whereClause })
@@ -346,6 +352,7 @@ export async function getRequestsReport(params: {
 export async function getRenewalsReport(params: {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   environment?: Environment;
   searchTerm?: string;
   from?: Date;
@@ -355,8 +362,9 @@ export async function getRenewalsReport(params: {
   if (!session?.user) throw new Error("Unauthorized");
 
   const isAdmin = canManageInventory(session.user.roles);
-  const { page = 1, pageSize = 10, environment, searchTerm, from, to } = params;
-  const skip = (page - 1) * pageSize;
+  const { page = 1, pageSize = 10, getAll = false, environment, searchTerm, from, to } = params;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
 
   const whereClause: Prisma.VmInstanceWhereInput = {
     AND: [
@@ -386,7 +394,7 @@ export async function getRenewalsReport(params: {
         request: { select: { systemName: true } }
       },
       skip,
-      take: pageSize,
+      take,
       orderBy: { renewalDate: 'asc' }
     }),
     prisma.vmInstance.count({ where: whereClause })
@@ -413,6 +421,7 @@ export async function getRenewalsReport(params: {
 export async function getAuditTrailReport(params: {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   startDate?: string;
   endDate?: string;
   userId?: string;
@@ -422,8 +431,9 @@ export async function getAuditTrailReport(params: {
   if (!session?.user) throw new Error("Unauthorized");
   if (!canManageInventory(session.user.roles)) throw new Error("Forbidden");
 
-  const { page = 1, pageSize = 10, startDate, endDate, userId, actionType } = params;
-  const skip = (page - 1) * pageSize;
+  const { page = 1, pageSize = 10, getAll = false, startDate, endDate, userId, actionType } = params;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
 
   const whereClause: Prisma.AuditLogWhereInput = {
     AND: [
@@ -441,7 +451,7 @@ export async function getAuditTrailReport(params: {
         actor: { select: { name: true, roles: { include: { role: true } } } }
       },
       skip,
-      take: pageSize,
+      take,
       orderBy: { timestamp: 'desc' }
     }),
     prisma.auditLog.count({ where: whereClause })
@@ -468,6 +478,7 @@ export async function getAuditTrailReport(params: {
 export async function getK8sNamespaceReport(params: {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   searchTerm?: string;
   environment?: Environment;
   from?: Date;
@@ -477,8 +488,9 @@ export async function getK8sNamespaceReport(params: {
   if (!session?.user) throw new Error("Unauthorized");
 
   const isAdminOrDCOps = canManageInventory(session.user.roles);
-  const { page = 1, pageSize = 10, searchTerm = "", environment, from, to } = params;
-  const skip = (page - 1) * pageSize;
+  const { page = 1, pageSize = 10, getAll = false, searchTerm = "", environment, from, to } = params;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
 
   const whereClause: Prisma.K8sNamespaceWhereInput = {
     AND: [
@@ -552,7 +564,7 @@ export async function getK8sNamespaceReport(params: {
         }
       },
       skip,
-      take: pageSize,
+      take,
       orderBy: { createdAt: "desc" }
     }),
     prisma.k8sNamespace.count({ where: whereClause })

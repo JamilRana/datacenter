@@ -5,6 +5,7 @@ import { Prisma, VmStatus, Environment } from "@prisma/client";
 export interface VmReportParams {
   page?: number;
   pageSize?: number;
+  getAll?: boolean;
   dateFrom?: Date;
   dateTo?: Date;
   status?: string;
@@ -51,6 +52,7 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
   const { 
     page = 1, 
     pageSize = 10, 
+    getAll = false,
     dateFrom, 
     dateTo, 
     status, 
@@ -61,7 +63,8 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
     userRoles 
   } = params;
 
-  const skip = (page - 1) * pageSize;
+  const skip = getAll ? undefined : (page - 1) * pageSize;
+  const take = getAll ? undefined : pageSize;
   const isAdmin = userRoles?.some((r: any) => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
 
   const where: Prisma.VmInstanceWhereInput = {};
@@ -97,7 +100,7 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
     prisma.vmInstance.findMany({
       where,
       skip,
-      take: pageSize,
+      take,
       orderBy: { createdAt: "desc" },
       include: {
         owner: { select: { name: true, email: true } },

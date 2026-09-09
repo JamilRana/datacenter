@@ -15,7 +15,7 @@ import { getDetailedRequest } from "@/app/actions/request-actions";
 import { CustomizationRequest } from "@/types/customization";
 import { getCustomizationRequest } from "@/app/actions/customization-actions";
 import { CustomizationRequestDetails } from "@/app/requests/customize/components/CustomizationRequestDetails";
-import { Server, Play } from "lucide-react";
+import { Server, Play, Trash2, Zap, Clock } from "lucide-react";
 import { ROLES } from "@/lib/roles";
 import { executeRequest } from "@/app/actions/approval-actions";
 import { toast } from "sonner";
@@ -70,12 +70,28 @@ export default function ApprovalDetailPage({
     !isAccessProvisioningType;
 
   const handleExecuteDirectly = async () => {
-    if (!confirm("Are you sure you want to execute and apply this request?")) return;
+    const actionLabel = displayRequest?.requestType === "DECOMMISSION"
+      ? "decommission and permanently retire this virtual machine"
+      : displayRequest?.requestType === "SYSTEM_UPGRADE"
+      ? "apply this compute upgrade"
+      : displayRequest?.requestType === "RENEWAL"
+      ? "renew this virtual machine"
+      : "execute and apply this request";
+
+    if (!confirm(`Are you sure you want to ${actionLabel}?`)) return;
     try {
       setIsExecuting(true);
       const res = await executeRequest(id);
       if (res.success) {
-        toast.success("Request executed successfully!");
+        toast.success(
+          displayRequest?.requestType === "DECOMMISSION"
+            ? "Virtual machine decommissioned successfully!"
+            : displayRequest?.requestType === "SYSTEM_UPGRADE"
+            ? "Compute upgrade applied successfully!"
+            : displayRequest?.requestType === "RENEWAL"
+            ? "VM validity renewed successfully!"
+            : "Request executed successfully!"
+        );
         window.location.reload();
       } else {
         toast.error(res.error || "Failed to execute request");
@@ -185,10 +201,34 @@ export default function ApprovalDetailPage({
             <Button 
               onClick={handleExecuteDirectly} 
               disabled={isExecuting}
-              className="bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
+              className={
+                displayRequest?.requestType === "DECOMMISSION"
+                  ? "bg-rose-600 hover:bg-rose-700 shadow-rose-200 text-white font-bold"
+                  : displayRequest?.requestType === "SYSTEM_UPGRADE"
+                  ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 text-white font-bold"
+                  : "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200 text-white font-bold"
+              }
             >
-              <Play className="h-4 w-4 mr-2" />
-              {isExecuting ? "Executing..." : "Execute Upgrade"}
+              {displayRequest?.requestType === "DECOMMISSION" ? (
+                <Trash2 className="h-4 w-4 mr-2" />
+              ) : displayRequest?.requestType === "SYSTEM_UPGRADE" ? (
+                <Zap className="h-4 w-4 mr-2" />
+              ) : displayRequest?.requestType === "RENEWAL" ? (
+                <Clock className="h-4 w-4 mr-2" />
+              ) : (
+                <Play className="h-4 w-4 mr-2" />
+              )}
+              {isExecuting
+                ? "Processing..."
+                : displayRequest?.requestType === "DECOMMISSION"
+                ? "Execute Decommission"
+                : displayRequest?.requestType === "SYSTEM_UPGRADE"
+                ? "Execute Upgrade"
+                : displayRequest?.requestType === "RENEWAL"
+                ? "Execute Renewal"
+                : displayRequest?.requestType === "K8S_NAMESPACE"
+                ? "Execute Provisioning"
+                : "Execute Request"}
             </Button>
           )}
         </div>
@@ -198,7 +238,7 @@ export default function ApprovalDetailPage({
         {/* Main Content */}
         <div className="lg:col-span-3 space-y-8">
           {/* DC Ops Execution Center for approved/in-progress multi-resource requests */}
-          {session?.user && displayRequest && isDCOps && (displayRequest.status === "APPROVED" || displayRequest.status === "PARTIALLY_PROVISIONED" || displayRequest.status === "PROVISIONED") && (
+          {session?.user && displayRequest && isDCOps && (displayRequest.status === "APPROVED" || displayRequest.status === "PARTIALLY_PROVISIONED" || displayRequest.status === "PROVISIONED" || displayRequest.status === "CLOSED") && (
             <DcOpsExecutionCenter request={displayRequest} onRefresh={loadEntity} />
           )}
 
