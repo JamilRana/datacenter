@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { 
   Cpu, Database, HardDrive, User, History, ShieldAlert, 
-  Server, Zap, Trash2, Activity, Calendar, Monitor, Loader2
+  Server, Zap, Trash2, Activity, Calendar, Monitor, Loader2, Edit
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,8 @@ import { use } from "react";
 import DecommissionModal from "@/components/vms/DecommissionModal";
 import VmCredentialsCard from "../components/VmCredentialsCard";
 import ComplianceTagsCard from "@/components/vms/ComplianceTagsCard";
+import { EditVmModal } from "@/app/inventory/components/EditVmModal";
+import { isAdmin } from "@/lib/utils";
 
 export default function VmDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
@@ -96,9 +98,11 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
   if (isLoading) return <div className="p-10 text-center">Loading VM details...</div>;
   if (!vm) return notFound();
 
+  const userRoles = session?.user?.roles || [];
+  const isManagement = isAdmin(userRoles);
   const isOwner = vm?.owner?.id === session?.user?.id;
-  const isAdminUser = session?.user?.roles?.includes("ADMIN");
-  const canRename = isOwner || isAdminUser;
+  const canEdit = isManagement || isOwner;
+  const canRename = isOwner || isManagement;
 
   return (
     <div className="p-6 md:p-10 space-y-6 bg-slate-50/20 min-h-screen">
@@ -139,6 +143,16 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
         </div>
         
         <div className="flex gap-2">
+          {canEdit && (
+            <EditVmModal 
+              vm={vm} 
+              trigger={
+                <Button variant="outline" className="gap-2">
+                  <Edit className="h-4 w-4" /> Edit VM
+                </Button>
+              }
+            />
+          )}
           {vm.status === "ACTIVE" && !hasPendingCustomization ? (
             <>
               <Button 
@@ -351,8 +365,18 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
         <div className="space-y-6">
           {/* Ownership Card */}
           <Card className="border-none shadow-sm ring-1 ring-slate-200">
-            <CardHeader className="bg-slate-50/30">
+            <CardHeader className="bg-slate-50/30 flex flex-row items-center justify-between py-3">
               <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-500">Ownership</CardTitle>
+              {canEdit && (
+                <EditVmModal 
+                  vm={vm} 
+                  trigger={
+                    <Button variant="ghost" size="sm" className="h-7 text-xs text-indigo-600 hover:text-indigo-700 font-bold px-2">
+                      Transfer Owner
+                    </Button>
+                  }
+                />
+              )}
             </CardHeader>
             <CardContent className="pt-4">
               <div className="flex items-center gap-4">

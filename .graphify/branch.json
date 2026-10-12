@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "branchName": "main",
-  "worktreePath": "D:\\datacenter",
-  "upstream": "origin/main",
-  "mergeBase": "1d32b50e88fefa483a111f406848a82ec41f20be",
-  "firstSeenHead": "1d32b50e88fefa483a111f406848a82ec41f20be",
-  "lastSeenHead": "1d32b50e88fefa483a111f406848a82ec41f20be",
-  "lastAnalyzedHead": "1d32b50e88fefa483a111f406848a82ec41f20be",
+  "branchName": "vpn_horizon",
+  "worktreePath": "/home/orion/Documents/Projects/datacenter",
+  "upstream": "origin/vpn_horizon",
+  "mergeBase": "f5128d408973bb9116d5bc6779b333b7ccf914e9",
+  "firstSeenHead": "f5128d408973bb9116d5bc6779b333b7ccf914e9",
+  "lastSeenHead": "f5128d408973bb9116d5bc6779b333b7ccf914e9",
+  "lastAnalyzedHead": "f5128d408973bb9116d5bc6779b333b7ccf914e9",
   "stale": false,
   "staleReason": null,
   "staleSince": null,
   "lifecycleEvent": null,
   "createdAt": "2026-07-06T14:45:13.852Z",
-  "updatedAt": "2026-07-07T11:33:15.046Z"
+  "updatedAt": "2026-10-12T12:24:49.000Z"
 }

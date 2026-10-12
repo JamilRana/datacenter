@@ -99,13 +99,18 @@ async function getVmSummary(): Promise<VmSummary> {
 }
 
 async function getVmByOwner(): Promise<VmByOwner[]> {
-  const result = await prisma.vmInstance.groupBy({
-    by: ["ownerId"],
-    _count: true,
-    where: { ownerId: { not: null } },
-    orderBy: { _count: { ownerId: "desc" } },
-    take: 10,
-  });
+  const [result, unassignedCount] = await Promise.all([
+    prisma.vmInstance.groupBy({
+      by: ["ownerId"],
+      _count: true,
+      where: { ownerId: { not: null } },
+      orderBy: { _count: { ownerId: "desc" } },
+      take: 10,
+    }),
+    prisma.vmInstance.count({
+      where: { ownerId: null },
+    }),
+  ]);
 
   const ownerIds = result.map((r: any) => r.ownerId).filter(Boolean) as string[];
 
@@ -116,10 +121,19 @@ async function getVmByOwner(): Promise<VmByOwner[]> {
 
   const ownerMap = new Map(owners.map((u: any) => [u.id, u.name]));
 
-  return result.map((r: any) => ({
+  const list: VmByOwner[] = result.map((r: any) => ({
     ownerName: ownerMap.get(r.ownerId!) || "Unknown",
     count: r._count,
   }));
+
+  if (unassignedCount > 0) {
+    list.push({
+      ownerName: "Unassigned",
+      count: unassignedCount,
+    });
+  }
+
+  return list;
 }
 
 async function getVmByDomain(): Promise<VmByDomain[]> {
@@ -176,9 +190,6 @@ async function getRecentVmActivity(): Promise<VmActivity[]> {
 
 async function getVmResourceAllocation(): Promise<VmResourceAllocation[]> {
   const vms = await prisma.vmInstance.findMany({
-    where: { 
-      ownerId: { not: null },
-    },
     include: {
       owner: { select: { name: true } },
       currentSpec: { select: { vcpu: true, ramGb: true, storageGb: true } },
@@ -188,7 +199,7 @@ async function getVmResourceAllocation(): Promise<VmResourceAllocation[]> {
   const allocationMap = new Map<string, VmResourceAllocation>();
 
   for (const vm of vms) {
-    const ownerName = vm.owner?.name || "Unknown";
+    const ownerName = vm.owner?.name || "Unassigned";
     if (!allocationMap.has(ownerName)) {
       allocationMap.set(ownerName, {
         ownerName,

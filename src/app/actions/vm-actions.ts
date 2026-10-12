@@ -38,8 +38,8 @@ const vmBaseSchema = z.object({
   ),
 
   ownerId: z.preprocess(
-    (val) => (val === "" || val == null ? null : val),
-    z.string().uuid().nullable()
+    (val) => (val === "" || val == null || val === "unassigned" ? null : val),
+    z.string().nullable()
   ),
 
   hostname: z.string().optional().nullable(),
@@ -250,6 +250,8 @@ export async function updateVm(formData: FormData) {
 
   const specData = vmSpecSchema.parse(Object.fromEntries(formData));
   const { id, ...payload } = data;
+  delete (payload as Record<string, unknown>).requestId;
+  delete (payload as Record<string, unknown>).sequenceNumber;
 
   const oldVm = await prisma.vmInstance.findUnique({ 
     where: { id },
@@ -319,6 +321,8 @@ export async function updateVm(formData: FormData) {
 
   revalidatePath("/inventory/vms");
   revalidatePath(`/inventory/vms/${id}`);
+  revalidatePath("/inventory");
+  revalidatePath("/requests");
 }
 
 export async function updateVmResources(

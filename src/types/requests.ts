@@ -143,6 +143,7 @@ export interface detailsRequest {
   networkAccess: NetworkAccessEntry[] | null;
   attachments: Attachment[] | null;
   targetVm?: VmInstance | null;
+  accessTargetVm?: VmInstance | null;
   tags?: { tag: { id: string; name: string; description: string | null } }[];
   k8sRequestNodeGroups?: K8sRequestNodeGroup[] | null;
   k8sClusters?: any[] | null;
@@ -278,12 +279,34 @@ export interface Request {
   firewallPorts: FirewallPort[];
   networkAccess: NetworkAccessEntry[];
   vmSpecifications?: VmSpecification[];
+  targetVm?: any | null;
+  accessTargetVm?: any | null;
+  requestResources?: any[];
 }
 
 export interface RequestListItem extends Pick<Request, 
   "id" | "systemName" | "projectName" | "status" | "environment" | "createdAt"> {
   requester: Pick<Requester, "name"> | null;
   vmCount: number;
+}
+
+export interface PaginatedRequests<T = RequestListItem | detailsRequest> {
+  requests: T[];
+  total: number;
+  totalPages: number;
+  currentPage: number;
+}
+
+export interface PaginationParams {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PaginationMeta {
+  total: number;
+  totalPages: number;
+  currentPage: number;
+  pageSize: number;
 }
 
 // Helper functions

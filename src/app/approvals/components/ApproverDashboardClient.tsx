@@ -2,7 +2,7 @@
 "use client";
 import type { ApprovalDecision } from "@prisma/client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ROLES } from "@/lib/roles";
@@ -38,6 +38,7 @@ import { DashboardRequest } from "@/types/approvals";
 import { ProvisionVMModal } from "./ProvisionVMModal";
 import { ProvisionK8sModal } from "./ProvisionK8sModal";
 import { SubdomainApprovalsPanel } from "./SubdomainApprovalsPanel";
+import { Pagination } from "@/components/Pagination";
 
 interface ApproverRequest extends Omit<DashboardRequest, "createdAt"> {
   createdAt: string | Date;
@@ -112,6 +113,8 @@ export function ApproverDashboardClient({
   const [typeFilter, setTypeFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Determine if user is admin (has ADMIN role)
   const isAdmin = userRoles.includes("ADMIN");
@@ -264,6 +267,16 @@ export function ApproverDashboardClient({
 
     return matchesSearch && matchesStatus && matchesType && matchesDate;
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, typeFilter, startDate, endDate]);
+
+  const totalPages = Math.ceil(filteredRequests.length / pageSize) || 1;
+  const paginatedRequests = filteredRequests.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   // ✅ Handles all approval actions: APPROVE, REJECT, RETURN, FORWARD
   async function onQuickAction(
@@ -590,7 +603,7 @@ export function ApproverDashboardClient({
                   </td>
                 </tr>
               ) : (
-                filteredRequests.map((req) => {
+                paginatedRequests.map((req) => {
                   // ✅ SAFE requestType handling
                   const requestType = req.requestType || "UNKNOWN";
                   const isCustomization = requestType === "CUSTOMIZED";
@@ -900,6 +913,40 @@ export function ApproverDashboardClient({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        {filteredRequests.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-200 gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-slate-500">
+                Showing <strong className="text-slate-800">{(currentPage - 1) * pageSize + 1}</strong> to{" "}
+                <strong className="text-slate-800">{Math.min(currentPage * pageSize, filteredRequests.length)}</strong> of{" "}
+                <strong className="text-slate-800">{filteredRequests.length}</strong> requests
+              </span>
+              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                <span>Per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 px-2 border border-slate-200 rounded-lg bg-white text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-2xs"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+            </div>
+
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
+          </div>
+        )}
       </div>
         </>
       ) : (

@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { X, Shield, Server, Network } from "lucide-react";
 import { toast } from "sonner";
 import { getExistingVpnUsers, provisionVpnForRequest } from "@/app/actions/access-actions";
+import { fetchAllVms } from "@/app/actions/vm-actions";
 
 interface ProvisionVpnModalProps {
   open: boolean;
@@ -42,6 +43,8 @@ export function ProvisionVpnModal({
   const [selectedVmIds, setSelectedVmIds] = useState<string[]>([]);
   const [selectedNamespaceIds, setSelectedNamespaceIds] = useState<string[]>([]);
 
+  const [fallbackVms, setFallbackVms] = useState<any[]>([]);
+
   useEffect(() => {
     if (open) {
       setSelectedUserId("NEW");
@@ -53,6 +56,16 @@ export function ProvisionVpnModal({
       // By default, select all provisioned VMs in this request
       setSelectedVmIds(provisionedVms.map((v) => v.id));
       setSelectedNamespaceIds(namespaces.map((n) => n.id));
+
+      if (provisionedVms.length === 0 && namespaces.length === 0) {
+        fetchAllVms(1, 50, "ACTIVE", undefined, true)
+          .then((res) => {
+            if (res?.vms) setFallbackVms(res.vms);
+          })
+          .catch((err) => console.error("Failed to load fallback VMs:", err));
+      } else {
+        setFallbackVms([]);
+      }
 
       const loadUsers = async () => {
         try {
@@ -270,44 +283,53 @@ export function ProvisionVpnModal({
           </Card>
 
           {/* Target VMs Selection */}
-          <div className="space-y-3">
-            <Label className="font-bold text-slate-800 flex items-center gap-2">
-              <Server className="w-4 h-4 text-slate-500" />
-              Target Provisioned VMs to Associate ({selectedVmIds.length}/{provisionedVms.length})
-            </Label>
-            {provisionedVms.length === 0 ? (
-              <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-xl text-xs text-amber-800">
-                No VMs have been provisioned yet. You can provision VMs first, or assign VPN directly to target namespaces below.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-48 overflow-y-auto p-1">
-                {provisionedVms.map((vm) => (
-                  <div
-                    key={vm.id}
-                    onClick={() => toggleVm(vm.id)}
-                    className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                      selectedVmIds.includes(vm.id)
-                        ? "bg-amber-50/80 border-amber-300 ring-1 ring-amber-300"
-                        : "bg-white border-slate-200 hover:border-slate-300"
-                    }`}
-                  >
-                    <Checkbox
-                      checked={selectedVmIds.includes(vm.id)}
-                      onCheckedChange={() => toggleVm(vm.id)}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-slate-900 truncate">
-                        {vm.hostname || "Virtual Machine"}
-                      </p>
-                      <p className="text-[11px] font-mono text-slate-500">
-                        IP: {vm.ipAddress || "Unassigned"}
-                      </p>
-                    </div>
+          {(() => {
+            const displayedVms = provisionedVms.length > 0 ? provisionedVms : fallbackVms;
+            return (
+              <div className="space-y-3">
+                <Label className="font-bold text-slate-800 flex items-center gap-2">
+                  <Server className="w-4 h-4 text-slate-500" />
+                  {provisionedVms.length > 0
+                    ? `Target VMs to Associate (${selectedVmIds.length}/${provisionedVms.length})`
+                    : fallbackVms.length > 0
+                    ? `Select Active VMs to Associate (${selectedVmIds.length}/${fallbackVms.length})`
+                    : "Target VMs to Associate"}
+                </Label>
+                {displayedVms.length === 0 ? (
+                  <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                    No VMs associated with this request. You can assign VPN directly to target namespaces below.
                   </div>
-                ))}
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-48 overflow-y-auto p-1">
+                    {displayedVms.map((vm) => (
+                      <div
+                        key={vm.id}
+                        onClick={() => toggleVm(vm.id)}
+                        className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                          selectedVmIds.includes(vm.id)
+                            ? "bg-amber-50/80 border-amber-300 ring-1 ring-amber-300"
+                            : "bg-white border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        <Checkbox
+                          checked={selectedVmIds.includes(vm.id)}
+                          onCheckedChange={() => toggleVm(vm.id)}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-900 truncate">
+                            {vm.hostname || "Virtual Machine"}
+                          </p>
+                          <p className="text-[11px] font-mono text-slate-500">
+                            IP: {vm.ipAddress || "Unassigned"}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* Target Namespaces Selection if available */}
           {namespaces.length > 0 && (

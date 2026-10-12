@@ -8,6 +8,7 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { encrypt, decrypt, sendEmail } from "@/lib/admin/emailService";
 import { ROLES, hasRole } from "@/lib/roles";
+import { isAdmin } from "@/lib/utils";
 
 export interface UserVmStats {
   totalActive: number;
@@ -578,3 +579,77 @@ export async function sendCredentialsEmail(vmId: string) {
     throw error;
   }
 }
+
+/**
+ * Transfer ownership of a VM to another user or unassign.
+ * Accessible to Administrators/DC_OPS or current VM owner.
+ */
+export async function transferOwnership(vmId: string, newOwnerId: string | null) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    throw new Error("Unauthorized");
+  }
+
+  const userRoles = session.user.roles || [];
+  const isManagement = isAdmin(userRoles);
+
+  const vm = await prisma.vmInstance.findUnique({
+    where: { id: vmId },
+    include: { owner: true }
+  });
+
+  if (!vm) {
+    throw new Error("VM not found");
+  }
+
+  if (!isManagement && vm.ownerId !== session.user.id) {
+    throw new Error("Unauthorized to transfer ownership of this VM");
+  }
+
+  const effectiveOwnerId = (!newOwnerId || newOwnerId === "unassigned" || newOwnerId.trim() === "") ? null : newOwnerId;
+
+  if (effectiveOwnerId) {
+    const targetUser = await prisma.user.findUnique({
+      where: { id: effectiveOwnerId }
+    });
+    if (!targetUser) {
+      throw new Error("Target owner user not found");
+    }
+  }
+
+  const updatedVm = await prisma.$transaction(async (tx: any) => {
+    const updated = await tx.vmInstance.update({
+      where: { id: vmId },
+      data: { ownerId: effectiveOwnerId },
+      include: {
+        owner: { select: { id: true, name: true, email: true } },
+        currentSpec: true,
+      }
+    });
+
+    await tx.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "VM_UPDATED",
+        entityType: "VmInstance",
+        entityId: vmId,
+        details: JSON.stringify({
+          action: "TRANSFER_OWNERSHIP",
+          oldOwnerId: vm.ownerId,
+          newOwnerId: effectiveOwnerId,
+        }),
+        vmId: vmId,
+      }
+    });
+
+    return updated;
+  });
+
+  revalidatePath("/inventory/vms");
+  revalidatePath(`/inventory/vms/${vmId}`);
+  revalidatePath("/inventory");
+  revalidatePath("/requests");
+
+  return { success: true, vm: updatedVm };
+}
+

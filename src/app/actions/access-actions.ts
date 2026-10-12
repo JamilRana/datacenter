@@ -264,7 +264,12 @@ export async function provisionAccessRequest(
 
     const request = await prisma.request.findUnique({
       where: { id: requestId },
-      include: { requestResources: true }
+      include: {
+        requestResources: true,
+        accessTargetVm: true,
+        targetVm: true,
+        vmInstances: true
+      }
     });
     if (!request) throw new Error("Request not found");
 
@@ -307,8 +312,19 @@ export async function provisionAccessRequest(
     }
 
     // 2. Write assignments for each resource
+    let resourceList = request.requestResources || [];
+    if (resourceList.length === 0) {
+      if (request.accessTargetVmId) {
+        resourceList = [{ vmId: request.accessTargetVmId, namespaceId: null } as any];
+      } else if (request.targetVmId) {
+        resourceList = [{ vmId: request.targetVmId, namespaceId: null } as any];
+      } else if (request.vmInstances && request.vmInstances.length > 0) {
+        resourceList = request.vmInstances.map((v: any) => ({ vmId: v.id, namespaceId: null } as any));
+      }
+    }
+
     const assignmentsToCreate: any[] = [];
-    for (const res of request.requestResources) {
+    for (const res of resourceList) {
       if (isVpn) {
         const existing = await prisma.vpnAssignment.findFirst({
           where: {
@@ -421,7 +437,15 @@ export async function provisionVpnForRequest(
       where: { id: requestId },
       include: {
         vmInstances: true,
-        vmSpecifications: true
+        vmSpecifications: true,
+        requestResources: {
+          include: {
+            vm: true,
+            namespace: true
+          }
+        },
+        accessTargetVm: true,
+        targetVm: true
       }
     });
     if (!request) throw new Error("Request not found");
@@ -446,11 +470,26 @@ export async function provisionVpnForRequest(
 
     // 2. Identify VMs and Namespaces to attach
     let vmIdsToAssign = data.selectedVmIds || [];
-    if (vmIdsToAssign.length === 0 && request.vmInstances.length > 0) {
-      vmIdsToAssign = request.vmInstances.map((v: any) => v.id);
+    if (vmIdsToAssign.length === 0) {
+      if (request.vmInstances && request.vmInstances.length > 0) {
+        vmIdsToAssign = request.vmInstances.map((v: any) => v.id);
+      } else if (request.requestResources && request.requestResources.length > 0) {
+        vmIdsToAssign = request.requestResources.map((r: any) => r.vmId).filter(Boolean);
+      } else if (request.accessTargetVmId) {
+        vmIdsToAssign = [request.accessTargetVmId];
+      } else if (request.targetVmId) {
+        vmIdsToAssign = [request.targetVmId];
+      }
     }
 
-    const namespaceIdsToAssign = data.selectedNamespaceIds || [];
+    let namespaceIdsToAssign = data.selectedNamespaceIds || [];
+    if (namespaceIdsToAssign.length === 0) {
+      if (request.requestResources && request.requestResources.length > 0) {
+        namespaceIdsToAssign = request.requestResources.map((r: any) => r.namespaceId).filter(Boolean);
+      } else if (request.existingNamespaceId) {
+        namespaceIdsToAssign = [request.existingNamespaceId];
+      }
+    }
 
     await prisma.$transaction(async (tx: any) => {
       // Create assignments for VMs
@@ -490,16 +529,10 @@ export async function provisionVpnForRequest(
       }
 
       // 3. Recalculate status of request
-      const totalVMsRequested = request.quantity || (request.vmSpecifications?.length || 1);
-      const isAllVmsProvisioned = request.vmInstances.length >= totalVMsRequested;
+      const isVpnAccessRequest = request.requestType === RequestType.VPN_ACCESS;
+      const isHorizonAccessRequest = request.requestType === RequestType.HORIZON_ACCESS;
 
-      const isK8sRequired = request.requestType === RequestType.K8S_NAMESPACE || request.kubernetesOption;
-      const k8sClusterCount = await tx.k8sCluster.count({
-        where: { requestId: requestId }
-      });
-      const isAllK8sFulfilled = !isK8sRequired || k8sClusterCount > 0;
-
-      if (isAllVmsProvisioned && isAllK8sFulfilled) {
+      if (isVpnAccessRequest || isHorizonAccessRequest) {
         await tx.request.update({
           where: { id: requestId },
           data: {
@@ -507,6 +540,25 @@ export async function provisionVpnForRequest(
             provisionedAt: new Date()
           }
         });
+      } else {
+        const totalVMsRequested = request.quantity || (request.vmSpecifications?.length || 1);
+        const isAllVmsProvisioned = request.vmInstances.length >= totalVMsRequested;
+
+        const isK8sRequired = request.requestType === RequestType.K8S_NAMESPACE || request.kubernetesOption;
+        const k8sClusterCount = await tx.k8sCluster.count({
+          where: { requestId: requestId }
+        });
+        const isAllK8sFulfilled = !isK8sRequired || k8sClusterCount > 0;
+
+        if (isAllVmsProvisioned && isAllK8sFulfilled) {
+          await tx.request.update({
+            where: { id: requestId },
+            data: {
+              status: RequestStatus.PROVISIONED,
+              provisionedAt: new Date()
+            }
+          });
+        }
       }
 
       await tx.auditLog.create({

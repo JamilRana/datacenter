@@ -18,12 +18,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { getPendingSubdomains, approveSubdomain } from "@/app/actions/k8s-actions";
+import { Pagination } from "@/components/Pagination";
 
 export function SubdomainApprovalsPanel() {
   const [pendingSubdomains, setPendingSubdomains] = useState<any[]>([]);
   const [pendingNodes, setPendingNodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [subdomainPage, setSubdomainPage] = useState(1);
+  const SUBDOMAIN_PAGE_SIZE = 5;
   
   // Rejection modal
   const [rejectingItem, setRejectingItem] = useState<{ id: string; subdomain: string } | null>(null);
@@ -112,7 +115,9 @@ export function SubdomainApprovalsPanel() {
             Pending Namespace Subdomain Requests ({pendingSubdomains.length})
           </h3>
 
-          {pendingSubdomains.map((item) => {
+          {pendingSubdomains
+            .slice((subdomainPage - 1) * SUBDOMAIN_PAGE_SIZE, subdomainPage * SUBDOMAIN_PAGE_SIZE)
+            .map((item) => {
             const namespace = item.namespace;
             const requester = item.requestedBy;
             const fullDomain = item.subdomain.includes(".") ? item.subdomain : `${item.subdomain}.dghs.gov.bd`;
@@ -199,6 +204,16 @@ export function SubdomainApprovalsPanel() {
               </Card>
             );
           })}
+
+          {Math.ceil(pendingSubdomains.length / SUBDOMAIN_PAGE_SIZE) > 1 && (
+            <div className="flex justify-center pt-2">
+              <Pagination
+                currentPage={subdomainPage}
+                totalPages={Math.ceil(pendingSubdomains.length / SUBDOMAIN_PAGE_SIZE)}
+                onPageChange={setSubdomainPage}
+              />
+            </div>
+          )}
         </div>
       )}
 

@@ -53,6 +53,12 @@ export function ManualVmModal({ actorId }: { actorId: string }) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
 
+    if (selectedOwnerId && selectedOwnerId !== "unassigned") {
+      formData.set("ownerId", selectedOwnerId);
+    } else {
+      formData.set("ownerId", "");
+    }
+
     startTransition(async () => {
       try {
         const result = await createManualVm(formData, actorId);

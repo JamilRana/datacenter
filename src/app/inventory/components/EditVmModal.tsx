@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { 
   Dialog, 
   DialogContent, 
@@ -39,27 +39,41 @@ interface UserOption {
 
 interface EditVmModalProps {
   vm: SerializedVmInstance;
+  trigger?: React.ReactNode;
 }
 
-export function EditVmModal({ vm }: EditVmModalProps) {
+export function EditVmModal({ vm, trigger }: EditVmModalProps) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedOwnerId, setSelectedOwnerId] = useState<string>(vm.owner?.id || "unassigned");
 
-  const handleSearch = async () => {
-    if (open && users.length === 0) {
-      const allUsers = await getAllActiveUsers();
-      setUsers(allUsers);
+  useEffect(() => {
+    if (open) {
+      setSelectedOwnerId(vm.owner?.id || "unassigned");
+      if (users.length === 0) {
+        getAllActiveUsers()
+          .then((allUsers) => {
+            if (allUsers) setUsers(allUsers);
+          })
+          .catch((err) => {
+            console.error("Failed to load users:", err);
+          });
+      }
     }
-  };
-
-
+  }, [open, vm.owner?.id, users.length]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     formData.append("id", vm.id);
+
+    // Explicitly guarantee ownerId is included from selected state
+    if (selectedOwnerId && selectedOwnerId !== "unassigned") {
+      formData.set("ownerId", selectedOwnerId);
+    } else {
+      formData.set("ownerId", "");
+    }
 
     startTransition(async () => {
       try {
@@ -74,14 +88,15 @@ export function EditVmModal({ vm }: EditVmModalProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => {
-      setOpen(isOpen);
-      if (isOpen) handleSearch();
-    }}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-8 text-blue-600 hover:text-blue-700 font-bold">
-          Edit
-        </Button>
+        {trigger ? (
+          trigger
+        ) : (
+          <Button variant="ghost" size="sm" className="h-8 text-blue-600 hover:text-blue-700 font-bold">
+            Edit
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col p-0">
         <DialogHeader className="p-6 bg-slate-50 border-b">

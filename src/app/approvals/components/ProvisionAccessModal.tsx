@@ -297,38 +297,52 @@ export function ProvisionAccessModal({
               </Card>
 
               {/* Resource List Summary */}
-              <div className="space-y-3">
-                <Label className="font-semibold text-slate-700 flex items-center gap-1.5">
-                  <Globe className="w-4 h-4 text-slate-500" />
-                  Assigned Resources ({request?.requestResources?.length || 0})
-                </Label>
-                <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50/50 max-h-40 overflow-y-auto divide-y divide-slate-100">
-                  {request?.requestResources?.map((res: any) => (
-                    <div key={res.id} className="px-4 py-2.5 flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          res.vmId ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
-                        }`}>
-                          {res.vmId ? 'VM' : 'K8S'}
-                        </span>
-                        <span className="font-semibold text-slate-800">
-                          {res.vmId 
-                            ? (res.vm?.hostname || "Virtual Machine") 
-                            : (res.namespace?.name || "K8s Namespace")}
-                        </span>
-                      </div>
-                      <span className="text-xs text-slate-500">
-                        {res.vmId 
-                          ? `IP: ${res.vm?.ipAddress || "N/A"}`
-                          : `Supervisor: ${res.namespace?.supervisorIp || "N/A"}`}
-                      </span>
+              {(() => {
+                const resources = (request?.requestResources && request.requestResources.length > 0)
+                  ? request.requestResources
+                  : (request?.accessTargetVm || request?.targetVm)
+                  ? [{
+                      id: "target-vm",
+                      vmId: (request.accessTargetVm || request.targetVm).id,
+                      vm: request.accessTargetVm || request.targetVm,
+                    }]
+                  : [];
+
+                return (
+                  <div className="space-y-3">
+                    <Label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Globe className="w-4 h-4 text-slate-500" />
+                      Assigned Resources ({resources.length})
+                    </Label>
+                    <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50/50 max-h-40 overflow-y-auto divide-y divide-slate-100">
+                      {resources.map((res: any) => (
+                        <div key={res.id} className="px-4 py-2.5 flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              res.vmId ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                            }`}>
+                              {res.vmId ? 'VM' : 'K8S'}
+                            </span>
+                            <span className="font-semibold text-slate-800">
+                              {res.vmId 
+                                ? (res.vm?.hostname || "Virtual Machine") 
+                                : (res.namespace?.name || "K8s Namespace")}
+                            </span>
+                          </div>
+                          <span className="text-xs text-slate-500">
+                            {res.vmId 
+                              ? `IP: ${res.vm?.ipAddress || "N/A"}`
+                              : `Supervisor: ${res.namespace?.supervisorIp || "N/A"}`}
+                          </span>
+                        </div>
+                      ))}
+                      {resources.length === 0 && (
+                        <p className="text-xs text-slate-400 p-4 text-center">No target resources mapped to this request</p>
+                      )}
                     </div>
-                  ))}
-                  {(!request?.requestResources || request.requestResources.length === 0) && (
-                    <p className="text-xs text-slate-400 p-4 text-center">No target resources mapped to this request</p>
-                  )}
-                </div>
-              </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Footer */}

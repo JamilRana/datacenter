@@ -1029,6 +1029,23 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
       targetVm: {
         include: {
           currentSpec: true,
+          vpnAssignmentsNew: {
+            include: { vpnUser: true }
+          },
+          horizonAssignmentsNew: {
+            include: { horizonUser: true }
+          }
+        },
+      },
+      accessTargetVm: {
+        include: {
+          currentSpec: true,
+          vpnAssignmentsNew: {
+            include: { vpnUser: true }
+          },
+          horizonAssignmentsNew: {
+            include: { horizonUser: true }
+          }
         },
       },
       additionalDisks: true,
@@ -1325,6 +1342,7 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
     sourceVmId: request.sourceVmId || null,
     cloneFullDisk: request.cloneFullDisk || false,
     accessTargetVmId: request.accessTargetVmId || null,
+    accessTargetVm: request.accessTargetVm || null,
     accessType: request.accessType || null,
     accessJustification: request.accessJustification || null,
     underExistingNamespace: request.underExistingNamespace,

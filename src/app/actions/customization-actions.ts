@@ -6,7 +6,7 @@ import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
-import { 
+import {
   CustomizationStatus,
   ApprovalEntityType,
   RequestType,
@@ -17,22 +17,20 @@ import { isAdmin } from "@/lib/utils";
 import { Environment, VmStatus, CustomizationStatus as CustomizationStatusEnum } from "@/types/enums";
 import { SerializedVmInstance } from "@/types/vm";
 
-/* ------------------------------------------------------------------ */
-/* Zod Validation Schemas */
-/* ------------------------------------------------------------------ */
+
 
 interface CustomizationRequest {
   targetVmId: string;
   id: string;
   requesterId: string | null;
-  status: CustomizationStatus;  
+  status: CustomizationStatus;
 }
 
-interface pendingRequest  {
-    id: string;
-    createdAt: Date;
-    status: CustomizationStatus;
-} 
+interface pendingRequest {
+  id: string;
+  createdAt: Date;
+  status: CustomizationStatus;
+}
 
 const customizationCreateSchema = z.object({
   targetVmId: z.string().uuid(),
@@ -49,9 +47,6 @@ const customizationUpdateSchema = z.object({
   purpose: z.string().min(10, "Purpose must be at least 10 characters").optional(),
 });
 
-/* ------------------------------------------------------------------ */
-/* Helper Functions */
-/* ------------------------------------------------------------------ */
 
 function parseIntOrNull(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -66,11 +61,11 @@ async function validateOwnership(
 ): Promise<{ customization: CustomizationRequest; isOwner: boolean }> {
   const customization = await prisma.customizationRequest.findUnique({
     where: { id: customizationId },
-    select: { 
-      id: true, 
-      requesterId: true, 
+    select: {
+      id: true,
+      requesterId: true,
       status: true,
-      targetVmId: true 
+      targetVmId: true
     }
   });
 
@@ -79,7 +74,7 @@ async function validateOwnership(
   }
 
   const isOwner = customization.requesterId === userId;
-  
+
   if (!isOwner && !isAdmin((await getServerSession(authOptions))?.user?.roles)) {
     throw new Error("Unauthorized: You can only modify your own requests");
   }
@@ -118,7 +113,7 @@ export async function createCustomizationRequest(formData: FormData) {
 
   // Validate input
   const parsed = customizationCreateSchema.parse(Object.fromEntries(formData));
-  
+
   // Verify target VM exists and is active
   const targetVm = await prisma.vmInstance.findUnique({
     where: { id: parsed.targetVmId },
@@ -131,7 +126,7 @@ export async function createCustomizationRequest(formData: FormData) {
   // Check ownership
   const userRoles = session.user.roles || [];
   const isManagement = userRoles.some(r => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
-  
+
   if (!isManagement && targetVm.ownerId !== session.user.id) {
     throw new Error("You can only customize virtual machines that you own.");
   }
@@ -161,7 +156,7 @@ export async function createCustomizationRequest(formData: FormData) {
   revalidatePath("/requests");
   revalidatePath(`/requests/customize`);
   revalidatePath("/inventory/vms", "layout");
-  
+
   return customization;
 }
 
@@ -182,8 +177,8 @@ export async function getCustomizationRequests({
   const skip = (page - 1) * perPage;
   const isManagement = isAdmin(session.user.roles);
 
-  const where: Prisma.CustomizationRequestWhereInput = isManagement 
-    ? {} 
+  const where: Prisma.CustomizationRequestWhereInput = isManagement
+    ? {}
     : { requesterId: session.user.id };
 
   if (status && status !== "all") {
@@ -235,10 +230,10 @@ export async function getCustomizationRequests({
             level: true,
             decision: true,
             approverId: true, // ✅ CRITICAL: ADD THIS MISSING FIELD
-            comments: true, 
+            comments: true,
             decidedAt: true,
             createdAt: true,
-            approver: { select: { id: true, name: true, email: true, designation: true} },
+            approver: { select: { id: true, name: true, email: true, designation: true } },
           },
           orderBy: { createdAt: "asc" },
         },
@@ -252,7 +247,7 @@ export async function getCustomizationRequests({
       status: r.status as CustomizationStatus,
       createdAt: r.createdAt.toISOString(),
       submittedAt: r.submittedAt?.toISOString() ?? null,
-      
+
       targetVm: {
         id: r.targetVm.id,
         hostname: r.targetVm.hostname,
@@ -264,35 +259,35 @@ export async function getCustomizationRequests({
         environment: r.targetVm.environment as Environment,
         hasRemoteAccess: r.targetVm.hasRemoteAccess,
         vpnRequired: r.targetVm.vpnRequired,
-        currentSpec: r.targetVm.currentSpec 
-          ? { 
-              vcpu: r.targetVm.currentSpec.vcpu,
-              ramGb: r.targetVm.currentSpec.ramGb,
-              storageGb: r.targetVm.currentSpec.storageGb,
-            } 
+        currentSpec: r.targetVm.currentSpec
+          ? {
+            vcpu: r.targetVm.currentSpec.vcpu,
+            ramGb: r.targetVm.currentSpec.ramGb,
+            storageGb: r.targetVm.currentSpec.storageGb,
+          }
           : null,
       },
-      
-      requester: r.requester 
-        ? { 
-            id: r.requester.id,
-            name: r.requester.name,
-            email: r.requester.email,
-            designation: r.requester.designation,
-          } 
+
+      requester: r.requester
+        ? {
+          id: r.requester.id,
+          name: r.requester.name,
+          email: r.requester.email,
+          designation: r.requester.designation,
+        }
         : null,
-      
+
       approvals: (r.approvals ?? []).map((a: any) => ({
         id: a.id,
-        level: a.level,       
-        approverId: a.approverId,       
-        decision: a.decision as string, 
-        comments: a.comments,           
+        level: a.level,
+        approverId: a.approverId,
+        decision: a.decision as string,
+        comments: a.comments,
         decidedAt: a.decidedAt?.toISOString() ?? null,
         createdAt: a.createdAt?.toISOString() ?? null,
         approver: { id: a.approver.id, name: a.approver.name, email: a.approver.email, designation: a.approver.designation },
       })),
-      
+
       additionalDisks: r.additionalDisks ?? [],
       firewallPorts: r.firewallPorts ?? [],
       networkAccess: r.networkAccess ?? [],
@@ -313,15 +308,15 @@ export async function getCustomizationRequest(id: string) {
   const isManagement = isAdmin(session.user.roles);
 
   const customization = await prisma.customizationRequest.findUnique({
-    where: isManagement 
+    where: isManagement
       ? { id }
-      : { 
-          id,
-          OR: [
-            { requesterId: session.user.id },
-            { targetVm: { ownerId: session.user.id } }
-          ]
-        },
+      : {
+        id,
+        OR: [
+          { requesterId: session.user.id },
+          { targetVm: { ownerId: session.user.id } }
+        ]
+      },
     include: {
       targetVm: {
         include: {
@@ -332,7 +327,7 @@ export async function getCustomizationRequest(id: string) {
       additionalDisks: true,
       firewallPorts: true,
       networkAccess: true,
-      requester: { select: {id: true, name: true, email: true, designation: true } },
+      requester: { select: { id: true, name: true, email: true, designation: true } },
       approvals: {
         include: { approver: { select: { id: true, name: true, email: true, designation: true } } },
         orderBy: { createdAt: "asc" }
@@ -346,8 +341,8 @@ export async function getCustomizationRequest(id: string) {
   return {
     ...customization,
     status: customization.status as CustomizationStatusEnum,
-    targetVm:{
-      ...customization.targetVm, 
+    targetVm: {
+      ...customization.targetVm,
       status: customization.targetVm.status as VmStatus,
       environment: customization.targetVm.environment as Environment,
     },
@@ -406,7 +401,7 @@ export async function updateCustomizationRequest(
 
   revalidatePath("/requests");
   revalidatePath(`/requests/customize/edit/${id}`);
-  
+
   return updated;
 }
 
@@ -431,7 +426,7 @@ export async function deleteCustomizationRequest(id: string) {
 
   revalidatePath("/requests");
   revalidatePath(`/requests/customize`);
-  
+
   return { success: true, id: deleted.id };
 }
 
@@ -447,7 +442,7 @@ export async function submitCustomizationRequest(id: string) {
     // Update status to PENDING_L1
     const updated = await tx.customizationRequest.update({
       where: { id },
-      data: { 
+      data: {
         status: CustomizationStatus.PENDING_L1,
         submittedAt: new Date(),
       },
@@ -477,7 +472,7 @@ export async function submitCustomizationRequest(id: string) {
   revalidatePath("/requests");
   revalidatePath(`/requests/customize`);
   revalidatePath("/inventory/vms", "layout");
-  
+
   return submitted;
 }
 
@@ -489,15 +484,15 @@ export async function cancelCustomizationRequest(id: string) {
   // Validate ownership
   const { customization } = await validateOwnership(id, session.user.id);
 
-if (!isPendingStatus(customization.status)) {
-  throw new Error("Only pending customization requests can be cancelled");
-}
+  if (!isPendingStatus(customization.status)) {
+    throw new Error("Only pending customization requests can be cancelled");
+  }
   // Cancel within transaction
   const cancelled = await prisma.$transaction(async (tx: any) => {
     // Update status to DRAFT
     const updated = await tx.customizationRequest.update({
       where: { id },
-      data: { 
+      data: {
         status: CustomizationStatus.DRAFT,
         submittedAt: null,
       },
@@ -505,7 +500,7 @@ if (!isPendingStatus(customization.status)) {
 
     // Delete pending approvals
     await tx.approval.deleteMany({
-      where: { 
+      where: {
         customizationRequestId: id,
         decision: "PENDING"
       }
@@ -526,7 +521,7 @@ if (!isPendingStatus(customization.status)) {
 
   revalidatePath("/requests");
   revalidatePath(`/requests/customize`);
-  
+
   return cancelled;
 }
 
@@ -576,10 +571,6 @@ function isPendingStatus(status: CustomizationStatus): boolean {
   }
 }
 
-/**
- * Returns all active virtual machines owned or requested by the user,
- * eligible for customization requests.
- */
 export async function getCustomizableVms(requesterId?: string): Promise<SerializedVmInstance[]> {
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");

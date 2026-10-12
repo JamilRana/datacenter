@@ -74,14 +74,29 @@ export function DcOpsExecutionCenter({ request, onRefresh }: DcOpsExecutionCente
     vmSpecs.some((s: any) => s.connectivity?.some((c: any) => c.accessType === "VPN"))
   );
 
+  // Target VMs for VPN access: provisioned instances, target VMs from resources, direct accessTargetVm or targetVm
+  const vpnTargetVmsList = [
+    ...vmInstances,
+    ...(request.requestResources?.map((r: any) => r.vm).filter(Boolean) || []),
+    ...(request.accessTargetVm ? [request.accessTargetVm] : []),
+    ...(request.targetVm ? [request.targetVm] : []),
+    ...((!isVmProvisioningRequest && request.vmInstances) ? request.vmInstances : []),
+  ];
+  const uniqueVpnTargetVms = Array.from(
+    new Map(vpnTargetVmsList.filter((v: any) => v && v.id).map((v: any) => [v.id, v])).values()
+  );
+
   // Find all active VPN assignments across VMs or request resources
   const vpnAssignments = [
     ...vmInstances.flatMap((v: any) => v.vpnAssignmentsNew || []),
     ...(request.requestResources?.flatMap((r: any) => r.vm?.vpnAssignmentsNew || r.namespace?.vpnAssignments || []) || []),
+    ...(request.accessTargetVm?.vpnAssignmentsNew || []),
+    ...(request.targetVm?.vpnAssignmentsNew || []),
+    ...((!isVmProvisioningRequest && request.vmInstances) ? request.vmInstances.flatMap((v: any) => v.vpnAssignmentsNew || []) : []),
   ];
   // Deduplicate by id
   const uniqueVpnAssignments = Array.from(
-    new Map(vpnAssignments.map((a: any) => [a.id, a])).values()
+    new Map(vpnAssignments.filter((a: any) => a && a.id).map((a: any) => [a.id, a])).values()
   );
   const isVpnFulfilled = !hasVpnRequirement || uniqueVpnAssignments.length > 0;
 
@@ -90,9 +105,12 @@ export function DcOpsExecutionCenter({ request, onRefresh }: DcOpsExecutionCente
   const horizonAssignments = [
     ...vmInstances.flatMap((v: any) => v.horizonAssignmentsNew || []),
     ...(request.requestResources?.flatMap((r: any) => r.vm?.horizonAssignmentsNew || r.namespace?.horizonAssignments || []) || []),
+    ...(request.accessTargetVm?.horizonAssignmentsNew || []),
+    ...(request.targetVm?.horizonAssignmentsNew || []),
+    ...((!isVmProvisioningRequest && request.vmInstances) ? request.vmInstances.flatMap((v: any) => v.horizonAssignmentsNew || []) : []),
   ];
   const uniqueHorizonAssignments = Array.from(
-    new Map(horizonAssignments.map((a: any) => [a.id, a])).values()
+    new Map(horizonAssignments.filter((a: any) => a && a.id).map((a: any) => [a.id, a])).values()
   );
   const isHorizonFulfilled = !hasHorizonRequirement || uniqueHorizonAssignments.length > 0;
 
@@ -106,6 +124,16 @@ export function DcOpsExecutionCenter({ request, onRefresh }: DcOpsExecutionCente
     ? request.k8sClusters
     : (request.existingNamespace?.clusters || []);
   const isK8sFulfilled = !hasK8sRequirement || k8sClusters.length > 0;
+
+  // Target Namespaces for VPN access
+  const vpnTargetNamespacesList = [
+    ...k8sClusters.map((c: any) => c.namespace).filter(Boolean),
+    ...(request.requestResources?.map((r: any) => r.namespace).filter(Boolean) || []),
+    ...(request.existingNamespace ? [request.existingNamespace] : []),
+  ];
+  const uniqueVpnTargetNamespaces = Array.from(
+    new Map(vpnTargetNamespacesList.filter((n: any) => n && n.id).map((n: any) => [n.id, n])).values()
+  );
 
   // Total execution items and completion progress
   let totalTasks = 0;
@@ -1045,8 +1073,8 @@ export function DcOpsExecutionCenter({ request, onRefresh }: DcOpsExecutionCente
         open={vpnModalOpen}
         onOpenChange={setVpnModalOpen}
         requestId={request.id}
-        provisionedVms={vmInstances}
-        namespaces={k8sClusters.map((c: any) => c.namespace).filter(Boolean)}
+        provisionedVms={uniqueVpnTargetVms}
+        namespaces={uniqueVpnTargetNamespaces}
         onSuccess={onRefresh}
       />
 

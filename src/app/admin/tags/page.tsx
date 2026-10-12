@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tag, Plus, Trash2, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
+import { Pagination } from "@/components/Pagination";
 
 interface ComplianceTagItem {
   id: string;
@@ -24,6 +25,8 @@ interface ComplianceTagItem {
 export default function AdminTagsPage() {
   const [tags, setTags] = useState<ComplianceTagItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
   
   // Create tag states
   const [name, setName] = useState("");
@@ -163,7 +166,9 @@ export default function AdminTagsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {tags.map((tag) => (
+                    {tags
+                      .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+                      .map((tag) => (
                       <tr key={tag.id} className="text-xs hover:bg-slate-50/20 transition-colors">
                         <td className="px-6 py-4 font-bold text-blue-600 font-mono">
                           {tag.name}
@@ -191,6 +196,19 @@ export default function AdminTagsPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {Math.ceil(tags.length / PAGE_SIZE) > 1 && (
+              <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-100">
+                <span className="text-xs text-slate-500">
+                  Showing {(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, tags.length)} of {tags.length} tags
+                </span>
+                <Pagination
+                  currentPage={page}
+                  totalPages={Math.ceil(tags.length / PAGE_SIZE)}
+                  onPageChange={setPage}
+                />
               </div>
             )}
           </CardContent>

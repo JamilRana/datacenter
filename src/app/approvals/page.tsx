@@ -23,7 +23,7 @@ export default async function ApprovalsDashboard({
   const isAdmin = userRoles.includes(ROLES.ADMIN);
 
   // ✅ Single source of truth: Reuse shared data fetcher
-  const { requests } = await fetchDashboardData(session.user.id, userRoles, isAdmin, page, 20, decisionFilter);
+  const { requests } = await fetchDashboardData(session.user.id, userRoles, isAdmin, page, 100, decisionFilter);
 
   return (
     <div className="p-6 md:p-10 space-y-8 bg-slate-50/30 min-h-screen">
