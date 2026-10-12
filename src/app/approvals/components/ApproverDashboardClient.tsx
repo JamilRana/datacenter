@@ -98,6 +98,14 @@ const REQUEST_TYPE_CONFIG: Record<string, { label: string; color: string; icon: 
   },
 };
 
+// ✅ DETERMINE CURRENT APPROVAL LEVEL FROM STATUS (returns number)
+function getCurrentLevel(status?: string): number | null {
+  if (!status) return null;
+  const match = status.match(/^PENDING_L(\d+)$/);
+  if (match) return parseInt(match[1], 10);
+  return null;
+}
+
 export function ApproverDashboardClient({ 
   initialRequests, 
   userRoles,
@@ -108,19 +116,41 @@ export function ApproverDashboardClient({
   currentUserId?: string,
 }) {
   const router = useRouter();
+
+  // Determine user roles and actionable approver levels
+  const isAdmin = userRoles.includes("ADMIN");
+  const isDCOps = userRoles.includes("DC_OPS");
+  const isL1 = userRoles.includes("APPROVER_L1") || userRoles.includes("L1_APPROVER");
+  const isL2 = userRoles.includes("APPROVER_L2") || userRoles.includes("L2_APPROVER");
+  const isL3 = userRoles.includes("APPROVER_L3") || userRoles.includes("L3_APPROVER");
+  const isL4 = userRoles.includes("APPROVER_L4") || userRoles.includes("L4_APPROVER");
+
+  const userActionableLevels = getUserActionableLevels(userRoles);
+  const isSpecificApprover = isL1 || isL2 || isL3 || isL4;
+  const _isPureAdmin = isAdmin && !isSpecificApprover && !isDCOps;
+  const showSubdomainTab = isL1 || isDCOps || isAdmin;
+
+  // Default filter: Approvers default to their assigned level(s), DCOps to pending execution, pure admins to "all"
+  const defaultStatusFilter = (() => {
+    if (isSpecificApprover) {
+      if (userActionableLevels.length === 1) {
+        return `PENDING_L${userActionableLevels[0]}`;
+      }
+      return "MY_LEVELS";
+    }
+    if (isDCOps) {
+      return "pending_execution";
+    }
+    return "all";
+  })();
+
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState(""); // Default empty (shows all)
+  const [statusFilter, setStatusFilter] = useState(defaultStatusFilter);
   const [typeFilter, setTypeFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-
-  // Determine if user is admin (has ADMIN role)
-  const isAdmin = userRoles.includes("ADMIN");
-  const isDCOps = userRoles.includes("DC_OPS");
-  const isL1 = userRoles.includes("APPROVER_L1");
-  const showSubdomainTab = isL1 || isDCOps || isAdmin;
 
   const [activeMainTab, setActiveMainTab] = useState<"requests" | "subdomains">("requests");
 
@@ -142,11 +172,17 @@ export function ApproverDashboardClient({
 
   interface ApproverMetrics {
     totalVisible: number;
+    myPendingCount: number;
     pendingCount: number;
     approvedCount: number;
     rejectedCount: number;
     executedCount: number;
   }
+
+  const myActionablePending = initialRequests.filter(r => {
+    const lvl = getCurrentLevel(r.status);
+    return lvl !== null && userActionableLevels.includes(lvl);
+  }).length;
 
   let clientMetrics: DCOpsMetrics | ApproverMetrics;
   if (isDCOps) {
@@ -161,6 +197,7 @@ export function ApproverDashboardClient({
     // Approvers/Admins see: pending approval, approved, rejected, executed
     clientMetrics = {
       totalVisible: initialRequests.length,
+      myPendingCount: myActionablePending,
       pendingCount: initialRequests.filter(r => r.status?.startsWith('PENDING_L')).length,
       approvedCount: initialRequests.filter(r => r.status === 'APPROVED' || r.status === 'PROVISIONED' || r.status === 'PARTIALLY_PROVISIONED').length,
       rejectedCount: initialRequests.filter(r => r.status === 'REJECTED').length,
@@ -169,7 +206,7 @@ export function ApproverDashboardClient({
   }
 
   const handleFilterClick = (filter: string) => {
-    setStatusFilter(filter.toLowerCase());
+    setStatusFilter(filter);
   };
   
   const [isPending, startTransition] = useTransition();
@@ -203,14 +240,6 @@ export function ApproverDashboardClient({
     requestId: ""
   });
 
-  // ✅ DETERMINE CURRENT APPROVAL LEVEL FROM STATUS (returns number)
-  const getCurrentLevel = (status?: string): number | null => {
-    if (!status) return null;
-    const match = status.match(/^PENDING_L(\d+)$/);
-    if (match) return parseInt(match[1], 10);
-    return null;
-  };
-
   // ✅ FIND THE SPECIFIC APPROVAL ID FOR THIS REQUEST + LEVEL
   const findApprovalId = (request: ApproverRequest, userLevels: number[]): string | null => {
     const requestLevel = getCurrentLevel(request.status);
@@ -234,27 +263,40 @@ export function ApproverDashboardClient({
       req.systemName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       req.requester?.name?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    // Status filter mapping - handle different status formats
+    // Status filter mapping - supports level-wise, assigned level(s), and standard lifecycle statuses
     let matchesStatus = true;
-    if (statusFilter === "pending") {
+    const filter = (statusFilter || "").toUpperCase();
+
+    if (!filter || filter === "ALL") {
+      matchesStatus = true;
+    } else if (filter === "MY_LEVELS") {
+      const reqLevel = getCurrentLevel(req.status);
+      matchesStatus = reqLevel !== null && userActionableLevels.includes(reqLevel);
+    } else if (filter === "PENDING") {
       matchesStatus = req.status?.startsWith("PENDING_L") || false;
-    } else if (statusFilter === "approved") {
-      matchesStatus = req.status === 'APPROVED' || req.status === 'PROVISIONED' || req.status === 'PARTIALLY_PROVISIONED';
-    } else if (statusFilter === "rejected") {
-      matchesStatus = req.status === 'REJECTED';
-    } else if (statusFilter === "executed") {
-      matchesStatus = req.status === 'PROVISIONED' || req.status === 'PARTIALLY_PROVISIONED' || req.status === 'CLOSED';
-    } else if (statusFilter === "pending_execution") {
-      // DCOPS: pending execution = APPROVED (ready for provisioning)
-      matchesStatus = req.status === 'APPROVED';
-    } else if (statusFilter === "partial") {
-      // DCOPS: partially executed = PARTIALLY_PROVISIONED
-      matchesStatus = req.status === 'PARTIALLY_PROVISIONED';
-    } else if (statusFilter === "closed") {
-      // DCOPS: closed requests
-      matchesStatus = req.status === 'CLOSED';
+    } else if (filter === "PENDING_L1") {
+      matchesStatus = req.status === "PENDING_L1";
+    } else if (filter === "PENDING_L2") {
+      matchesStatus = req.status === "PENDING_L2";
+    } else if (filter === "PENDING_L3") {
+      matchesStatus = req.status === "PENDING_L3";
+    } else if (filter === "PENDING_L4") {
+      matchesStatus = req.status === "PENDING_L4";
+    } else if (filter === "APPROVED" || filter === "PENDING_EXECUTION") {
+      matchesStatus = req.status === "APPROVED";
+    } else if (filter === "PARTIAL" || filter === "PARTIALLY_PROVISIONED") {
+      matchesStatus = req.status === "PARTIALLY_PROVISIONED";
+    } else if (filter === "PROVISIONED") {
+      matchesStatus = req.status === "PROVISIONED";
+    } else if (filter === "EXECUTED") {
+      matchesStatus = req.status === "PROVISIONED" || req.status === "PARTIALLY_PROVISIONED" || req.status === "CLOSED";
+    } else if (filter === "REJECTED") {
+      matchesStatus = req.status === "REJECTED";
+    } else if (filter === "CLOSED") {
+      matchesStatus = req.status === "CLOSED";
+    } else {
+      matchesStatus = req.status?.toUpperCase() === filter;
     }
-    // Empty statusFilter shows everything (default view)
     
     const matchesType = typeFilter === "all" || req.requestType === typeFilter;
 
@@ -349,117 +391,126 @@ export function ApproverDashboardClient({
       {/* Metrics Cards - Different for DCOPS vs Approvers/Admins */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         {isDCOps ? (
-          // DCOPS sees: Pending Execution, Partially Executed, Executed
+          // DCOPS sees: Pending Execution, Partially Executed, Executed, Closed
           <>
             <button
-              onClick={() => handleFilterClick("")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              onClick={() => handleFilterClick("all")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "all" || statusFilter === "" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
               <p className="text-xs font-medium text-slate-500 uppercase">All Requests</p>
               <p className="text-2xl font-bold text-slate-900">{clientMetrics.totalVisible || 0}</p>
             </button>
             <button
-              onClick={() => handleFilterClick("PENDING_EXECUTION")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "pending_execution" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              onClick={() => handleFilterClick("pending_execution")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toLowerCase() === "pending_execution" || statusFilter.toUpperCase() === "APPROVED" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
               <p className="text-xs font-medium text-slate-500 uppercase">Pending Execution</p>
               <p className="text-2xl font-bold text-slate-900">{(clientMetrics as DCOpsMetrics).pendingExecutionCount || 0}</p>
             </button>
             <button
               onClick={() => handleFilterClick("PARTIAL")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "partial" ? "ring-2 ring-orange-500 bg-orange-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toUpperCase() === "PARTIAL" || statusFilter.toUpperCase() === "PARTIALLY_PROVISIONED" ? "ring-2 ring-orange-500 bg-orange-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
               <p className="text-xs font-medium text-slate-500 uppercase">Partial Executed</p>
               <p className="text-2xl font-bold text-slate-900">{(clientMetrics as DCOpsMetrics).partiallyExecutedCount || 0}</p>
             </button>
             <button
               onClick={() => handleFilterClick("EXECUTED")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "executed" ? "ring-2 ring-green-500 bg-green-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toUpperCase() === "EXECUTED" || statusFilter.toUpperCase() === "PROVISIONED" ? "ring-2 ring-green-500 bg-green-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
               <p className="text-xs font-medium text-slate-500 uppercase">Executed</p>
               <p className="text-2xl font-bold text-slate-900">{(clientMetrics as DCOpsMetrics).executedCount || 0}</p>
             </button>
             <button
               onClick={() => handleFilterClick("CLOSED")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "closed" ? "ring-2 ring-slate-500 bg-slate-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toUpperCase() === "CLOSED" ? "ring-2 ring-slate-500 bg-slate-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
               <p className="text-xs font-medium text-slate-500 uppercase">Closed</p>
-              <p className="text-2xl font-bold text-slate-900">0</p>
+              <p className="text-2xl font-bold text-slate-900">{initialRequests.filter(r => r.status === "CLOSED").length}</p>
             </button>
           </>
-        ) : isAdmin ? (
-          // Admin sees: All Requests, Pending, Approved, Rejected, Executed
+        ) : isSpecificApprover ? (
+          // Approvers (even if they also hold ADMIN role): Assigned Queue, All Requests, All Pending, DC Ops Ready, Executed
           <>
             <button
-              onClick={() => handleFilterClick("")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              onClick={() => handleFilterClick(userActionableLevels.length === 1 ? `PENDING_L${userActionableLevels[0]}` : "MY_LEVELS")}
+              className={`text-left p-4 rounded-xl border transition-all ${
+                statusFilter === "MY_LEVELS" || (userActionableLevels.length === 1 && statusFilter.toUpperCase() === `PENDING_L${userActionableLevels[0]}`)
+                  ? "ring-2 ring-indigo-500 bg-indigo-50/80 shadow-xs"
+                  : "bg-white border-slate-200 hover:border-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-indigo-700 uppercase">
+                  My Pending {userActionableLevels.map(l => `L${l}`).join("/")}
+                </p>
+                <Badge className="bg-indigo-100 text-indigo-700 border-none text-[9px] px-1.5 py-0 font-bold">Assigned</Badge>
+              </div>
+              <p className="text-2xl font-bold text-indigo-950 mt-1">{(clientMetrics as ApproverMetrics).myPendingCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("all")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "all" || statusFilter === "" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">All Requests</p>
+              <p className="text-2xl font-bold text-slate-900 mt-1">{clientMetrics.totalVisible || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("pending")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toLowerCase() === "pending" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">All Pending</p>
+              <p className="text-2xl font-bold text-slate-900 mt-1">{(clientMetrics as ApproverMetrics).pendingCount || 0}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("APPROVED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toUpperCase() === "APPROVED" ? "ring-2 ring-emerald-500 bg-emerald-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">DC Ops Ready</p>
+              <p className="text-2xl font-bold text-slate-900 mt-1">{initialRequests.filter(r => r.status === "APPROVED").length}</p>
+            </button>
+            <button
+              onClick={() => handleFilterClick("EXECUTED")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toUpperCase() === "EXECUTED" || statusFilter.toUpperCase() === "PROVISIONED" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+            >
+              <p className="text-xs font-medium text-slate-500 uppercase">Executed</p>
+              <p className="text-2xl font-bold text-slate-900 mt-1">{(clientMetrics as ApproverMetrics).executedCount || 0}</p>
+            </button>
+          </>
+        ) : (
+          // Pure Admin: All Requests, All Pending, DC Ops Ready, Rejected, Executed
+          <>
+            <button
+              onClick={() => handleFilterClick("all")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "all" || statusFilter === "" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
               <p className="text-xs font-medium text-slate-500 uppercase">All Requests</p>
               <p className="text-2xl font-bold text-slate-900">{clientMetrics.totalVisible || 0}</p>
             </button>
             <button
-              onClick={() => handleFilterClick("PENDING")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "pending" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              onClick={() => handleFilterClick("pending")}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toLowerCase() === "pending" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
-              <p className="text-xs font-medium text-slate-500 uppercase">Pending</p>
+              <p className="text-xs font-medium text-slate-500 uppercase">Pending Approvals</p>
               <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).pendingCount || 0}</p>
             </button>
             <button
               onClick={() => handleFilterClick("APPROVED")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "approved" ? "ring-2 ring-emerald-500 bg-emerald-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toUpperCase() === "APPROVED" ? "ring-2 ring-emerald-500 bg-emerald-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
-              <p className="text-xs font-medium text-slate-500 uppercase">Approved</p>
-              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).approvedCount || 0}</p>
+              <p className="text-xs font-medium text-slate-500 uppercase">DC Ops Ready</p>
+              <p className="text-2xl font-bold text-slate-900">{initialRequests.filter(r => r.status === "APPROVED").length}</p>
             </button>
             <button
               onClick={() => handleFilterClick("REJECTED")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "rejected" ? "ring-2 ring-red-500 bg-red-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toUpperCase() === "REJECTED" ? "ring-2 ring-red-500 bg-red-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
               <p className="text-xs font-medium text-slate-500 uppercase">Rejected</p>
               <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).rejectedCount || 0}</p>
             </button>
             <button
               onClick={() => handleFilterClick("EXECUTED")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "executed" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
-            >
-              <p className="text-xs font-medium text-slate-500 uppercase">Executed</p>
-              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).executedCount || 0}</p>
-            </button>
-          </>
-        ) : (
-          // Non-admin approvers see: Assigned, Pending, Approved, Rejected, Executed
-          <>
-            <button
-              onClick={() => handleFilterClick("")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
-            >
-              <p className="text-xs font-medium text-slate-500 uppercase">Assigned</p>
-              <p className="text-2xl font-bold text-slate-900">{clientMetrics.totalVisible || 0}</p>
-            </button>
-            <button
-              onClick={() => handleFilterClick("PENDING")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "pending" ? "ring-2 ring-amber-500 bg-amber-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
-            >
-              <p className="text-xs font-medium text-slate-500 uppercase">Pending</p>
-              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).pendingCount || 0}</p>
-            </button>
-            <button
-              onClick={() => handleFilterClick("APPROVED")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "approved" ? "ring-2 ring-emerald-500 bg-emerald-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
-            >
-              <p className="text-xs font-medium text-slate-500 uppercase">Approved</p>
-              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).approvedCount || 0}</p>
-            </button>
-            <button
-              onClick={() => handleFilterClick("REJECTED")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "rejected" ? "ring-2 ring-red-500 bg-red-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
-            >
-              <p className="text-xs font-medium text-slate-500 uppercase">Rejected</p>
-              <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).rejectedCount || 0}</p>
-            </button>
-            <button
-              onClick={() => handleFilterClick("EXECUTED")}
-              className={`text-left p-4 rounded-xl border transition-all ${statusFilter === "executed" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
+              className={`text-left p-4 rounded-xl border transition-all ${statusFilter.toUpperCase() === "EXECUTED" || statusFilter.toUpperCase() === "PROVISIONED" ? "ring-2 ring-blue-500 bg-blue-50" : "bg-white border-slate-200 hover:border-slate-300"}`}
             >
               <p className="text-xs font-medium text-slate-500 uppercase">Executed</p>
               <p className="text-2xl font-bold text-slate-900">{(clientMetrics as ApproverMetrics).executedCount || 0}</p>
@@ -497,57 +548,165 @@ export function ApproverDashboardClient({
         <>
           {/* Filters Bar */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-           <div className="md:col-span-2 space-y-1.5">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Search Context</p>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <Input 
-                  placeholder="Search system, requester, project..." 
-                  className="pl-9 h-11 bg-slate-50/50 border-slate-100 focus:bg-white transition-all shadow-sm"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+            {/* Quick Level Filter Pills */}
+            <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-100">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mr-1">
+                Level Filter:
+              </span>
+              {isSpecificApprover && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter(userActionableLevels.length === 1 ? `PENDING_L${userActionableLevels[0]}` : "MY_LEVELS")}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
+                    statusFilter === "MY_LEVELS" || (userActionableLevels.length === 1 && statusFilter.toUpperCase() === `PENDING_L${userActionableLevels[0]}`)
+                      ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                      : "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                  }`}
+                >
+                  ★ My Level ({userActionableLevels.map(l => `L${l}`).join(", ")})
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setStatusFilter("all")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+                  statusFilter === "all" || statusFilter === ""
+                    ? "bg-slate-900 text-white border-slate-900 shadow-sm font-bold"
+                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                All Requests
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("pending")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+                  statusFilter.toLowerCase() === "pending"
+                    ? "bg-amber-600 text-white border-amber-600 shadow-sm font-bold"
+                    : "bg-white text-slate-700 border-slate-200 hover:bg-amber-50 hover:border-amber-300"
+                }`}
+              >
+                All Pending
+              </button>
+              {[1, 2, 3, 4].map((lvl) => {
+                const isSelected = statusFilter.toUpperCase() === `PENDING_L${lvl}`;
+                const isUserLevel = userActionableLevels.includes(lvl);
+                return (
+                  <button
+                    key={lvl}
+                    type="button"
+                    onClick={() => setStatusFilter(`PENDING_L${lvl}`)}
+                    className={`px-3 py-1.5 text-xs rounded-lg transition-all border flex items-center gap-1 ${
+                      isSelected
+                        ? "bg-amber-500 text-white border-amber-500 shadow-sm font-bold"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-amber-50 hover:border-amber-300 font-medium"
+                    }`}
+                  >
+                    Level {lvl}
+                    {isUserLevel && !isSelected && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block ml-0.5" title="Assigned to you" />
+                    )}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setStatusFilter("APPROVED")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+                  statusFilter.toUpperCase() === "APPROVED" || statusFilter.toLowerCase() === "pending_execution"
+                    ? "bg-emerald-600 text-white border-emerald-600 shadow-sm font-bold"
+                    : "bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                }`}
+              >
+                Ready for DC Ops
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("EXECUTED")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+                  statusFilter.toUpperCase() === "EXECUTED" || statusFilter.toUpperCase() === "PROVISIONED"
+                    ? "bg-blue-600 text-white border-blue-600 shadow-sm font-bold"
+                    : "bg-white text-blue-700 border-blue-200 hover:bg-blue-50"
+                }`}
+              >
+                Executed
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="md:col-span-2 space-y-1.5">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Search Context</p>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Input 
+                    placeholder="Search system, requester, project..." 
+                    className="pl-9 h-11 bg-slate-50/50 border-slate-100 focus:bg-white transition-all shadow-sm"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
               </div>
-           </div>
 
-           <div className="space-y-1.5">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Work Status</p>
-              <select 
-                className="w-full h-11 px-3 py-2 rounded-md border border-slate-100 bg-slate-50/50 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">All Lifecycle States</option>
-                <option value="PENDING_L1">Pending L1</option>
-                <option value="PENDING_L2">Pending L2</option>
-                <option value="PENDING_L3">Pending L3</option>
-                <option value="APPROVED">Ready for Execution</option>
-                <option value="PROVISIONED">Provisioned</option>
-                <option value="REJECTED">Rejected</option>
-                <option value="CLOSED">Closed/Retired</option>
-              </select>
-           </div>
-           <div className="space-y-1.5">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Request Type</p>
-              <select 
-                className="w-full h-11 px-3 py-2 rounded-md border border-slate-100 bg-slate-50/50 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-              >
-                <option value="all">All Request Types</option>
-                <option value="NEW_VM">Infrastructure: New VM</option>
-                <option value="CUSTOMIZED">Infrastructure: Customization</option>
-                <option value="DECOMMISSION">Lifecycle: Decommission</option>
-              </select>
-           </div>
-        </div>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Work Status</p>
+                <select 
+                  className="w-full h-11 px-3 py-2 rounded-md border border-slate-100 bg-slate-50/50 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  {isSpecificApprover && (
+                    <option value={userActionableLevels.length === 1 ? `PENDING_L${userActionableLevels[0]}` : "MY_LEVELS"}>
+                      ★ My Level ({userActionableLevels.map(l => `L${l}`).join(", ")}) (Default)
+                    </option>
+                  )}
+                  <option value="all">All Requests</option>
+                  <option value="pending">All Pending Approvals</option>
+                  <option value="PENDING_L1">Level 1 (Pending L1)</option>
+                  <option value="PENDING_L2">Level 2 (Pending L2)</option>
+                  <option value="PENDING_L3">Level 3 (Pending L3)</option>
+                  <option value="PENDING_L4">Level 4 (Pending L4)</option>
+                  <option value="APPROVED">Ready for DC Ops Execution</option>
+                  <option value="PARTIAL">Partially Provisioned</option>
+                  <option value="PROVISIONED">Fully Provisioned</option>
+                  <option value="EXECUTED">All Executed (Provisioned/Closed)</option>
+                  <option value="REJECTED">Rejected</option>
+                  <option value="CLOSED">Closed/Retired</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Request Type</p>
+                <select 
+                  className="w-full h-11 px-3 py-2 rounded-md border border-slate-100 bg-slate-50/50 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                >
+                  <option value="all">All Request Types</option>
+                  <optgroup label="Infrastructure">
+                    <option value="NEW_VM">New VM</option>
+                    <option value="CLONE_VM">Clone VM</option>
+                    <option value="CUSTOMIZED">VM Customization</option>
+                    <option value="SYSTEM_UPGRADE">System Upgrade</option>
+                  </optgroup>
+                  <optgroup label="Containers">
+                    <option value="K8S_NAMESPACE">K8s Namespace</option>
+                  </optgroup>
+                  <optgroup label="Access">
+                    <option value="VPN_ACCESS">VPN Access</option>
+                    <option value="HORIZON_ACCESS">Horizon Access</option>
+                  </optgroup>
+                  <optgroup label="Lifecycle">
+                    <option value="RENEWAL">Renewal</option>
+                    <option value="DECOMMISSION">Decommission</option>
+                  </optgroup>
+                </select>
+              </div>
+            </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2 border-t border-slate-50">
-           <div className="flex items-center gap-4">
-              <div className="flex-1 space-y-1">
-                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Start Date</p>
-                 <div className="relative">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2 border-t border-slate-50">
+              <div className="flex items-center gap-4">
+                <div className="flex-1 space-y-1">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Start Date</p>
+                  <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
                     <Input 
                       type="date" 
@@ -555,11 +714,11 @@ export function ApproverDashboardClient({
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
                     />
-                 </div>
-              </div>
-              <div className="flex-1 space-y-1">
-                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">End Date</p>
-                 <div className="relative">
+                  </div>
+                </div>
+                <div className="flex-1 space-y-1">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">End Date</p>
+                  <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
                     <Input 
                       type="date" 
@@ -567,15 +726,36 @@ export function ApproverDashboardClient({
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
                     />
-                 </div>
+                  </div>
+                </div>
               </div>
-           </div>
-           
-           <div className="flex items-end md:col-span-2">
-              <p className="text-[11px] text-slate-400 italic">Showing {filteredRequests.length} results from {initialRequests.length} total assigned</p>
-           </div>
-        </div>
-      </div>
+              
+              <div className="flex items-end justify-between md:col-span-2">
+                <p className="text-[11px] text-slate-500 italic">
+                  Showing <strong className="text-slate-800">{filteredRequests.length}</strong> results from{" "}
+                  <strong className="text-slate-800">{initialRequests.length}</strong> total
+                  {statusFilter && statusFilter !== "all" && (
+                    <span className="ml-2 not-italic">
+                      (Filtered by: <span className="font-semibold text-indigo-600">
+                        {statusFilter === "MY_LEVELS" 
+                          ? `My Level (${userActionableLevels.map(l => `L${l}`).join(", ")})` 
+                          : statusFilter.replace(/_/g, " ")}
+                      </span>)
+                    </span>
+                  )}
+                </p>
+                {statusFilter && statusFilter !== "all" && (
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter("all")}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-800 underline ml-auto cursor-pointer"
+                  >
+                    Show All Requests
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
 
       {/* Requests Table */}
       <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">

@@ -285,7 +285,7 @@ export interface Request {
 }
 
 export interface RequestListItem extends Pick<Request, 
-  "id" | "systemName" | "projectName" | "status" | "environment" | "createdAt"> {
+  "id" | "systemName" | "projectName" | "status" | "environment" | "createdAt" | "requestType"> {
   requester: Pick<Requester, "name"> | null;
   vmCount: number;
 }

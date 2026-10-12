@@ -10,14 +10,13 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Search, Loader2, Plus, Zap, Trash2, Server, Clock, CheckCircle2, XCircle, FileText, ChevronRight, Code, Shield, Monitor } from "lucide-react";
+import { Search, Loader2, Plus, Zap, Trash2, Server, Clock, CheckCircle2, XCircle, FileText, ChevronRight, Code, Shield, Monitor, Copy, ArrowUpDown } from "lucide-react";
 import { Pagination } from "@/components/Pagination";
 import { detailsRequest } from "@/types/requests";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-
-type RequestType = "NEW_VM" | "CUSTOMIZED" | "DECOMMISSION" | "K8S_NAMESPACE" | "VPN_ACCESS" | "HORIZON_ACCESS";
+import { RequestType } from "@prisma/client";
 
 interface RequestStats {
   total: number;
@@ -179,6 +178,16 @@ export default function MyRequestsPage() {
       iconColor: "text-blue-600",
     },
     {
+      type: "CLONE_VM" as RequestType,
+      title: "Clone VM Requests",
+      description: "Request an identical clone of an existing virtual machine",
+      icon: Copy,
+      href: "/requests/new?type=CLONE_VM",
+      color: "bg-sky-50 border-sky-200 hover:border-sky-400",
+      iconBg: "bg-sky-100",
+      iconColor: "text-sky-600",
+    },
+    {
       type: "CUSTOMIZED" as RequestType,
       title: "Customization Requests",
       description: "Upgrade or modify existing VM specifications",
@@ -189,14 +198,14 @@ export default function MyRequestsPage() {
       iconColor: "text-amber-600",
     },
     {
-      type: "DECOMMISSION" as RequestType,
-      title: "Decommission Requests",
-      description: "Request removal of VMs from infrastructure",
-      icon: Trash2,
-      href: "/requests/decommission",
-      color: "bg-red-50 border-red-200 hover:border-red-400",
-      iconBg: "bg-red-100",
-      iconColor: "text-red-600",
+      type: "SYSTEM_UPGRADE" as RequestType,
+      title: "System Upgrade Requests",
+      description: "Request system and hardware upgrades for your instances",
+      icon: Zap,
+      href: "/requests/new?type=SYSTEM_UPGRADE",
+      color: "bg-violet-50 border-violet-200 hover:border-violet-400",
+      iconBg: "bg-violet-100",
+      iconColor: "text-violet-600",
     },
     {
       type: "K8S_NAMESPACE" as RequestType,
@@ -227,6 +236,26 @@ export default function MyRequestsPage() {
       color: "bg-purple-50 border-purple-200 hover:border-purple-400",
       iconBg: "bg-purple-100",
       iconColor: "text-purple-600",
+    },
+    {
+      type: "RENEWAL" as RequestType,
+      title: "Renewal Requests",
+      description: "Request extension or renewal for your existing instances",
+      icon: ArrowUpDown,
+      href: "/requests/new?type=RENEWAL",
+      color: "bg-teal-50 border-teal-200 hover:border-teal-400",
+      iconBg: "bg-teal-100",
+      iconColor: "text-teal-600",
+    },
+    {
+      type: "DECOMMISSION" as RequestType,
+      title: "Decommission Requests",
+      description: "Request removal of VMs from infrastructure",
+      icon: Trash2,
+      href: "/requests/decommission",
+      color: "bg-red-50 border-red-200 hover:border-red-400",
+      iconBg: "bg-red-100",
+      iconColor: "text-red-600",
     },
   ];
 
@@ -372,11 +401,14 @@ export default function MyRequestsPage() {
           >
             <card.icon className="h-4 w-4" />
             {card.type === "NEW_VM" ? "New VM" :
-              card.type === "CUSTOMIZED" ? "Customize" :
-                card.type === "DECOMMISSION" ? "Decommission" :
-                  card.type === "K8S_NAMESPACE" ? "K8s Namespace" :
-                    card.type === "VPN_ACCESS" ? "VPN Access" :
-                      card.type === "HORIZON_ACCESS" ? "Horizon Access" : card.type}
+              card.type === "CLONE_VM" ? "Clone VM" :
+                card.type === "CUSTOMIZED" ? "Customize" :
+                  card.type === "SYSTEM_UPGRADE" ? "System Upgrade" :
+                    card.type === "K8S_NAMESPACE" ? "K8s Namespace" :
+                      card.type === "VPN_ACCESS" ? "VPN Access" :
+                        card.type === "HORIZON_ACCESS" ? "Horizon Access" :
+                          card.type === "RENEWAL" ? "Renewal" :
+                            card.type === "DECOMMISSION" ? "Decommission" : card.type}
             <Badge variant="secondary" className="text-xs">{stats.byType[card.type] || 0}</Badge>
           </button>
         ))}
