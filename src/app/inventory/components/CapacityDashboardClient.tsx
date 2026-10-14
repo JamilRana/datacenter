@@ -1,6 +1,7 @@
 // "use client";
 
 import { Cpu, Database, HardDrive, LucideIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface CapacityMetrics {
   physical: { cpu: number; ram: number; storage: number; serverCount: number };
@@ -8,13 +9,19 @@ interface CapacityMetrics {
   available: { cpu: number; ram: number; storage: number };
 }
 
-export function CapacityDashboardClient({ metrics }: { metrics: CapacityMetrics }) {
+export function CapacityDashboardClient({ 
+  metrics, 
+  className 
+}: { 
+  metrics: CapacityMetrics; 
+  className?: string; 
+}) {
   const cpuPercent = metrics.physical.cpu > 0 ? Math.min(100, (metrics.allocated.cpu / metrics.physical.cpu) * 100) : 0;
   const ramPercent = metrics.physical.ram > 0 ? Math.min(100, (metrics.allocated.ram / metrics.physical.ram) * 100) : 0;
   const storagePercent = metrics.physical.storage > 0 ? Math.min(100, (metrics.allocated.storage / metrics.physical.storage) * 100) : 0;
 
   return (
-    <div className="space-y-12">
+    <div className={cn("space-y-6 md:space-y-7", className)}>
       <UsageRow 
         title="CPU Core Allocation" 
         current={metrics.allocated.cpu} 
@@ -46,7 +53,7 @@ export function CapacityDashboardClient({ metrics }: { metrics: CapacityMetrics 
       />
       
       {/* Visual Legend */}
-      <div className="flex items-center gap-6 pt-6 border-t border-slate-50 justify-end">
+      <div className="flex items-center gap-6 pt-4 border-t border-slate-100 justify-end">
          <div className="flex items-center gap-2">
             <div className="h-3 w-3 rounded-sm bg-slate-200" />
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Available Capacity</span>

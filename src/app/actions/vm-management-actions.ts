@@ -9,6 +9,14 @@ import { revalidatePath } from "next/cache";
 import { encrypt, decrypt, sendEmail } from "@/lib/admin/emailService";
 import { ROLES, hasRole } from "@/lib/roles";
 import { isAdmin } from "@/lib/utils";
+import {
+  normalizeSystemName,
+  formatSystemName,
+  resolveVmSystemName,
+  getDisplaySystemName,
+  systemNameFilter
+} from "@/lib/system-utils";
+import type { SystemFleetOverview, SystemFleetVmItem } from "@/types/requests";
 
 export interface UserVmStats {
   totalActive: number;
@@ -126,33 +134,38 @@ export async function getSystemSummary(): Promise<SystemSummary[]> {
   if (!session?.user?.id) throw new Error("Unauthorized");
 
   const userId = session.user.id;
+  const isSuperUser = hasRole(session.user.roles, ROLES.ADMIN) || hasRole(session.user.roles, ROLES.DCOPS);
 
   const vms = await prisma.vmInstance.findMany({
-    where: { ownerId: userId },
-    include: {
+    where: isSuperUser ? {} : { ownerId: userId },
+    select: {
+      id: true,
+      systemName: true,
+      environment: true,
       request: { select: { systemName: true, environment: true } },
-      currentSpec: false
-    }
+    },
   });
 
-  const systemMap = new Map<string, { count: number; envs: Record<string, number> }>();
+  const systemMap = new Map<string, { displayName: string; count: number; envs: Record<string, number> }>();
 
   for (const vm of vms) {
-    const systemName = vm.request?.systemName || "Unknown System";
-    
-    if (!systemMap.has(systemName)) {
-      systemMap.set(systemName, { count: 0, envs: {} });
+    const raw = resolveVmSystemName(vm);
+    const normalized = normalizeSystemName(raw) || "__unassigned__";
+    const displayName = raw ? formatSystemName(raw) : "Standalone / Unassigned";
+
+    if (!systemMap.has(normalized)) {
+      systemMap.set(normalized, { displayName, count: 0, envs: {} });
     }
-    
-    const entry = systemMap.get(systemName)!;
+
+    const entry = systemMap.get(normalized)!;
     entry.count += 1;
-    
+
     const env = vm.environment || "UNKNOWN";
     entry.envs[env] = (entry.envs[env] || 0) + 1;
   }
 
-  return Array.from(systemMap.entries()).map(([systemName, data]: any) => ({
-    systemName,
+  return Array.from(systemMap.values()).map((data) => ({
+    systemName: data.displayName,
     totalVms: data.count,
     environments: data.envs,
   }));
@@ -195,7 +208,6 @@ export async function getUserVms(
   const where: Prisma.VmInstanceWhereInput = { ownerId: userId };
 
   if (filters.environment && filters.environment !== "ALL") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     where.environment = filters.environment as any;
   }
 
@@ -211,7 +223,14 @@ export async function getUserVms(
   }
 
   if (filters.systemName && filters.systemName !== "ALL") {
-    where.request = { systemName: { contains: filters.systemName, mode: "insensitive" } };
+    if (filters.systemName === "Standalone / Unassigned") {
+      where.AND = [
+        { systemName: null },
+        { request: { is: null } },
+      ];
+    } else {
+      Object.assign(where, systemNameFilter(filters.systemName));
+    }
   }
 
   const [vms, total] = await Promise.all([
@@ -241,7 +260,7 @@ export async function getUserVms(
     vcpu: vm.currentSpec?.vcpu ?? null,
     ramGb: vm.currentSpec?.ramGb ?? null,
     storageGb: vm.currentSpec?.storageGb ?? null,
-    systemName: vm.request?.systemName ?? null,
+    systemName: getDisplaySystemName(vm),
     requestEnvironment: vm.request?.environment ?? null,
   }));
 
@@ -383,13 +402,13 @@ export async function getVmDetails(vmId: string): Promise<VmDetailsData | null> 
   };
 }
 
-export async function updateVmSystemName(vmId: string, newName: string) {
+export async function reassignVmSystem(vmId: string, targetSystemName: string) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) throw new Error("Unauthorized");
 
     const userId = session.user.id;
-    const isAdmin = hasRole(session.user.roles, ROLES.ADMIN);
+    const isAdminUser = hasRole(session.user.roles, ROLES.ADMIN);
 
     const vm = await prisma.vmInstance.findUnique({
       where: { id: vmId },
@@ -397,25 +416,40 @@ export async function updateVmSystemName(vmId: string, newName: string) {
 
     if (!vm) throw new Error("VM not found");
 
-    if (!isAdmin && vm.ownerId !== userId) {
-      throw new Error("You do not have permission to rename this VM");
+    if (!isAdminUser && vm.ownerId !== userId) {
+      throw new Error("You do not have permission to reassign this VM");
+    }
+
+    const cleanName = formatSystemName(targetSystemName);
+
+    // If user is not admin, verify they already own VMs in this system OR it's a new system
+    if (!isAdminUser && cleanName) {
+      const existingSystemVms = await prisma.vmInstance.findMany({
+        where: systemNameFilter(cleanName),
+        select: { ownerId: true },
+        take: 5,
+      });
+      const belongsToOthers = existingSystemVms.length > 0 && existingSystemVms.every((v) => v.ownerId !== userId);
+      if (belongsToOthers) {
+        throw new Error("Cannot reassign VM to a system owned by another user or team");
+      }
     }
 
     const updated = await prisma.$transaction(async (tx: any) => {
       const res = await tx.vmInstance.update({
         where: { id: vmId },
-        data: { systemName: newName },
+        data: { systemName: cleanName || null },
       });
 
       await tx.auditLog.create({
         data: {
           actorId: userId,
-          action: "RENAME_VM",
+          action: "REASSIGN_VM_SYSTEM",
           entityType: "VM",
           entityId: vmId,
           details: JSON.stringify({
             oldName: vm.systemName,
-            newName,
+            newName: cleanName,
           }),
         },
       });
@@ -425,11 +459,239 @@ export async function updateVmSystemName(vmId: string, newName: string) {
 
     revalidatePath(`/inventory/vms`);
     revalidatePath(`/inventory/vms/${vmId}`);
+    revalidatePath(`/my-vms`);
     return { success: true, data: updated };
   } catch (error) {
-    console.error("Error renaming VM:", error);
+    console.error("Error reassigning VM system:", error);
     throw error;
   }
+}
+
+export async function renameEntireSystem(oldSystemName: string, newSystemName: string) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) throw new Error("Unauthorized");
+
+    const userId = session.user.id;
+    const isAdminUser = hasRole(session.user.roles, ROLES.ADMIN);
+
+    const cleanOld = formatSystemName(oldSystemName);
+    const cleanNew = formatSystemName(newSystemName);
+    if (!cleanOld || !cleanNew) throw new Error("Both old and new system names are required");
+
+    const vmsInSystem = await prisma.vmInstance.findMany({
+      where: systemNameFilter(cleanOld),
+      select: { id: true, ownerId: true },
+    });
+
+    if (vmsInSystem.length === 0) throw new Error("No VMs found in this system");
+
+    if (!isAdminUser) {
+      const hasOtherOwners = vmsInSystem.some((v) => v.ownerId !== userId);
+      if (hasOtherOwners) {
+        throw new Error("Only an administrator can rename a shared or multi-owner system");
+      }
+    }
+
+    await prisma.$transaction(async (tx: any) => {
+      await tx.vmInstance.updateMany({
+        where: systemNameFilter(cleanOld),
+        data: { systemName: cleanNew },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: userId,
+          action: "RENAME_ENTIRE_SYSTEM",
+          entityType: "SYSTEM",
+          entityId: cleanOld,
+          details: JSON.stringify({
+            oldName: cleanOld,
+            newName: cleanNew,
+            affectedVmCount: vmsInSystem.length,
+          }),
+        },
+      });
+    });
+
+    revalidatePath(`/inventory/vms`);
+    revalidatePath(`/my-vms`);
+    return { success: true, affectedCount: vmsInSystem.length };
+  } catch (error) {
+    console.error("Error renaming system:", error);
+    throw error;
+  }
+}
+
+export async function getUserExistingSystems(options?: {
+  userId?: string;
+  userOnly?: boolean;
+}): Promise<{
+  systemName: string;
+  activeVmCount: number;
+  vcpu: number;
+  ramGb: number;
+  storageGb: number;
+  hostnames: string[];
+}[]> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const targetUserId = options?.userId?.trim() || session.user.id;
+  // If userOnly is requested, strictly filter by that specific user, regardless of roles
+  const isSuperUser = (hasRole(session.user.roles, ROLES.ADMIN) || hasRole(session.user.roles, ROLES.DCOPS)) && !options?.userOnly;
+
+  const vms = await prisma.vmInstance.findMany({
+    where: {
+      ...(isSuperUser ? {} : { ownerId: targetUserId }),
+      status: "ACTIVE",
+    },
+    include: {
+      currentSpec: true,
+      request: { select: { systemName: true } },
+    },
+  });
+
+  const systemsMap = new Map<string, {
+    systemName: string;
+    activeVmCount: number;
+    vcpu: number;
+    ramGb: number;
+    storageGb: number;
+    hostnames: string[];
+  }>();
+
+  for (const vm of vms) {
+    const raw = resolveVmSystemName(vm);
+    if (!raw) continue;
+    const normalized = normalizeSystemName(raw);
+    const displayName = formatSystemName(raw);
+
+    if (!systemsMap.has(normalized)) {
+      systemsMap.set(normalized, {
+        systemName: displayName,
+        activeVmCount: 0,
+        vcpu: 0,
+        ramGb: 0,
+        storageGb: 0,
+        hostnames: [],
+      });
+    }
+
+    const entry = systemsMap.get(normalized)!;
+    entry.activeVmCount += 1;
+    entry.vcpu += vm.currentSpec?.vcpu || 0;
+    entry.ramGb += vm.currentSpec?.ramGb || 0;
+    entry.storageGb += vm.currentSpec?.storageGb || 0;
+    if (vm.hostname && entry.hostnames.length < 5) {
+      entry.hostnames.push(vm.hostname);
+    }
+  }
+
+  // Also include systems previously requested by this user
+  if (!isSuperUser || options?.userOnly) {
+    const userRequests = await prisma.request.findMany({
+      where: {
+        requesterId: targetUserId,
+        status: { not: "REJECTED" },
+      },
+      select: {
+        systemName: true,
+      },
+    });
+
+    for (const req of userRequests) {
+      if (!req.systemName || !req.systemName.trim()) continue;
+      const normalized = normalizeSystemName(req.systemName);
+      const displayName = formatSystemName(req.systemName);
+
+      if (!systemsMap.has(normalized)) {
+        systemsMap.set(normalized, {
+          systemName: displayName,
+          activeVmCount: 0,
+          vcpu: 0,
+          ramGb: 0,
+          storageGb: 0,
+          hostnames: [],
+        });
+      }
+    }
+  }
+
+  return Array.from(systemsMap.values()).sort((a, b) => b.activeVmCount - a.activeVmCount || a.systemName.localeCompare(b.systemName));
+}
+
+export async function getSystemFleetForRequest(
+  systemName: string,
+  currentRequestId?: string
+): Promise<SystemFleetOverview | null> {
+  if (!systemName || !systemName.trim()) return null;
+
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const cleanSystem = formatSystemName(systemName);
+
+  const vms = await prisma.vmInstance.findMany({
+    where: systemNameFilter(cleanSystem),
+    include: {
+      currentSpec: true,
+      owner: { select: { id: true, name: true, email: true } },
+      request: { select: { id: true, requestId: true, environment: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  let totalVcpu = 0;
+  let totalRamGb = 0;
+  let totalStorageGb = 0;
+  let activeVms = 0;
+
+  const fleetVms: SystemFleetVmItem[] = vms.map((vm: any) => {
+    const isActive = vm.status === "ACTIVE";
+    if (isActive) {
+      activeVms += 1;
+      totalVcpu += vm.currentSpec?.vcpu || 0;
+      totalRamGb += vm.currentSpec?.ramGb || 0;
+      totalStorageGb += vm.currentSpec?.storageGb || 0;
+    }
+
+    const reqNum = vm.request?.requestId
+      ? `REQ-${vm.request.requestId.slice(0, 8)}`
+      : vm.requestId
+      ? `REQ-${vm.requestId.slice(0, 8)}`
+      : null;
+
+    return {
+      id: vm.id,
+      hostname: vm.hostname,
+      ipAddress: vm.ipAddress,
+      status: vm.status,
+      environment: vm.environment || vm.request?.environment || "PRODUCTION",
+      vcpu: vm.currentSpec?.vcpu ?? null,
+      ramGb: vm.currentSpec?.ramGb ?? null,
+      storageGb: vm.currentSpec?.storageGb ?? null,
+      isCurrentRequest: !!currentRequestId && vm.requestId === currentRequestId,
+      requestId: vm.requestId,
+      requestNumber: reqNum,
+      ownerName: vm.owner?.name ?? null,
+    };
+  });
+
+  return {
+    systemName: cleanSystem,
+    totalVms: vms.length,
+    activeVms,
+    totalVcpu,
+    totalRamGb,
+    totalStorageGb,
+    vms: fleetVms,
+  };
+}
+
+// Backward compatibility alias
+export async function updateVmSystemName(vmId: string, newName: string) {
+  return reassignVmSystem(vmId, newName);
 }
 
 export async function getVmCredentials(vmId: string) {
@@ -651,5 +913,103 @@ export async function transferOwnership(vmId: string, newOwnerId: string | null)
   revalidatePath("/requests");
 
   return { success: true, vm: updatedVm };
+}
+
+export interface SystemFleetSummaryRow {
+  systemName: string;
+  isStandalone: boolean;
+  owners: { id?: string; name: string; email: string }[];
+  activeVmCount: number;
+  suspendedVmCount: number;
+  retiredVmCount: number;
+  totalVmCount: number;
+  totalVcpu: number;
+  totalRamGb: number;
+  totalStorageGb: number;
+  environments: string[];
+  hostnames: string[];
+}
+
+/**
+ * Aggregates all VMs into System Fleets with owners, statuses, and resource footprints.
+ */
+export async function getSystemFleetSummaries(): Promise<SystemFleetSummaryRow[]> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const isMgmt = isAdmin(session.user.roles);
+
+  const vms = await prisma.vmInstance.findMany({
+    where: isMgmt ? {} : { ownerId: session.user.id },
+    include: {
+      currentSpec: true,
+      owner: { select: { id: true, name: true, email: true } },
+      request: { select: { systemName: true, environment: true } },
+    },
+  });
+
+  const map = new Map<string, SystemFleetSummaryRow>();
+
+  for (const vm of vms) {
+    const raw = resolveVmSystemName(vm);
+    const isStandalone = !raw || !raw.trim();
+    const key = isStandalone ? "__STANDALONE__" : normalizeSystemName(raw);
+    const displayName = isStandalone ? "Standalone / Unassigned" : formatSystemName(raw);
+
+    if (!map.has(key)) {
+      map.set(key, {
+        systemName: displayName,
+        isStandalone,
+        owners: [],
+        activeVmCount: 0,
+        suspendedVmCount: 0,
+        retiredVmCount: 0,
+        totalVmCount: 0,
+        totalVcpu: 0,
+        totalRamGb: 0,
+        totalStorageGb: 0,
+        environments: [],
+        hostnames: [],
+      });
+    }
+
+    const entry = map.get(key)!;
+    entry.totalVmCount += 1;
+
+    if (vm.status === "ACTIVE") {
+      entry.activeVmCount += 1;
+      entry.totalVcpu += vm.currentSpec?.vcpu || 0;
+      entry.totalRamGb += vm.currentSpec?.ramGb || 0;
+      entry.totalStorageGb += vm.currentSpec?.storageGb || 0;
+    } else if (vm.status === "SUSPENDED") {
+      entry.suspendedVmCount += 1;
+    } else if (vm.status === "RETIRED") {
+      entry.retiredVmCount += 1;
+    }
+
+    if (vm.hostname && !entry.hostnames.includes(vm.hostname)) {
+      entry.hostnames.push(vm.hostname);
+    }
+
+    const env = vm.environment || vm.request?.environment;
+    if (env && !entry.environments.includes(String(env))) {
+      entry.environments.push(String(env));
+    }
+
+    if (vm.owner && !entry.owners.some(o => o.email === vm.owner!.email)) {
+      entry.owners.push({
+        id: vm.owner.id,
+        name: vm.owner.name || vm.owner.email,
+        email: vm.owner.email,
+      });
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.isStandalone && !b.isStandalone) return 1;
+    if (!a.isStandalone && b.isStandalone) return -1;
+    if (b.activeVmCount !== a.activeVmCount) return b.activeVmCount - a.activeVmCount;
+    return a.systemName.localeCompare(b.systemName);
+  });
 }
 

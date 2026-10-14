@@ -99,19 +99,25 @@ export function ManualVmModal({ actorId }: { actorId: string }) {
             </h4>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="hostname">Hostname</Label>
-                <Input id="hostname" name="hostname" placeholder="vm-prod-web-01" required />
+                <Label htmlFor="systemName">System / Project Name</Label>
+                <Input id="systemName" name="systemName" placeholder="e.g. Core Banking Platform" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="subdomain">Subdomain</Label>
-                <Input id="subdomain" name="subdomain" placeholder="example.com" />
+                <Label htmlFor="hostname">Hostname</Label>
+                <Input id="hostname" name="hostname" placeholder="vm-prod-web-01" required />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
+                <Label htmlFor="subdomain">Subdomain</Label>
+                <Input id="subdomain" name="subdomain" placeholder="example.com" />
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="ipAddress">IP Address</Label>
                 <Input id="ipAddress" name="ipAddress" placeholder="10.0.0.x" />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="status">Initial Status</Label>
                 <Select name="status" defaultValue={VmStatus.ACTIVE}>

@@ -4,11 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { 
   Cpu, Database, HardDrive, User, History, ShieldAlert, 
-  Server, Zap, Trash2, Activity, Calendar, Monitor, Loader2, Edit
+  Server, Zap, Trash2, Activity, Calendar, Monitor, Loader2, Edit, Layers
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { updateVmSystemName } from "@/app/actions/vm-management-actions";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEffect, useState } from "react";
@@ -23,7 +22,9 @@ import DecommissionModal from "@/components/vms/DecommissionModal";
 import VmCredentialsCard from "../components/VmCredentialsCard";
 import ComplianceTagsCard from "@/components/vms/ComplianceTagsCard";
 import { EditVmModal } from "@/app/inventory/components/EditVmModal";
+import { AssignSystemModal } from "@/app/inventory/components/AssignSystemModal";
 import { isAdmin } from "@/lib/utils";
+import { getDisplaySystemName } from "@/lib/system-utils";
 
 export default function VmDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params);
@@ -37,16 +38,8 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
   const [hasPendingCustomization, setHasPendingCustomization] = useState(false);
   const router = useRouter();
 
-  // VM Rename state
-  const [isEditingSystemName, setIsEditingSystemName] = useState(false);
-  const [newSystemName, setNewSystemName] = useState("");
-  const [isSavingSystemName, setIsSavingSystemName] = useState(false);
-
-  useEffect(() => {
-    if (vm) {
-      setNewSystemName(vm.systemName || "");
-    }
-  }, [vm]);
+  // Assign / Rename System state
+  const [isAssignSystemModalOpen, setIsAssignSystemModalOpen] = useState(false);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -78,22 +71,7 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
     }
   }, [id, session, isAuthorized, isCustomizeModalOpen, isDecommissionModalOpen]);
 
-  const handleRename = async () => {
-    if (!newSystemName.trim() || !vm) return;
-    try {
-      setIsSavingSystemName(true);
-      const res = await updateVmSystemName(vm.id, newSystemName);
-      if (res.success) {
-        toast.success("VM renamed successfully!");
-        setVm({ ...vm, systemName: newSystemName });
-        setIsEditingSystemName(false);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to rename VM");
-    } finally {
-      setIsSavingSystemName(false);
-    }
-  };
+
 
   if (isLoading) return <div className="p-10 text-center">Loading VM details...</div>;
   if (!vm) return notFound();
@@ -246,51 +224,23 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
             <CardContent className="pt-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">System Name</p>
-                  {isEditingSystemName ? (
-                    <div className="flex gap-2 items-center">
-                      <Input
-                        value={newSystemName}
-                        onChange={(e) => setNewSystemName(e.target.value)}
-                        className="h-8 text-xs font-semibold max-w-[200px]"
-                        disabled={isSavingSystemName}
-                      />
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">System / Project</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-800">
+                      {getDisplaySystemName(vm)}
+                    </span>
+                    {canRename && (
                       <Button
+                        variant="ghost"
                         size="sm"
-                        className="h-8 px-2 bg-indigo-600 hover:bg-indigo-700 text-white"
-                        onClick={handleRename}
-                        disabled={isSavingSystemName}
+                        onClick={() => setIsAssignSystemModalOpen(true)}
+                        className="h-6 px-2 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 font-semibold gap-1"
                       >
-                        {isSavingSystemName ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+                        <Layers className="h-3 w-3" />
+                        Manage System
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 px-2"
-                        onClick={() => {
-                          setIsEditingSystemName(false);
-                          setNewSystemName(vm.systemName || "");
-                        }}
-                        disabled={isSavingSystemName}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-800">
-                        {vm.systemName || "None"}
-                      </span>
-                      {canRename && (
-                        <button
-                          onClick={() => setIsEditingSystemName(true)}
-                          className="text-xs text-indigo-600 hover:underline font-medium"
-                        >
-                          (Edit)
-                        </button>
-                      )}
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
                 <DetailItem 
                   label="Operating System" 
@@ -506,6 +456,18 @@ export default function VmDetailPage({ params }: { params: Promise<{ id: string 
         onSuccess={() => {
           router.refresh();
           toast.success("Decommission request created. Awaiting approval.");
+        }}
+      />
+
+      <AssignSystemModal
+        open={isAssignSystemModalOpen}
+        onOpenChange={setIsAssignSystemModalOpen}
+        vmId={vm.id}
+        currentSystemName={vm.systemName}
+        isAdmin={isManagement}
+        onSuccess={(newSystemName) => {
+          setVm(prev => prev ? { ...prev, systemName: newSystemName || null } : null);
+          router.refresh();
         }}
       />
     </div>

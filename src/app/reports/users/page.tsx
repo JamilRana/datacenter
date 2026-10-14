@@ -5,7 +5,23 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { fetchUserReport } from "@/app/actions/report-actions";
-import { Download, Filter, Search, Users, User, FileCheck, Server, Clock, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
+import { 
+  Download, 
+  Search, 
+  Users, 
+  Server, 
+  FileCheck, 
+  Box, 
+  FolderKanban, 
+  Cpu, 
+  HardDrive, 
+  Database, 
+  FileSpreadsheet, 
+  FileText, 
+  Loader2,
+  Eye,
+  X
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,45 +39,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { StatCard } from "@/components/analytics/StatCard";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
-
-interface UserReportRow {
-  id: string;
-  name: string;
-  email: string;
-  organization: string | null;
-  roles: string[];
-  vmCount: number;
-  requestCount: number;
-  pendingApprovals: number;
-  lastActive: Date | null;
-  createdAt: Date;
-}
-
-interface UserReportAnalytics {
-  totalUsers: number;
-  byRole: { role: string; count: number }[];
-  byDepartment: { department: string; count: number }[];
-  topRequesters: { userId: string; name: string; count: number }[];
-  activeUsers: number;
-  inactiveUsers: number;
-}
-
-interface UserReportResult {
-  data: UserReportRow[];
-  analytics: UserReportAnalytics;
-  total: number;
-  page: number;
-  totalPages: number;
-}
+import { UserResourceDetailModal } from "@/app/reports/components/UserResourceDetailModal";
+import type { UserReportResult } from "@/lib/reports/userReport";
+import { ReportEmptyState, ReportErrorState } from "@/app/reports/components/ReportSkeletons";
+import { autoScaleRam, autoScaleStorage } from "@/lib/format-utils";
 
 const roleColors: Record<string, string> = {
-  ADMIN: "bg-red-100 text-red-800",
-  DC_OPS: "bg-purple-100 text-purple-800",
-  APPROVER_L1: "bg-yellow-100 text-yellow-800",
-  APPROVER_L2: "bg-yellow-100 text-yellow-800",
-  APPROVER_L3: "bg-yellow-100 text-yellow-800",
-  APPROVER_L4: "bg-yellow-100 text-yellow-800",
-  REQUESTER: "bg-blue-100 text-blue-800",
+  ADMIN: "bg-red-50 text-red-700 border-red-200",
+  DC_OPS: "bg-purple-50 text-purple-700 border-purple-200",
+  APPROVER_L1: "bg-amber-50 text-amber-700 border-amber-200",
+  APPROVER_L2: "bg-amber-50 text-amber-700 border-amber-200",
+  APPROVER_L3: "bg-amber-50 text-amber-700 border-amber-200",
+  APPROVER_L4: "bg-amber-50 text-amber-700 border-amber-200",
+  REQUESTER: "bg-blue-50 text-blue-700 border-blue-200",
 };
 
 export default function UserReportPage() {
@@ -72,6 +62,11 @@ export default function UserReportPage() {
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
+  
+  // Selected user for detailed drilldown modal
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
   const [filters, setFilters] = useState({
     search: "",
     role: "all",
@@ -99,7 +94,7 @@ export default function UserReportPage() {
 
         const result = await fetchUserReport(params);
         
-        if (result.data.length === 0 && result.total === 0) {
+        if (result.data.length === 0 && result.total === 0 && !filters.search && filters.role === "all") {
           setAccessDenied(true);
         } else {
           setReportData(result);
@@ -123,6 +118,11 @@ export default function UserReportPage() {
     setFilters(prev => ({ ...prev, page: newPage }));
   };
 
+  const handleInspectUser = (userId: string) => {
+    setSelectedUserId(userId);
+    setIsDetailModalOpen(true);
+  };
+
   const getFullExportData = async () => {
     const params: Record<string, unknown> = {
       getAll: true,
@@ -137,24 +137,31 @@ export default function UserReportPage() {
       Email: user.email,
       Department: user.organization || "N/A",
       Roles: user.roles.join(", "),
-      VMs_Owned: user.vmCount,
-      Requests: user.requestCount,
+      Systems_Owned_Count: user.systemsCount,
+      Systems_List: user.systems.join("; "),
+      Active_VMs: user.activeVmCount,
+      Total_VMs: user.vmCount,
+      Namespaces_Owned: user.namespaceCount,
+      Total_Requests: user.requestCount,
+      Allocated_vCPU: user.totalVcpu,
+      Allocated_RAM_GB: user.totalRamGb,
+      Allocated_Storage_GB: user.totalStorageGb,
       Pending_Approvals: user.pendingApprovals,
       Last_Active: user.lastActive ? new Date(user.lastActive).toLocaleDateString() : "Never",
-      Created: new Date(user.createdAt).toLocaleDateString(),
+      Created_Date: new Date(user.createdAt).toLocaleDateString(),
     }));
   };
 
   const handleExportCsv = async () => {
     try {
       setIsExporting(true);
-      toast.info("Preparing CSV export for all matching users...");
+      toast.info("Preparing comprehensive resource ownership CSV export...");
       const exportData = await getFullExportData();
-      exportToCsv(`user-report-${new Date().toISOString().split("T")[0]}.csv`, exportData);
-      toast.success(`Exported ${exportData.length} users successfully.`);
+      exportToCsv(`user-resource-ownership-report-${new Date().toISOString().split("T")[0]}.csv`, exportData);
+      toast.success(`Exported ${exportData.length} users with complete resource metrics.`);
     } catch (err) {
       console.error("Export error:", err);
-      toast.error("Failed to export user report");
+      toast.error("Failed to export user resource report");
     } finally {
       setIsExporting(false);
     }
@@ -163,13 +170,13 @@ export default function UserReportPage() {
   const handleExportExcel = async () => {
     try {
       setIsExporting(true);
-      toast.info("Preparing Excel export for all matching users...");
+      toast.info("Preparing comprehensive resource ownership Excel export...");
       const exportData = await getFullExportData();
-      exportToExcel(`user-report-${new Date().toISOString().split("T")[0]}.xls`, exportData);
-      toast.success(`Exported ${exportData.length} users successfully.`);
+      exportToExcel(`user-resource-ownership-report-${new Date().toISOString().split("T")[0]}.xls`, exportData);
+      toast.success(`Exported ${exportData.length} users with complete resource metrics.`);
     } catch (err) {
       console.error("Export error:", err);
-      toast.error("Failed to export user report");
+      toast.error("Failed to export user resource report");
     } finally {
       setIsExporting(false);
     }
@@ -178,18 +185,29 @@ export default function UserReportPage() {
   const handleExportPdf = async () => {
     try {
       setIsExporting(true);
-      toast.info("Preparing PDF export for all matching users...");
+      toast.info("Preparing comprehensive resource ownership PDF/HTML export...");
       const exportData = await getFullExportData();
       exportToPdf(
-        `user-report-${new Date().toISOString().split("T")[0]}.html`,
-        "User Report",
-        ["Name", "Email", "Department", "Roles", "VMs", "Requests", "Pending", "Last Active", "Created"],
+        `user-resource-ownership-report-${new Date().toISOString().split("T")[0]}`,
+        "User Resource & System Ownership Report",
+        [
+          "Name", 
+          "Email", 
+          "Department", 
+          "Systems Count",
+          "Systems List", 
+          "VMs (Act/Tot)", 
+          "Namespaces", 
+          "Requests", 
+          "vCPU", 
+          "RAM (GB)", 
+          "Storage (GB)"
+        ],
         exportData
       );
-      toast.success(`Exported ${exportData.length} users successfully.`);
     } catch (err) {
       console.error("Export error:", err);
-      toast.error("Failed to export user report");
+      toast.error("Failed to export user resource report");
     } finally {
       setIsExporting(false);
     }
@@ -213,15 +231,15 @@ export default function UserReportPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">User Report</h1>
-          <p className="text-slate-500 mt-1">User activity and role report</p>
+          <h1 className="text-2xl font-bold text-slate-900">User Resource & Ownership Report</h1>
+          <p className="text-slate-500 mt-1">Audit of systems, VMs, namespaces, requests, and resource footprints by user</p>
         </div>
         <Card>
           <CardContent className="py-12 text-center">
             <Users className="h-12 w-12 text-slate-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-slate-900 mb-2">Access Restricted</h3>
             <p className="text-slate-500">
-              You need ADMIN or DC_OPS role to view user reports.
+              You need ADMIN or DC_OPS role to view user resource reports.
             </p>
           </CardContent>
         </Card>
@@ -236,8 +254,10 @@ export default function UserReportPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">User Report</h1>
-          <p className="text-slate-500 mt-1">User activity, roles, and resource ownership report</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">User Resource & System Ownership Report</h1>
+          <p className="text-slate-500 mt-1">
+            Comprehensive audit of which users own which systems, VMs, Kubernetes namespaces, and compute allocations.
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" disabled={isExporting} onClick={handleExportCsv} className="gap-2">
@@ -252,197 +272,294 @@ export default function UserReportPage() {
         </div>
       </div>
 
-      {/* Analytics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Resource Ownership Stats Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         <StatCard
-          title="Total Users"
+          title="Users"
           value={reportData.analytics.totalUsers}
           icon={Users}
           description="Registered users"
+          periodType="Current"
+          tooltip="Distinct user accounts in scope."
         />
         <StatCard
-          title="Active Users"
-          value={reportData.analytics.activeUsers}
-          icon={User}
-          description="Last 30 days"
+          title="Systems"
+          value={reportData.analytics.totalSystemsMonitored}
+          icon={FolderKanban}
+          description="Unique systems"
+          periodType="Current"
+          tooltip="Distinct application systems mapped across VMs and namespaces."
         />
         <StatCard
-          title="Total VMs Owned"
-          value={reportData.data.reduce((sum, u) => sum + u.vmCount, 0)}
+          title="VMs Owned"
+          value={reportData.analytics.totalVmsOwned}
           icon={Server}
-          description="Across all users"
+          description={`${reportData.analytics.totalActiveVms} active nodes`}
+          periodType="Current"
+          tooltip="Total virtual machines belonging to users in scope."
         />
         <StatCard
-          title="Total Requests"
-          value={reportData.data.reduce((sum, u) => sum + u.requestCount, 0)}
-          icon={FileCheck}
-          description="Across all users"
+          title="Namespaces"
+          value={reportData.analytics.totalNamespacesManaged}
+          icon={Box}
+          description="K8s clusters"
+          periodType="Current"
+          tooltip="Total Kubernetes namespaces mapped to users in scope."
+        />
+        <StatCard
+          title="Total vCPU"
+          value={reportData.analytics.totalVcpuAllocated}
+          icon={Cpu}
+          description="Allocated cores"
+          periodType="Current"
+          tooltip="Sum of effective vCPU cores allocated over Active VMs as of now."
+        />
+        <StatCard
+          title="Total RAM"
+          value={autoScaleRam(reportData.analytics.totalRamAllocatedGb)}
+          icon={HardDrive}
+          description="Memory footprint"
+          periodType="Current"
+          tooltip="Sum of effective RAM allocated over Active VMs as of now."
+        />
+        <StatCard
+          title="Total Storage"
+          value={autoScaleStorage(reportData.analytics.totalStorageAllocatedGb)}
+          icon={Database}
+          description="Disk capacity"
+          periodType="Current"
+          tooltip="Sum of effective storage disk capacity allocated over Active VMs as of now."
         />
       </div>
 
-      {/* Charts */}
+      {/* Analytics Charts: Top Resource Consumers & System Owners */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Users by Role</CardTitle>
+        <Card className="border-slate-200">
+          <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50">
+            <div className="flex items-center gap-2">
+              <Cpu className="h-4 w-4 text-indigo-600" />
+              <CardTitle className="text-sm font-bold text-slate-800">
+                Top Resource Consumers (Allocated vCPU Cores)
+              </CardTitle>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-4">
             <InventoryChart
               title=""
               type="bar"
-              data={reportData.analytics.byRole.map(d => ({ name: d.role, value: d.count }))}
+              data={reportData.analytics.topResourceOwners.map(d => ({ 
+                name: d.name, 
+                value: d.vcpu 
+              }))}
             />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Users by Department</CardTitle>
+
+        <Card className="border-slate-200">
+          <CardHeader className="pb-3 border-b border-slate-100 bg-slate-50/50">
+            <div className="flex items-center gap-2">
+              <Server className="h-4 w-4 text-blue-600" />
+              <CardTitle className="text-sm font-bold text-slate-800">
+                Top Virtual Machine & System Owners (VM Count)
+              </CardTitle>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-4">
             <InventoryChart
               title=""
-              type="pie"
-              data={reportData.analytics.byDepartment.map(d => ({ name: d.department, value: d.count }))}
+              type="bar"
+              data={reportData.analytics.topVmOwners.map(d => ({ 
+                name: d.name, 
+                value: d.vmCount 
+              }))}
             />
           </CardContent>
         </Card>
       </div>
 
-      {/* Top Requesters */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Top Requesters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <InventoryChart
-            title=""
-            type="bar"
-            data={reportData.analytics.topRequesters.slice(0, 10).map(d => ({ name: d.name, value: d.count }))}
-          />
-        </CardContent>
-      </Card>
-
-      {/* Filters */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4" />
-            <CardTitle className="text-base">Filters</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="relative">
+      {/* Filter Bar */}
+      <Card className="border-slate-200 shadow-xs">
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
-                placeholder="Search name or email..."
+                placeholder="Search by name, email, department, or system (e.g. Kazi Fabliha Tasnim, HMIS)..."
                 value={filters.search}
                 onChange={(e) => handleFilterChange("search", e.target.value)}
-                className="pl-9"
+                className="pl-9 bg-white"
               />
+              {filters.search && (
+                <button
+                  type="button"
+                  onClick={() => handleFilterChange("search", "")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
-            <Select value={filters.role} onValueChange={(v) => handleFilterChange("role", v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Role" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="ADMIN">Admin</SelectItem>
-                <SelectItem value="DC_OPS">DC Ops</SelectItem>
-                <SelectItem value="APPROVER_L1">Approver L1</SelectItem>
-                <SelectItem value="APPROVER_L2">Approver L2</SelectItem>
-                <SelectItem value="APPROVER_L3">Approver L3</SelectItem>
-                <SelectItem value="APPROVER_L4">Approver L4</SelectItem>
-                <SelectItem value="REQUESTER">Requester</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={filters.department} onValueChange={(v) => handleFilterChange("department", v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Department" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Departments</SelectItem>
-                {reportData.analytics.byDepartment.map((dept) => (
-                  <SelectItem key={dept.department} value={dept.department}>
-                    {dept.department}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+            <div className="w-full md:w-52">
+              <Select value={filters.role} onValueChange={(v) => handleFilterChange("role", v)}>
+                <SelectTrigger className="bg-white">
+                  <SelectValue placeholder="Role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Roles</SelectItem>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
+                  <SelectItem value="DC_OPS">DC Ops</SelectItem>
+                  <SelectItem value="APPROVER_L1">Approver L1</SelectItem>
+                  <SelectItem value="APPROVER_L2">Approver L2</SelectItem>
+                  <SelectItem value="APPROVER_L3">Approver L3</SelectItem>
+                  <SelectItem value="APPROVER_L4">Approver L4</SelectItem>
+                  <SelectItem value="REQUESTER">Requester</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Report Table */}
-      <Card>
+      {/* Main Report Table */}
+      <Card className="border-slate-200 overflow-hidden shadow-xs">
         <CardContent className="p-0">
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-slate-50/80 border-b border-slate-200">
               <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Department</TableHead>
-                <TableHead>Roles</TableHead>
-                <TableHead>VMs</TableHead>
-                <TableHead>Requests</TableHead>
-                <TableHead>Pending Approvals</TableHead>
-                <TableHead>Last Active</TableHead>
-                <TableHead>Joined</TableHead>
+                <TableHead className="text-[11px] font-bold text-slate-600 uppercase">User Identity</TableHead>
+                <TableHead className="text-[11px] font-bold text-slate-600 uppercase">Department</TableHead>
+                <TableHead className="text-[11px] font-bold text-slate-600 uppercase">Systems Owned</TableHead>
+                <TableHead className="text-[11px] font-bold text-slate-600 uppercase">Allocated Specs</TableHead>
+                <TableHead className="text-[11px] font-bold text-slate-600 uppercase text-center">VMs (Act/Tot)</TableHead>
+                <TableHead className="text-[11px] font-bold text-slate-600 uppercase text-center">Namespaces</TableHead>
+                <TableHead className="text-[11px] font-bold text-slate-600 uppercase text-center">Requests</TableHead>
+                <TableHead className="text-[11px] font-bold text-slate-600 uppercase text-right">Drilldown & Export</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {reportData.data.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-slate-500">
-                    No users found matching your criteria
+                  <TableCell colSpan={8} className="p-8">
+                    <ReportEmptyState 
+                      message="No data for this period and filters" 
+                      onClearFilters={() => setFilters({ search: "", role: "all", department: "all", page: 1 })} 
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
                 reportData.data.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell>
+                  <TableRow key={user.id} className="hover:bg-slate-50/70 transition-colors">
+                    {/* User Identity */}
+                    <TableCell className="py-3">
                       <div>
-                        <div className="font-medium">{user.name}</div>
-                        <div className="text-xs text-slate-500">{user.email}</div>
+                        <div className="font-bold text-slate-900 text-sm">{user.name}</div>
+                        <div className="text-xs text-slate-500 font-mono mt-0.5">{user.email}</div>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {user.roles.map((role) => (
+                            <Badge key={role} variant="outline" className={`text-[9px] font-semibold ${roleColors[role] || "bg-slate-50 text-slate-600"}`}>
+                              {role.replace("_", " ")}
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
                     </TableCell>
-                    <TableCell>{user.organization || "-"}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {user.roles.map((role) => (
-                          <Badge key={role} className={roleColors[role] || "bg-gray-100"}>
-                            {role.replace("_", " ")}
-                          </Badge>
-                        ))}
-                      </div>
+
+                    {/* Department */}
+                    <TableCell className="text-xs text-slate-600 font-medium">
+                      {user.organization || "—"}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Server className="h-3 w-3 text-slate-400" />
-                        {user.vmCount}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <FileCheck className="h-3 w-3 text-slate-400" />
-                        {user.requestCount}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {user.pendingApprovals > 0 ? (
-                        <Badge variant="outline" className="bg-yellow-50">
-                          {user.pendingApprovals} pending
-                        </Badge>
+
+                    {/* Systems Owned */}
+                    <TableCell className="max-w-xs">
+                      {user.systems.length === 0 ? (
+                        <span className="text-xs text-slate-400">None</span>
                       ) : (
-                        "-"
+                        <div className="flex flex-wrap gap-1">
+                          {user.systems.slice(0, 3).map((sys) => (
+                            <Badge
+                              key={sys}
+                              variant="secondary"
+                              className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1 border border-indigo-100"
+                            >
+                              <FolderKanban className="h-3 w-3 shrink-0" />
+                              <span className="truncate max-w-[120px]">{sys}</span>
+                            </Badge>
+                          ))}
+                          {user.systems.length > 3 && (
+                            <span className="text-[10px] font-bold text-slate-400 self-center">
+                              +{user.systems.length - 3} more
+                            </span>
+                          )}
+                        </div>
                       )}
                     </TableCell>
+
+                    {/* Allocated Specs */}
                     <TableCell>
-                      <div className="flex items-center gap-1 text-sm text-slate-500">
-                        <Clock className="h-3 w-3" />
-                        {user.lastActive ? new Date(user.lastActive).toLocaleDateString() : "Never"}
+                      {user.totalVcpu > 0 || user.totalRamGb > 0 || user.totalStorageGb > 0 ? (
+                        <div className="text-xs font-semibold text-slate-700 space-y-0.5">
+                          <div className="flex items-center gap-1">
+                            <Cpu className="h-3 w-3 text-amber-500" />
+                            <span>{user.totalVcpu} Cores</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] text-slate-500">
+                            <span>{user.totalRamGb} GB RAM</span>
+                            <span>•</span>
+                            <span>{user.totalStorageGb} GB SSD</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400">0 allocated</span>
+                      )}
+                    </TableCell>
+
+                    {/* VMs */}
+                    <TableCell className="text-center">
+                      <div className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100/80 text-xs font-semibold">
+                        <Server className="h-3 w-3 text-slate-500" />
+                        <span className="font-bold text-emerald-600">{user.activeVmCount}</span>
+                        <span className="text-slate-400">/</span>
+                        <span className="text-slate-700">{user.vmCount}</span>
                       </div>
                     </TableCell>
-                    <TableCell>{new Date(user.createdAt).toLocaleDateString()}</TableCell>
+
+                    {/* Namespaces */}
+                    <TableCell className="text-center">
+                      {user.namespaceCount > 0 ? (
+                        <Badge variant="outline" className="text-xs font-bold bg-sky-50 text-sky-700 border-sky-200">
+                          <Box className="h-3 w-3 mr-1" />
+                          {user.namespaceCount}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </TableCell>
+
+                    {/* Requests */}
+                    <TableCell className="text-center">
+                      {user.requestCount > 0 ? (
+                        <Badge variant="outline" className="text-xs font-bold bg-purple-50 text-purple-700 border-purple-200">
+                          <FileCheck className="h-3 w-3 mr-1" />
+                          {user.requestCount}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </TableCell>
+
+                    {/* Action */}
+                    <TableCell className="text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleInspectUser(user.id)}
+                        className="h-8 text-xs font-bold gap-1 text-indigo-700 border-indigo-200 hover:bg-indigo-50 shadow-2xs"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Inspect & Export
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -451,30 +568,50 @@ export default function UserReportPage() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
-      {reportData.totalPages > 1 && (
-        <div className="flex justify-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handlePageChange(filters.page - 1)}
-            disabled={filters.page <= 1}
-          >
-            Previous
-          </Button>
-          <span className="flex items-center px-4 text-sm">
-            Page {filters.page} of {reportData.totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handlePageChange(filters.page + 1)}
-            disabled={filters.page >= reportData.totalPages}
-          >
-            Next
-          </Button>
+      {/* Pagination Footer */}
+      {reportData.total > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 text-xs text-slate-500">
+          <div>
+            Showing <strong className="text-slate-800">{(filters.page - 1) * 10 + 1}</strong> &ndash;{" "}
+            <strong className="text-slate-800">{Math.min(filters.page * 10, reportData.total)}</strong> of{" "}
+            <strong className="text-slate-800">{reportData.total}</strong> users
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(filters.page - 1)}
+              disabled={filters.page <= 1}
+              className="h-8 px-3 text-xs"
+            >
+              Previous
+            </Button>
+            <span className="font-medium text-slate-700">
+              Page {filters.page} of {reportData.totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(filters.page + 1)}
+              disabled={filters.page >= reportData.totalPages}
+              className="h-8 px-3 text-xs"
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
+
+      {/* User Resource Detail & Individual Export Modal */}
+      <UserResourceDetailModal
+        userId={selectedUserId}
+        isOpen={isDetailModalOpen}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setSelectedUserId(null);
+        }}
+      />
     </div>
   );
 }

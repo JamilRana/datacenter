@@ -3,6 +3,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { getK8sNamespacesInventory } from "@/app/actions/inventory-actions";
 import { 
@@ -32,8 +33,10 @@ import {
   Server,
   Database,
   Trash2,
-  Plus
+  Plus,
+  FolderKanban
 } from "lucide-react";
+import { resolveK8sSystemName, getDisplayK8sSystemName } from "@/lib/system-utils";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -51,15 +54,65 @@ import { toast } from "sonner";
 
 export default function K8sNamespacesInventoryPage() {
   const { data: session, status } = useSession();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const urlPage = searchParams.get("page") ? parseInt(searchParams.get("page")!, 10) : 1;
+  const urlPageSize = searchParams.get("pageSize") ? parseInt(searchParams.get("pageSize")!, 10) : 10;
+  const urlSearch = searchParams.get("search") || "";
+
   const [namespaces, setNamespaces] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<K8sInventorySummary | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(urlPage);
+  const [pageSize, setPageSize] = useState(urlPageSize);
+  const [searchTerm, setSearchTerm] = useState(urlSearch);
   const [expandedNamespaceId, setExpandedNamespaceId] = useState<string | null>(null);
   const [addingNodeGroupId, setAddingNodeGroupId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPage(urlPage);
+  }, [urlPage]);
+
+  useEffect(() => {
+    setPageSize(urlPageSize);
+  }, [urlPageSize]);
+
+  useEffect(() => {
+    setSearchTerm(urlSearch);
+  }, [urlSearch]);
+
+  // Debounce search update to URL
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchTerm !== urlSearch) {
+        const params = new URLSearchParams(searchParams.toString());
+        if (searchTerm.trim()) {
+          params.set("search", searchTerm.trim());
+        } else {
+          params.delete("search");
+        }
+        params.set("page", "1");
+        router.push(`${pathname}?${params.toString()}`, { scroll: false });
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchTerm, urlSearch, pathname, router, searchParams]);
+
+  const handlePageChange = (newPage: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", newPage.toString());
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("pageSize", newPageSize.toString());
+    params.set("page", "1");
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -68,7 +121,7 @@ export default function K8sNamespacesInventoryPage() {
         getK8sNamespacesInventory({
           page,
           pageSize,
-          searchTerm
+          searchTerm: searchTerm.trim()
         }),
         getK8sInventorySummary()
       ]);
@@ -86,7 +139,7 @@ export default function K8sNamespacesInventoryPage() {
   useEffect(() => {
     if (status === "loading" || !session) return;
     fetchData();
-  }, [session, status, page, searchTerm, fetchData]);
+  }, [session, status, fetchData]);
 
   const toggleExpand = (id: string) => {
     setExpandedNamespaceId(prev => (prev === id ? null : id));
@@ -281,7 +334,7 @@ export default function K8sNamespacesInventoryPage() {
         <div className="relative flex-1 max-w-md w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <Input
-            placeholder="Search namespaces or supervisor IPs..."
+            placeholder="Search namespaces, systems, projects, or IPs..."
             className="pl-9 h-10 border-slate-200 focus-visible:ring-indigo-500 shadow-sm bg-white"
             value={searchTerm}
             onChange={(e) => {
@@ -318,6 +371,8 @@ export default function K8sNamespacesInventoryPage() {
             const isExpanded = expandedNamespaceId === ns.id;
             const cluster = ns.clusters?.[0]; // Primary cluster per namespace
             const request = cluster?.request;
+            const resolvedSysName = resolveK8sSystemName(ns);
+            const displaySysName = getDisplayK8sSystemName(ns);
             
             let totalNodesCount = 0;
             let totalVcpuCount = 0;
@@ -342,7 +397,16 @@ export default function K8sNamespacesInventoryPage() {
                   <div className="space-y-2 flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-extrabold text-indigo-700 text-lg">{ns.name}</span>
-                      <Badge className="bg-indigo-50 text-indigo-700 border border-indigo-150 font-bold text-[10px] uppercase tracking-wide">
+                      {resolvedSysName ? (
+                        <Badge className="bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold text-[10px] uppercase tracking-wide flex items-center gap-1">
+                          <FolderKanban className="h-3 w-3" /> {resolvedSysName}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-slate-300 text-slate-500 font-normal text-[10px]">
+                          Standalone
+                        </Badge>
+                      )}
+                      <Badge className="bg-slate-100 text-slate-700 border border-slate-200 font-bold text-[10px] uppercase tracking-wide font-mono">
                         Supervisor: {ns.supervisorIp}
                       </Badge>
                       {cluster && (
@@ -358,8 +422,8 @@ export default function K8sNamespacesInventoryPage() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1 text-xs text-slate-500">
                       <span className="flex items-center gap-1.5">
-                        <Layers size={14} className="text-slate-400" />
-                        Project / System: <strong className="text-slate-800 font-bold truncate max-w-[150px]">{request?.systemName || request?.projectName || "Direct Provisioning"}</strong>
+                        <FolderKanban size={14} className="text-slate-400" />
+                        System / Fleet: <strong className="text-slate-800 font-bold truncate max-w-[200px]">{displaySysName}</strong>
                       </span>
                       <span className="flex items-center gap-1.5">
                         <User size={14} className="text-slate-400" />
@@ -738,18 +802,46 @@ export default function K8sNamespacesInventoryPage() {
 
       {/* Smart Pagination */}
       {total > 0 && (
-        <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="text-xs text-slate-500 font-medium">
-            Page <strong className="text-slate-800">{page}</strong> of <strong className="text-slate-800">{totalPages}</strong>
+        <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-200">
+          <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
+            <span>
+              Showing <strong className="text-slate-800 font-semibold">{total === 0 ? 0 : (page - 1) * pageSize + 1}</strong> &ndash;{" "}
+              <strong className="text-slate-800 font-semibold">{Math.min(page * pageSize, total)}</strong> of{" "}
+              <strong className="text-slate-800 font-semibold">{total}</strong> namespaces
+            </span>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400">Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                aria-label="Namespaces per page"
+                className="h-8 px-2 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs cursor-pointer"
+              >
+                {[5, 10, 20, 50].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <Pagination 
-            currentPage={page}
-            totalPages={totalPages}
-            onPageChange={(p) => {
-              setPage(p);
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-          />
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider mr-1">
+              Page <span className="text-indigo-600 font-black">{page}</span> of <span className="text-slate-600 font-bold">{Math.max(1, totalPages)}</span>
+            </span>
+
+            <Pagination 
+              currentPage={page}
+              totalPages={totalPages}
+              showSinglePage={true}
+              onPageChange={(p) => {
+                handlePageChange(p);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          </div>
         </div>
       )}
     </div>

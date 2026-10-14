@@ -16,8 +16,13 @@ interface ActivityItem {
 
 interface RecentActivityProps {
   title?: string;
+  description?: string;
   activities: ActivityItem[];
   className?: string;
+  maxItems?: number;
+  icon?: LucideIcon;
+  headerClassName?: string;
+  headerAction?: React.ReactNode;
 }
 
 const actionIcons: Record<string, LucideIcon> = {
@@ -25,6 +30,7 @@ const actionIcons: Record<string, LucideIcon> = {
   VM_PROVISIONED: Server,
   VM_UPDATED: Edit,
   VM_DECOMMISSIONED: Trash2,
+  EXECUTE_REQUEST: Server,
   LICENSE_ASSIGNED: Shield,
   LICENSE_CREATED: Shield,
   LICENSE_EXPIRED: Shield,
@@ -39,6 +45,7 @@ const actionColors: Record<string, string> = {
   VM_PROVISIONED: "bg-emerald-100 text-emerald-600",
   VM_UPDATED: "bg-amber-100 text-amber-600",
   VM_DECOMMISSIONED: "bg-red-100 text-red-600",
+  EXECUTE_REQUEST: "bg-indigo-100 text-indigo-600",
   LICENSE_ASSIGNED: "bg-purple-100 text-purple-600",
   LICENSE_CREATED: "bg-purple-100 text-purple-600",
   LICENSE_EXPIRED: "bg-red-100 text-red-600",
@@ -46,6 +53,22 @@ const actionColors: Record<string, string> = {
   ASSET_ALLOCATED: "bg-emerald-100 text-emerald-600",
   ASSET_UPDATED: "bg-amber-100 text-amber-600",
 };
+
+function formatActivityDescription(details?: string, entityType?: string, actorName?: string) {
+  if (details) {
+    try {
+      const parsed = JSON.parse(details);
+      if (typeof parsed === "object" && parsed !== null) {
+        if (parsed.hostname) return `VM: ${parsed.hostname} • ${actorName || "System"}`;
+        if (parsed.message) return `${parsed.message} • ${actorName || "System"}`;
+        if (parsed.name) return `${parsed.name} • ${actorName || "System"}`;
+      }
+    } catch {
+      return details;
+    }
+  }
+  return `${entityType || "VM"} • ${actorName || "System"}`;
+}
 
 function ActivityRow({ 
   icon: Icon, 
@@ -61,8 +84,8 @@ function ActivityRow({
   time: string; 
 }) {
   return (
-    <div className="flex items-start gap-3">
-      <div className={cn("p-2 rounded-lg", colorClass)}>
+    <div className="flex items-start gap-3 p-1.5 rounded-lg hover:bg-slate-50 transition-colors">
+      <div className={cn("p-2 rounded-lg shrink-0", colorClass)}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="flex-1 min-w-0">
@@ -71,15 +94,20 @@ function ActivityRow({
           <p className="text-xs text-slate-500 truncate">{description}</p>
         )}
       </div>
-      <span className="text-xs text-slate-400 whitespace-nowrap">{time}</span>
+      <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">{time}</span>
     </div>
   );
 }
 
 export function RecentActivity({
   title = "Recent Activity",
+  description,
   activities,
   className,
+  maxItems = 10,
+  icon: HeaderIcon,
+  headerClassName,
+  headerAction,
 }: RecentActivityProps) {
   const formatTime = (date: Date | string) => {
     const now = new Date();
@@ -96,21 +124,34 @@ export function RecentActivity({
     return past.toLocaleDateString();
   };
 
+  const displayedActivities = activities.slice(0, maxItems);
+
   return (
     <Card className={cn("", className)}>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base font-medium text-slate-700">
-          {title}
-        </CardTitle>
+      <CardHeader className={cn(headerClassName || "pb-3")}>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 min-w-0">
+            {HeaderIcon && <HeaderIcon className="h-5 w-5 text-indigo-600 shrink-0" />}
+            <div className="min-w-0">
+              <CardTitle className="text-base font-semibold text-slate-900 truncate">
+                {title}
+              </CardTitle>
+              {description && (
+                <p className="text-xs text-slate-500 mt-0.5 truncate">{description}</p>
+              )}
+            </div>
+          </div>
+          {headerAction && <div className="shrink-0">{headerAction}</div>}
+        </div>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {activities.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-4">
+      <CardContent className={cn(headerClassName ? "pt-6" : "")}>
+        <div className="space-y-2">
+          {displayedActivities.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">
               No recent activity
             </p>
           ) : (
-            activities.slice(0, 10).map((activity) => {
+            displayedActivities.map((activity) => {
               const Icon = actionIcons[activity.action] || actionIcons.DEFAULT;
               const colorClass = actionColors[activity.action] || "bg-slate-100 text-slate-600";
               
@@ -120,7 +161,7 @@ export function RecentActivity({
                   icon={Icon}
                   colorClass={colorClass}
                   title={activity.action.replace(/_/g, " ")}
-                  description={activity.details || `${activity.entityType} - ${activity.actorName || "System"}`}
+                  description={formatActivityDescription(activity.details, activity.entityType, activity.actorName)}
                   time={formatTime(activity.createdAt)}
                 />
               );

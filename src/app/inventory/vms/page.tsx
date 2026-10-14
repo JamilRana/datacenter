@@ -18,11 +18,11 @@ import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { StatCard } from "@/components/analytics/StatCard";
-import { InventoryChart } from "@/components/analytics/InventoryChart";
-import { StatusDistribution } from "@/components/analytics/StatusDistribution";
 import { RecentActivity } from "@/components/analytics/RecentActivity";
 import { fetchVmAnalytics } from "@/app/actions/analytics-actions";
 import { useSearchParams } from "next/navigation";
+import { SystemFleetSummaryTable } from "@/app/inventory/components/SystemFleetSummaryTable";
+import { getSystemFleetSummaries, SystemFleetSummaryRow } from "@/app/actions/vm-management-actions";
 
 export default function VmInventoryPage() {
   const { data: session, status } = useSession();
@@ -34,9 +34,11 @@ export default function VmInventoryPage() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [vmAnalytics, setVmAnalytics] = useState<Awaited<ReturnType<typeof fetchVmAnalytics>> | null>(null);
+  const [fleetSummaries, setFleetSummaries] = useState<SystemFleetSummaryRow[]>([]);
 
   const queryParams = useSearchParams();
   const page = queryParams.get("page") ? parseInt(queryParams.get("page")!, 10) : 1;
+  const pageSize = queryParams.get("pageSize") ? parseInt(queryParams.get("pageSize")!, 10) : 20;
   const statusFilter = queryParams.get("status") || undefined;
   const searchParam = queryParams.get("search") || undefined;
 
@@ -46,17 +48,19 @@ export default function VmInventoryPage() {
     const fetchVmLists = async () => {
       setLoading(true);
       try {
-        const [metricsRes, vmsData, analytics, summaryRes] = await Promise.all([
+        const [metricsRes, vmsData, analytics, summaryRes, fleetsRes] = await Promise.all([
           getInventoryMetrics(),
-          fetchAllVms(page, 20, statusFilter, searchParam),
+          fetchAllVms(page, pageSize, statusFilter, searchParam),
           fetchVmAnalytics(),
-          getVmInventorySummary()
+          getVmInventorySummary(),
+          getSystemFleetSummaries()
         ]);
         setMetrics(metricsRes);
         setVms(vmsData.vms);
         setTotalVms(vmsData.total);
         setVmAnalytics(analytics);
         setSummary(summaryRes);
+        setFleetSummaries(fleetsRes);
       } catch (error) {
         console.error("Failed to fetch VM lists:", error);
       } finally {
@@ -66,7 +70,7 @@ export default function VmInventoryPage() {
     };
     
     fetchVmLists();
-  }, [session?.user?.id, status, page, statusFilter, searchParam]);
+  }, [session?.user?.id, status, page, pageSize, statusFilter, searchParam]);
 
   if (status === "loading" || (loading && isInitialLoad)) {
     return (
@@ -97,6 +101,7 @@ export default function VmInventoryPage() {
       const fullData = await fetchAllVms(1, 0, statusFilter, searchParam, true);
       const exportData = fullData.vms.map(vm => ({
         Hostname: vm.hostname || "",
+        System: vm.systemName || vm.request?.systemName || "Standalone / Unassigned",
         IP_Address: vm.ipAddress || "",
         Public_IP: vm.publicIpAddress || "",
         Status: vm.status,
@@ -211,79 +216,29 @@ export default function VmInventoryPage() {
               description="Decommissioned VMs"
             />
           </div>
+        </div>
+      )}
 
-          {/* Analytics Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <InventoryChart
-              title="VMs by Owner"
-              type="bar"
-              data={vmAnalytics.byOwner.map(d => ({ name: d.ownerName, value: d.count }))}
-            />
-            <InventoryChart
-              title="VMs by Domain"
-              type="pie"
-              data={vmAnalytics.byDomain.map(d => ({ name: d.subdomain, value: d.count }))}
-            />
-            <InventoryChart
-              title="VMs by Status"
-              type="bar"
-              data={vmAnalytics.byStatus.map(d => ({ name: d.status, value: d.count }))}
-            />
-            <StatusDistribution
-              title="VM Status Distribution"
-              data={vmAnalytics.byStatus.map(s => ({
-                status: s.status,
-                count: s.count,
-                color: s.status === "ACTIVE" ? "#22c55e" : s.status === "SUSPENDED" ? "#f97316" : "#64748b"
-              }))}
-            />
-          </div>
-
-          {/* Resource Allocation Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card className="md:col-span-1">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">CPU Allocation by Owner</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <InventoryChart
-                  title=""
-                  type="bar"
-                  data={vmAnalytics.resourceAllocation.map(d => ({ name: d.ownerName, value: d.totalCpu }))}
-                />
-              </CardContent>
-            </Card>
-            <Card className="md:col-span-1">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">RAM Allocation by Owner (GB)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <InventoryChart
-                  title=""
-                  type="bar"
-                  data={vmAnalytics.resourceAllocation.map(d => ({ name: d.ownerName, value: d.totalRam }))}
-                />
-              </CardContent>
-            </Card>
-            <Card className="md:col-span-1">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Storage Allocation by Owner (GB)</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <InventoryChart
-                  title=""
-                  type="bar"
-                  data={vmAnalytics.resourceAllocation.map(d => ({ name: d.ownerName, value: d.totalStorage }))}
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Recent Activity */}
-          {vmAnalytics.recentActivity && vmAnalytics.recentActivity.length > 0 && (
+      {/* Two-Column Layout: Recent VM Activity and Resource Capacity Overview */}
+      {(metrics || vmAnalytics) && (
+        <div className={`grid grid-cols-1 ${metrics && vmAnalytics ? "lg:grid-cols-2" : ""} gap-6 items-stretch`}>
+          {/* Recent VM Activity */}
+          {vmAnalytics && (
             <RecentActivity
               title="Recent VM Activity"
-              activities={vmAnalytics.recentActivity.map(a => ({
+              description="Latest provisioning and state changes"
+              headerClassName="bg-slate-50 border-b"
+              icon={Activity}
+              maxItems={5}
+              headerAction={
+                isManagement ? (
+                  <Button asChild variant="ghost" size="sm" className="h-7 text-xs text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50">
+                    <Link href="/admin/audit-logs">View All</Link>
+                  </Button>
+                ) : undefined
+              }
+              className="border-slate-200 shadow-sm flex flex-col h-full"
+              activities={(vmAnalytics.recentActivity || []).map(a => ({
                 id: a.id,
                 action: a.action,
                 entityType: a.entityType,
@@ -294,25 +249,29 @@ export default function VmInventoryPage() {
               }))}
             />
           )}
-        </div>
-   )}
 
-      {metrics && (
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="bg-slate-50 border-b">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-indigo-600" />
-              <div>
-                <CardTitle className="text-base">Resource Capacity Overview</CardTitle>
-                <CardDescription>Physical vs virtual resource utilization</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <CapacityDashboardClient metrics={metrics} />
-          </CardContent>
-        </Card>
+          {/* Resource Capacity Overview */}
+          {metrics && (
+            <Card className="border-slate-200 shadow-sm flex flex-col h-full">
+              <CardHeader className="bg-slate-50 border-b">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-indigo-600" />
+                  <div>
+                    <CardTitle className="text-base font-semibold text-slate-900">Resource Capacity Overview</CardTitle>
+                    <CardDescription>Physical vs virtual resource utilization</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-6 flex-1 flex flex-col justify-between">
+                <CapacityDashboardClient metrics={metrics} />
+              </CardContent>
+            </Card>
+          )}
+        </div>
       )}
+
+      {/* System & Project Fleets Summary Table */}
+      <SystemFleetSummaryTable fleets={fleetSummaries} />
 
       <Card className="border-slate-200 shadow-sm overflow-hidden">
         <CardContent className="p-0">
@@ -321,6 +280,7 @@ export default function VmInventoryPage() {
             canEdit={isManagement} 
             total={totalVms}
             currentPage={page}
+            pageSize={pageSize}
             isLoading={loading}
           />
         </CardContent>

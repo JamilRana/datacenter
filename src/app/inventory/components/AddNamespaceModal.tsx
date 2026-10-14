@@ -17,6 +17,9 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { createK8sNamespace, CreateK8sNamespaceNodeGroupInput } from "@/app/actions/k8s-actions";
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getUserExistingSystems } from "@/app/actions/vm-management-actions";
+
 interface AddNamespaceModalProps {
   onCreated?: () => void;
 }
@@ -30,6 +33,12 @@ export function AddNamespaceModal({ onCreated }: AddNamespaceModalProps) {
   const [supervisorIp, setSupervisorIp] = useState("");
   const [clusterName, setClusterName] = useState("");
   const [totalSpaceGb, setTotalSpaceGb] = useState("");
+
+  // System selection state
+  const [systemMode, setSystemMode] = useState<"EXISTING" | "NEW" | "STANDALONE">("EXISTING");
+  const [selectedExistingSystem, setSelectedExistingSystem] = useState("");
+  const [customSystemName, setCustomSystemName] = useState("");
+  const [existingSystems, setExistingSystems] = useState<{ systemName: string; activeVmCount: number }[]>([]);
 
   // Subdomain & Ingress IP
   const [subdomain, setSubdomain] = useState("");
@@ -46,11 +55,32 @@ export function AddNamespaceModal({ onCreated }: AddNamespaceModalProps) {
   const [workerVcpu, setWorkerVcpu] = useState("8");
   const [workerRam, setWorkerRam] = useState("16");
 
+  // Load existing systems when modal is opened
+  const handleOpen = (val: boolean) => {
+    setOpen(val);
+    if (val) {
+      getUserExistingSystems()
+        .then((systems) => {
+          setExistingSystems(systems);
+          if (systems.length > 0) {
+            setSystemMode("EXISTING");
+            setSelectedExistingSystem(systems[0].systemName);
+          } else {
+            setSystemMode("NEW");
+          }
+        })
+        .catch((err) => console.error("Failed to load existing systems:", err));
+    } else {
+      resetForm();
+    }
+  };
+
   const resetForm = () => {
     setName("");
     setSupervisorIp("");
     setClusterName("");
     setTotalSpaceGb("");
+    setCustomSystemName("");
     setSubdomain("");
     setSubdomainIp("");
     setIncludeMaster(true);
@@ -111,6 +141,13 @@ export function AddNamespaceModal({ onCreated }: AddNamespaceModalProps) {
       }
     }
 
+    let finalSystemName = "";
+    if (systemMode === "EXISTING") {
+      finalSystemName = selectedExistingSystem;
+    } else if (systemMode === "NEW") {
+      finalSystemName = customSystemName.trim();
+    }
+
     startTransition(async () => {
       try {
         const res = await createK8sNamespace({
@@ -118,6 +155,7 @@ export function AddNamespaceModal({ onCreated }: AddNamespaceModalProps) {
           supervisorIp: cleanIp,
           clusterName: clusterName.trim() || undefined,
           totalSpaceGb: totalSpaceGb ? parseInt(totalSpaceGb, 10) : undefined,
+          systemName: finalSystemName || undefined,
           subdomain: subdomain.trim() || undefined,
           subdomainIp: subdomainIp.trim() || undefined,
           nodeGroups,
@@ -139,7 +177,7 @@ export function AddNamespaceModal({ onCreated }: AddNamespaceModalProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(val) => { setOpen(val); if (!val) resetForm(); }}>
+    <Dialog open={open} onOpenChange={handleOpen}>
       <DialogTrigger asChild>
         <Button className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-100 gap-2 h-10 px-5 font-semibold">
           <Plus className="h-4 w-4" /> Add Namespace
@@ -165,6 +203,111 @@ export function AddNamespaceModal({ onCreated }: AddNamespaceModalProps) {
               <Box className="h-3.5 w-3.5 text-indigo-600" />
               Namespace & Network Parameters
             </h4>
+
+            {/* System / Project Selection */}
+            <div className="space-y-2 bg-slate-50/70 p-3 rounded-lg border border-slate-200/80">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="systemName" className="text-xs font-bold text-slate-700">
+                  System / Project Fleet
+                </Label>
+                <div className="flex items-center gap-1 bg-slate-200/60 p-0.5 rounded-lg text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSystemMode("EXISTING");
+                      if (!selectedExistingSystem && existingSystems.length > 0) {
+                        setSelectedExistingSystem(existingSystems[0].systemName);
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded font-semibold transition-all ${
+                      systemMode === "EXISTING"
+                        ? "bg-white text-indigo-600 shadow-2xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Existing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSystemMode("NEW")}
+                    className={`px-2 py-0.5 rounded font-semibold transition-all ${
+                      systemMode === "NEW"
+                        ? "bg-white text-indigo-600 shadow-2xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    + New
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSystemMode("STANDALONE")}
+                    className={`px-2 py-0.5 rounded font-semibold transition-all ${
+                      systemMode === "STANDALONE"
+                        ? "bg-white text-slate-800 shadow-2xs"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    None
+                  </button>
+                </div>
+              </div>
+
+              {systemMode === "EXISTING" && (
+                <Select
+                  value={selectedExistingSystem}
+                  onValueChange={(val) => {
+                    if (val === "__NEW__") {
+                      setSystemMode("NEW");
+                    } else if (val === "__STANDALONE__") {
+                      setSystemMode("STANDALONE");
+                    } else {
+                      setSelectedExistingSystem(val);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="bg-white text-xs h-9">
+                    <SelectValue placeholder="Choose existing fleet..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {existingSystems.map((sys) => (
+                      <SelectItem key={sys.systemName} value={sys.systemName} className="text-xs">
+                        {sys.systemName} ({sys.activeVmCount} active instances)
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__NEW__" className="text-indigo-600 font-bold border-t mt-1 text-xs">
+                      + Type a new system name...
+                    </SelectItem>
+                    <SelectItem value="__STANDALONE__" className="text-slate-500 border-t text-xs">
+                      ⚪ None (Standalone / Direct Provisioning)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+
+              {systemMode === "NEW" && (
+                <Input
+                  id="customSystemName"
+                  value={customSystemName}
+                  onChange={(e) => setCustomSystemName(e.target.value)}
+                  placeholder="Enter new system name (e.g. Core Banking Platform)..."
+                  className="bg-white text-xs h-9"
+                  autoFocus
+                />
+              )}
+
+              {systemMode === "STANDALONE" && (
+                <div className="p-2 rounded-md bg-white border border-slate-200 text-[11px] text-slate-500 flex items-center justify-between">
+                  <span>Standalone (Direct Provisioning - No multi-node system)</span>
+                  <button
+                    type="button"
+                    onClick={() => setSystemMode("EXISTING")}
+                    className="text-indigo-600 font-semibold hover:underline"
+                  >
+                    Assign to Fleet
+                  </button>
+                </div>
+              )}
+            </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="namespace-name" className="text-xs font-bold text-slate-700">

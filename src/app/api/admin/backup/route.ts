@@ -197,6 +197,11 @@ export async function POST(req: Request) {
       prisma.vpnAssignment.deleteMany({}),
       prisma.horizonUser.deleteMany({}),
       prisma.vpnUser.deleteMany({}),
+      prisma.k8sNode.deleteMany({}),
+      prisma.k8sNodeGroup.deleteMany({}),
+      prisma.k8sSubdomain.deleteMany({}),
+      prisma.k8sCluster.deleteMany({}),
+      prisma.k8sRequestNodeGroup.deleteMany({}),
       prisma.credentialAccessLog.deleteMany({}),
       prisma.vmCredential.deleteMany({}),
       prisma.notification.deleteMany({}),
@@ -210,21 +215,15 @@ export async function POST(req: Request) {
       prisma.vmSpecDisk.deleteMany({}),
       prisma.vmSpecFirewallPort.deleteMany({}),
       prisma.vmSpecNetworkAccess.deleteMany({}),
-      prisma.additionalDisk.deleteMany({}),
-      prisma.firewallPort.deleteMany({}),
-      prisma.networkAccessEntry.deleteMany({}),
-      prisma.vmSpecification.deleteMany({}),
-      prisma.k8sRequestNodeGroup.deleteMany({}),
-      prisma.k8sSubdomain.deleteMany({}),
-      prisma.k8sNode.deleteMany({}),
-      prisma.k8sNodeGroup.deleteMany({}),
-      prisma.k8sNamespace.deleteMany({}),
-      prisma.k8sCluster.deleteMany({}),
       prisma.additionalDiskInput.deleteMany({}),
       prisma.firewallPortInput.deleteMany({}),
       prisma.networkAccessInput.deleteMany({}),
       prisma.customizationHistory.deleteMany({}),
       prisma.customizationRequest.deleteMany({}),
+      prisma.additionalDisk.deleteMany({}),
+      prisma.firewallPort.deleteMany({}),
+      prisma.networkAccessEntry.deleteMany({}),
+      prisma.vmSpecification.deleteMany({}),
       prisma.passwordResetOtp.deleteMany({}),
       
       // Null out self-relations in Requests & VmInstances to prevent circular issues
@@ -247,6 +246,7 @@ export async function POST(req: Request) {
       prisma.vmSpec.deleteMany({}),
       prisma.vmInstance.deleteMany({}),
       prisma.request.deleteMany({}),
+      prisma.k8sNamespace.deleteMany({}),
       prisma.softwareLicense.deleteMany({}),
       prisma.asset.deleteMany({}),
       prisma.physicalCluster.deleteMany({}),
@@ -288,23 +288,17 @@ export async function POST(req: Request) {
     if (data.softwareLicenses?.length) {
       await prisma.softwareLicense.createMany({ data: data.softwareLicenses });
     }
-    if (data.k8sClusters?.length) {
-      await prisma.k8sCluster.createMany({ data: data.k8sClusters });
-    }
     if (data.k8sNamespaces?.length) {
       await prisma.k8sNamespace.createMany({ data: data.k8sNamespaces });
     }
-    if (data.k8sNodeGroups?.length) {
-      await prisma.k8sNodeGroup.createMany({ data: data.k8sNodeGroups });
-    }
-    if (data.k8sNodes?.length) {
-      await prisma.k8sNode.createMany({ data: data.k8sNodes });
-    }
-    if (data.k8sSubdomains?.length) {
-      await prisma.k8sSubdomain.createMany({ data: data.k8sSubdomains });
-    }
     if (data.passwordResetOtps?.length) {
       await prisma.passwordResetOtp.createMany({ data: data.passwordResetOtps });
+    }
+    if (data.vpnUsers?.length) {
+      await prisma.vpnUser.createMany({ data: data.vpnUsers });
+    }
+    if (data.horizonUsers?.length) {
+      await prisma.horizonUser.createMany({ data: data.horizonUsers });
     }
 
     // Step B: Requests (With VmInstance FKs set to Null temporarily)
@@ -362,7 +356,27 @@ export async function POST(req: Request) {
       }
     }
 
-    // Step G: Children & Leaf Nodes
+    // Step G: K8s clusters & node groups (now that namespace & request exist)
+    if (data.k8sClusters?.length) {
+      await prisma.k8sCluster.createMany({ data: data.k8sClusters });
+    }
+    if (data.k8sNodeGroups?.length) {
+      await prisma.k8sNodeGroup.createMany({ data: data.k8sNodeGroups });
+    }
+    if (data.k8sNodes?.length) {
+      await prisma.k8sNode.createMany({ data: data.k8sNodes });
+    }
+    if (data.k8sSubdomains?.length) {
+      await prisma.k8sSubdomain.createMany({ data: data.k8sSubdomains });
+    }
+    if (data.k8sRequestNodeGroups?.length) {
+      await prisma.k8sRequestNodeGroup.createMany({ data: data.k8sRequestNodeGroups });
+    }
+
+    // Step H: VM Specifications (before child disks/ports/networks)
+    if (data.vmSpecifications?.length) {
+      await prisma.vmSpecification.createMany({ data: data.vmSpecifications });
+    }
     if (data.additionalDisks?.length) {
       await prisma.additionalDisk.createMany({ data: data.additionalDisks });
     }
@@ -371,9 +385,6 @@ export async function POST(req: Request) {
     }
     if (data.networkAccessEntries?.length) {
       await prisma.networkAccessEntry.createMany({ data: data.networkAccessEntries });
-    }
-    if (data.vmSpecifications?.length) {
-      await prisma.vmSpecification.createMany({ data: data.vmSpecifications });
     }
     if (data.approvals?.length) {
       await prisma.approval.createMany({ data: data.approvals });

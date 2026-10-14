@@ -29,6 +29,7 @@ import { redirect } from "next/navigation";
 import { fetchDashboardData } from "../approvals/lib";
 import { revalidatePath } from "next/cache";
 import { invalidateCache } from "@/lib/redis";
+import { formatSystemName } from "@/lib/system-utils";
 
 export async function generateApprovals(
   tx: Prisma.TransactionClient,
@@ -666,6 +667,12 @@ export async function executeRequest(requestId: string, notes?: string): Promise
           });
         }
         const namespaceId = namespace.id;
+        if (request.existingNamespaceId !== namespaceId) {
+          await tx.request.update({
+            where: { id: request.id },
+            data: { existingNamespaceId: namespaceId }
+          });
+        }
 
         // Calculate total storage across all requested node groups
         const totalNodeStorage = (request.k8sRequestNodeGroups || []).reduce(
@@ -1114,7 +1121,7 @@ export async function executeRequestWithVmInputs(
           provisionedAt: new Date(),
           renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 6)),
           environment: request.environment,
-          systemName: request.systemName,
+          systemName: formatSystemName(request.systemName),
           cloneOfRequestId: request.requestType === RequestType.CLONE_VM ? request.id : null,
         },
       });
@@ -1432,7 +1439,7 @@ export async function provisionVMs(
               provisionedAt: new Date(),
               renewalDate: new Date(new Date().setMonth(new Date().getMonth() + 6)),
               environment: environment,
-              systemName: stack || request.systemName,
+              systemName: formatSystemName(request.systemName),
               hostAssetId: vm.hostAssetId || null,
               vpnRequired: isVpnRequiredForThisVm,
               cloneOfRequestId: request.requestType === RequestType.CLONE_VM ? requestId : null,

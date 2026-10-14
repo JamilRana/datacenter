@@ -32,6 +32,7 @@ import {
 import { ApprovalPanel } from "@/app/approvals/components/ApprovalPanel";
 import { Timeline } from "@/app/approvals/components/Timeline";
 import { VmInstanceList } from "./VmInstanceList";
+import { SystemFleetOverviewCard } from "./SystemFleetOverviewCard";
 import { getDetailedRequest, submitRequest } from "@/app/actions/request-actions";
 import { updateApprovalK8sNodeGroup, deleteApprovalK8sNodeGroup } from "@/app/actions/approval-actions";
 import { EditK8sRequestNodeGroupModal } from "@/app/approvals/components/EditK8sRequestNodeGroupModal";
@@ -1048,8 +1049,18 @@ export function RequestDetails({
         </div>
       </div>
 
-      {/* Provisioned Instances */}
-      {data?.vmInstances && data.vmInstances.length > 0 && (
+      {/* System Fleet Overview */}
+      {data?.systemName && (
+        <SystemFleetOverviewCard
+          systemFleet={data.systemFleet}
+          systemName={data.systemName}
+          currentRequestId={data.id}
+          isPendingApproval={!!requestLevel}
+        />
+      )}
+
+      {/* Legacy Fallback Provisioned Instances */}
+      {!data?.systemName && data?.vmInstances && data.vmInstances.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <Server className="h-5 w-5 text-blue-600" /> Provisioned Instances

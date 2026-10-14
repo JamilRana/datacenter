@@ -38,7 +38,11 @@ import {
   Info,
   Layers,
   HardDrive,
+  CheckCircle2,
+  X,
 } from "lucide-react";
+import { getUserExistingSystems } from "@/app/actions/vm-management-actions";
+import { normalizeSystemName } from "@/lib/system-utils";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AdditionalDisk, detailsRequest, FirewallPort } from "@/types/requests";
 import { Protocol } from "@/types/enums";
@@ -235,6 +239,17 @@ export function RequestForm({
     }
   }, [queryType, isEditing, copyFrom]);
 
+  useEffect(() => {
+    if (isDeveloper && !assignedRequesterId) {
+      setExistingSystems([]);
+      return;
+    }
+    const targetUserId = isDeveloper ? (assignedRequesterId || undefined) : undefined;
+    getUserExistingSystems({ userId: targetUserId, userOnly: true })
+      .then((systems) => setExistingSystems(systems))
+      .catch((err) => console.error("Failed to load existing systems:", err));
+  }, [assignedRequesterId, isDeveloper]);
+
   const TERMS_CONTENT = `
     <h4 class="font-semibold mb-2">Terms and Conditions for Server Request</h4>
     <ul class="list-disc pl-4 text-sm space-y-1">
@@ -299,6 +314,26 @@ export function RequestForm({
   const [osName, setOsName] = useState<string>("Ubuntu");
   const [osVersion, setOsVersion] = useState<string>("");
   const [systemName, setSystemName] = useState<string>("");
+  const [existingSystems, setExistingSystems] = useState<{
+    systemName: string;
+    activeVmCount: number;
+    vcpu: number;
+    ramGb: number;
+    storageGb: number;
+    hostnames: string[];
+  }[]>([]);
+  const [showSystemDropdown, setShowSystemDropdown] = useState(false);
+  const systemDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (systemDropdownRef.current && !systemDropdownRef.current.contains(event.target as Node)) {
+        setShowSystemDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
   const [projectName, setProjectName] = useState<string>("");
   const [purpose, setPurpose] = useState<string>("");
   const [vpnDetails, setVpnDetails] = useState<string>("");
@@ -834,7 +869,7 @@ export function RequestForm({
     try {
       const details = await getSourceVmDetails(vmId);
       if (details) {
-        setSystemName(`Clone of ${details.hostname || details.request?.systemName || "VM"}`);
+        setSystemName(`Clone of ${details.systemName || details.request?.systemName || details.hostname || "VM"}`);
         if (details.currentSpec) {
           const spec = details.currentSpec;
           setVcpuValue(spec.vcpu.toString());
@@ -858,7 +893,7 @@ export function RequestForm({
     try {
       const details = await getSourceVmDetails(vmId);
       if (details) {
-        setSystemName(`Upgrade of ${details.hostname || details.request?.systemName || "VM"}`);
+        setSystemName(`Upgrade of ${details.systemName || details.request?.systemName || details.hostname || "VM"}`);
         if (details.currentSpec) {
           const spec = details.currentSpec;
           setCurrentCpu(spec.vcpu);
@@ -886,7 +921,7 @@ export function RequestForm({
     try {
       const details = await getSourceVmDetails(vmId);
       if (details) {
-        setSystemName(`${requestType === "VPN_ACCESS" ? "VPN" : "Horizon"} Access to ${details.hostname || details.request?.systemName || "VM"}`);
+        setSystemName(`${requestType === "VPN_ACCESS" ? "VPN" : "Horizon"} Access to ${details.systemName || details.request?.systemName || details.hostname || "VM"}`);
         if (details.currentSpec) {
           const spec = details.currentSpec;
           setVcpuValue(spec.vcpu.toString());
@@ -1712,16 +1747,240 @@ export function RequestForm({
                       </div>
                     </CardHeader>
                     <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6">
-                      <div className="space-y-2">
-                        <Label>System/Service Name *</Label>
-                        <Input
-                          name="systemName"
-                          placeholder="e.g. Health Management Information System"
-                          value={systemName}
-                          onChange={(e) => setSystemName(e.target.value)}
-                          required
-                        />
-                      </div>
+                      {(() => {
+                        const normalizedInput = normalizeSystemName(systemName);
+                        const matchedExistingSystem = existingSystems.find(
+                          (s) => normalizeSystemName(s.systemName) === normalizedInput
+                        );
+                        const hasCaseDifference =
+                          matchedExistingSystem &&
+                          matchedExistingSystem.systemName !== systemName.trim() &&
+                          systemName.trim().length > 0;
+                        const filteredExistingSystems = existingSystems.filter(
+                          (s) =>
+                            !normalizedInput ||
+                            normalizeSystemName(s.systemName).includes(normalizedInput)
+                        );
+
+                        return (
+                          <div className="space-y-2 relative" ref={systemDropdownRef}>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="systemName" className="font-semibold text-slate-800">
+                                System / Project Name <span className="text-rose-500">*</span>
+                              </Label>
+                              {existingSystems.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowSystemDropdown((prev) => !prev)}
+                                  className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 transition-colors"
+                                >
+                                  <Layers className="h-3 w-3" />
+                                  {showSystemDropdown ? "Hide List" : `Your Systems (${existingSystems.length})`}
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="relative">
+                              <Input
+                                id="systemName"
+                                name="systemName"
+                                placeholder={
+                                  existingSystems.length > 0
+                                    ? "Search your systems or type a new one..."
+                                    : "e.g. Health Management Information System"
+                                }
+                                value={systemName}
+                                onChange={(e) => {
+                                  setSystemName(e.target.value);
+                                  setShowSystemDropdown(true);
+                                }}
+                                onFocus={() => {
+                                  if (existingSystems.length > 0) {
+                                    setShowSystemDropdown(true);
+                                  }
+                                }}
+                                className="pr-16 bg-white"
+                                required
+                              />
+
+                              {/* Interactive Inline Controls */}
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-slate-400">
+                                {systemName.trim().length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSystemName("");
+                                      setShowSystemDropdown(true);
+                                    }}
+                                    className="p-1 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
+                                    title="Clear input"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                {existingSystems.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowSystemDropdown((prev) => !prev)}
+                                    className="p-1 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                                    title="Toggle system list"
+                                  >
+                                    <ChevronDown
+                                      className={`h-4 w-4 transition-transform duration-200 ${
+                                        showSystemDropdown ? "rotate-180 text-indigo-600" : ""
+                                      }`}
+                                    />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Filterable Dropdown List */}
+                            {showSystemDropdown && (
+                              <div className="absolute z-30 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl divide-y divide-slate-100 p-1 animate-in fade-in zoom-in-95 duration-150">
+                                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between bg-slate-50/70 rounded-t-lg">
+                                  <span>
+                                    {existingSystems.length > 0
+                                      ? `Your Systems (${filteredExistingSystems.length} of ${existingSystems.length})`
+                                      : "System Fleets"}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowSystemDropdown(false)}
+                                    className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+                                  >
+                                    &times;
+                                  </button>
+                                </div>
+
+                                {filteredExistingSystems.length > 0 ? (
+                                  filteredExistingSystems.map((sys) => {
+                                    const isSelected =
+                                      normalizeSystemName(sys.systemName) === normalizedInput;
+                                    return (
+                                      <button
+                                        key={sys.systemName}
+                                        type="button"
+                                        onClick={() => {
+                                          setSystemName(sys.systemName);
+                                          setShowSystemDropdown(false);
+                                        }}
+                                        className={`w-full text-left p-2.5 rounded-lg transition-colors flex items-center justify-between group ${
+                                          isSelected ? "bg-indigo-50/90 text-indigo-900" : "hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <div className="flex-1 min-w-0 pr-2">
+                                          <p
+                                            className={`font-semibold text-xs truncate ${
+                                              isSelected
+                                                ? "text-indigo-700"
+                                                : "text-slate-800 group-hover:text-indigo-600"
+                                            }`}
+                                          >
+                                            {sys.systemName}
+                                          </p>
+                                          <p className="text-[11px] text-slate-500 mt-0.5">
+                                            {sys.activeVmCount > 0 ? (
+                                              <>
+                                                {sys.activeVmCount} active VMs • {sys.vcpu} vCPU • {sys.ramGb} GB RAM
+                                              </>
+                                            ) : (
+                                              <>Previously requested fleet</>
+                                            )}
+                                          </p>
+                                        </div>
+                                        <span
+                                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                            isSelected
+                                              ? "bg-indigo-600 text-white"
+                                              : "text-slate-400 group-hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                                          }`}
+                                        >
+                                          {isSelected ? "Selected" : "Select"}
+                                        </span>
+                                      </button>
+                                    );
+                                  })
+                                ) : (
+                                  <div className="p-3 text-center text-xs text-slate-500">
+                                    No existing system matching &ldquo;{systemName}&rdquo;
+                                  </div>
+                                )}
+
+                                {/* Option to use typed name as a new system */}
+                                {systemName.trim() && !matchedExistingSystem && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowSystemDropdown(false)}
+                                    className="w-full text-left p-2.5 rounded-lg hover:bg-emerald-50 text-emerald-800 transition-colors flex items-center gap-2 border-t border-slate-100 text-xs font-semibold"
+                                  >
+                                    <Plus className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                    <span>
+                                      Create new system fleet:{" "}
+                                      <strong className="text-emerald-900">&ldquo;{systemName.trim()}&rdquo;</strong>
+                                    </span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Case Insensitive Difference Notice */}
+                            {hasCaseDifference && matchedExistingSystem && (
+                              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2 mt-2">
+                                <span className="flex items-center gap-1.5">
+                                  <Info className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                  Matches your existing fleet <strong>&ldquo;{matchedExistingSystem.systemName}&rdquo;</strong> with different casing
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSystemName(matchedExistingSystem.systemName)}
+                                  className="text-indigo-600 font-bold hover:underline shrink-0 text-xs"
+                                >
+                                  Align Casing
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Existing System Fleet Context Banner */}
+                            {matchedExistingSystem && (
+                              <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200 text-xs text-indigo-950 space-y-1.5 mt-2 animate-in fade-in duration-200">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold flex items-center gap-1.5 text-indigo-900">
+                                    <Layers className="h-4 w-4 text-indigo-600 shrink-0" />
+                                    Your Existing System Fleet: {matchedExistingSystem.systemName}
+                                  </span>
+                                  {matchedExistingSystem.activeVmCount > 0 && (
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white text-indigo-700 border border-indigo-200 shadow-2xs">
+                                      {matchedExistingSystem.activeVmCount} Active Nodes
+                                    </span>
+                                  )}
+                                </div>
+                                {matchedExistingSystem.activeVmCount > 0 ? (
+                                  <p className="text-slate-600 leading-relaxed">
+                                    Currently running <strong>{matchedExistingSystem.activeVmCount} VM(s)</strong> utilizing{" "}
+                                    <strong>{matchedExistingSystem.vcpu} vCPU</strong>, <strong>{matchedExistingSystem.ramGb} GB RAM</strong>, and{" "}
+                                    <strong>{matchedExistingSystem.storageGb} GB SSD</strong>.
+                                  </p>
+                                ) : (
+                                  <p className="text-slate-600 leading-relaxed">
+                                    Previously requested fleet under your account.
+                                  </p>
+                                )}
+                                <p className="text-indigo-700 font-semibold text-[11px] flex items-center gap-1">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-indigo-600" />
+                                  This request will add new instances to this system fleet upon approval.
+                                </p>
+                              </div>
+                            )}
+
+                            {!matchedExistingSystem && systemName.trim().length > 2 && (
+                              <p className="text-[11px] text-slate-400 mt-1">
+                                New System Fleet &mdash; a new logical group will be established for your account upon provisioning.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <div className="space-y-2">
                         <Label>Project/Program Name</Label>
                         <Input

@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { redirect } from "next/navigation";
 import { ROLES } from "@/lib/roles";
+import { AdminNav } from "./components/AdminNav";
 
 export default async function AdminLayout({
   children,
@@ -17,6 +18,7 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-screen bg-slate-50/20">
+      <AdminNav />
       <main className="p-4 lg:p-8">
         <div className="max-w-7xl mx-auto h-full">
           {children}

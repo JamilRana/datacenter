@@ -19,6 +19,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 import { SerializedVmInstance, SerializedVmInstanceDetail } from "@/types/vm";
 import { isAdmin } from "@/lib/utils";
+import { formatSystemName } from "@/lib/system-utils";
 
 const vmBaseSchema = z.object({
   requestId: z.preprocess(
@@ -46,6 +47,11 @@ const vmBaseSchema = z.object({
   subdomain: z.string().optional().nullable(),
   ipAddress: z.string().optional().nullable(),
   publicIpAddress: z.string().optional().nullable(),
+
+  systemName: z.preprocess(
+    (val) => (val === "" || val == null ? null : String(val).trim()),
+    z.string().nullable().optional()
+  ),
 
   status: z.nativeEnum(FrontendVmStatus),
 
@@ -206,6 +212,7 @@ export async function createVm(formData: FormData, actorId: string) {
     const createdVm = await tx.vmInstance.create({
       data: {
         ...vmData,
+        systemName: vmData.systemName ? formatSystemName(vmData.systemName) : null,
         requestId: vmData.requestId ?? null,
         renewalDate: vmData.renewalDate ? new Date(vmData.renewalDate) : null,
         decommissionedAt: vmData.decommissionedAt
@@ -272,6 +279,7 @@ export async function updateVm(formData: FormData) {
       where: { id },
       data: {
         ...payload,
+        systemName: payload.systemName ? formatSystemName(payload.systemName) : null,
         renewalDate: payload.renewalDate ? new Date(payload.renewalDate) : null,
         decommissionedAt: payload.decommissionedAt
           ? new Date(payload.decommissionedAt)
@@ -496,15 +504,34 @@ export async function fetchAllVms(
 
   const cleanSearch = searchParam?.trim();
   if (cleanSearch) {
-    where.OR = [
-      { hostname: { contains: cleanSearch, mode: "insensitive" } },
-      { ipAddress: { contains: cleanSearch, mode: "insensitive" } },
-      { publicIpAddress: { contains: cleanSearch, mode: "insensitive" } },
-      { subdomain: { contains: cleanSearch, mode: "insensitive" } },
-      { systemName: { contains: cleanSearch, mode: "insensitive" } },
-      { owner: { name: { contains: cleanSearch, mode: "insensitive" } } },
-      { owner: { email: { contains: cleanSearch, mode: "insensitive" } } },
-    ];
+    const isStandaloneFilter = 
+      cleanSearch.toLowerCase() === "standalone" || 
+      cleanSearch.toLowerCase() === "unassigned" || 
+      cleanSearch === "__STANDALONE__";
+
+    if (isStandaloneFilter) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { systemName: null, request: null },
+            { systemName: null, request: { systemName: null } },
+            { systemName: { contains: "standalone", mode: "insensitive" } },
+          ],
+        },
+      ];
+    } else {
+      where.OR = [
+        { hostname: { contains: cleanSearch, mode: "insensitive" } },
+        { ipAddress: { contains: cleanSearch, mode: "insensitive" } },
+        { publicIpAddress: { contains: cleanSearch, mode: "insensitive" } },
+        { subdomain: { contains: cleanSearch, mode: "insensitive" } },
+        { systemName: { contains: cleanSearch, mode: "insensitive" } },
+        { request: { systemName: { contains: cleanSearch, mode: "insensitive" } } },
+        { owner: { name: { contains: cleanSearch, mode: "insensitive" } } },
+        { owner: { email: { contains: cleanSearch, mode: "insensitive" } } },
+      ];
+    }
   }
 
   const [vms, total] = await Promise.all([
@@ -515,6 +542,7 @@ export async function fetchAllVms(
       take,
       select: {
         id: true,
+        systemName: true,
         hostname: true,
         ipAddress: true,
         publicIpAddress: true,
@@ -558,6 +586,7 @@ export async function fetchAllVms(
 
       return {
         id: vm.id,
+        systemName: vm.systemName || vm.request?.systemName || null,
         hostname: vm.hostname,
         ipAddress: vm.ipAddress,
         publicIpAddress: vm.publicIpAddress,

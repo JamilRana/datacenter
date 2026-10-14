@@ -5,6 +5,7 @@ import { VmStatus } from "@/types/enums";
 
 interface BaseVmInstance {
   id: string;
+  systemName?: string | null;
   hostname: string | null;
   ipAddress: string | null;
   publicIpAddress: string | null;
@@ -60,7 +61,7 @@ export default function VmCard({ vm }: VmCardProps) {
       <div className="flex justify-between items-start">
         <div>
           <h3 className="font-semibold text-gray-900 truncate">
-            {vm.request?.systemName || "Unnamed VM"}
+            {vm.systemName || vm.request?.systemName || "Standalone / Unassigned"}
           </h3>
           <p className="text-sm text-gray-600 mt-1">
             {vm.hostname || vm.ipAddress || "No IP"}

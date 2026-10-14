@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 
 import React, { useState } from "react";
@@ -96,6 +95,15 @@ export function VmListClient({
       } else {
         params.delete("status");
       }
+      params.set("page", "1");
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+  };
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    startTransition(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("pageSize", newPageSize.toString());
       params.set("page", "1");
       router.push(`${pathname}?${params.toString()}`, { scroll: false });
     });
@@ -211,7 +219,14 @@ export function VmListClient({
                              </div>
                              <div className="space-y-0.5">
                                 <p className="font-bold text-slate-900 leading-tight group-hover:text-blue-700 transition-colors uppercase tracking-tight">{vm.hostname || "UNNAMED_INSTANCE"}</p>
-                                <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest font-mono">{vm.ipAddress || "PENDING_ASSIGNMENT"}</p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                   <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest font-mono">{vm.ipAddress || "PENDING_ASSIGNMENT"}</p>
+                                   {(vm.systemName || vm.request?.systemName) && (
+                                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.2 rounded">
+                                         {vm.systemName || vm.request?.systemName}
+                                      </span>
+                                   )}
+                                </div>
                              </div>
                           </div>
                        </td>
@@ -292,62 +307,91 @@ export function VmListClient({
       </div>
 
       {/* Pagination Footer */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t border-slate-100">
-          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-            Page <span className="text-indigo-600 font-black">{currentPage}</span> of <span className="text-slate-600">{totalPages}</span>
+      {total > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 bg-slate-50 border-t border-slate-100">
+          <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
+            <span>
+              Showing <strong className="text-slate-800 font-semibold">{total === 0 ? 0 : (currentPage - 1) * pageSize + 1}</strong> &ndash;{" "}
+              <strong className="text-slate-800 font-semibold">{Math.min(currentPage * pageSize, total)}</strong> of{" "}
+              <strong className="text-slate-800 font-semibold">{total}</strong> instances
+            </span>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400">Rows per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                disabled={isPending}
+                aria-label="Rows per page"
+                className="h-8 px-2 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs cursor-pointer"
+              >
+                {[10, 20, 50, 100].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={currentPage <= 1 || isPending}
-              className="h-9 w-9 p-0 border-slate-200 hover:bg-white hover:text-indigo-600 hover:border-indigo-200 transition-all active:scale-95 disabled:opacity-30 shadow-sm"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400 font-bold uppercase tracking-wider mr-1">
+              Page <span className="text-indigo-600 font-black">{currentPage}</span> of <span className="text-slate-600 font-bold">{Math.max(1, totalPages)}</span>
+            </span>
+
             <div className="flex items-center gap-1">
-              {getVisiblePages().map((item, idx) => {
-                if (typeof item !== "number") {
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage <= 1 || isPending}
+                className="h-8 w-8 p-0 border-slate-200 hover:bg-white hover:text-indigo-600 hover:border-indigo-200 transition-all active:scale-95 disabled:opacity-30 shadow-xs"
+                title="Previous page"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              
+              <div className="flex items-center gap-1">
+                {getVisiblePages().map((item, idx) => {
+                  if (typeof item !== "number") {
+                    return (
+                      <span key={`ellipsis-${idx}`} className="px-1.5 text-slate-400 font-bold text-xs select-none">
+                        ...
+                      </span>
+                    );
+                  }
+
+                  const isActive = item === currentPage;
                   return (
-                    <span key={`ellipsis-${idx}`} className="px-1.5 text-slate-400 font-bold text-xs select-none">
-                      ...
-                    </span>
+                    <Button
+                      key={`page-${item}`}
+                      variant={isActive ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handlePageChange(item)}
+                      disabled={isPending}
+                      className={`h-8 min-w-[32px] px-2 font-bold text-xs transition-all active:scale-95 shadow-xs ${
+                        isActive 
+                          ? "bg-indigo-600 hover:bg-indigo-700 text-white border-transparent" 
+                          : "border-slate-200 hover:border-indigo-200 hover:text-indigo-600 bg-white"
+                      }`}
+                    >
+                      {item}
+                    </Button>
                   );
-                }
+                })}
+              </div>
 
-                const isActive = item === currentPage;
-                return (
-                  <Button
-                    key={`page-${item}`}
-                    variant={isActive ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => handlePageChange(item)}
-                    disabled={isPending}
-                    className={`h-9 min-w-[36px] px-2.5 font-bold text-xs transition-all active:scale-95 shadow-sm ${
-                      isActive 
-                        ? "bg-indigo-600 hover:bg-indigo-700 text-white border-transparent" 
-                        : "border-slate-200 hover:border-indigo-200 hover:text-indigo-600 bg-white"
-                    }`}
-                  >
-                    {item}
-                  </Button>
-                );
-              })}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage >= totalPages || isPending}
+                className="h-8 w-8 p-0 border-slate-200 hover:bg-white hover:text-indigo-600 hover:border-indigo-200 transition-all active:scale-95 disabled:opacity-30 shadow-xs"
+                title="Next page"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
             </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={currentPage >= totalPages || isPending}
-              className="h-9 w-9 p-0 border-slate-200 hover:bg-white hover:text-indigo-600 hover:border-indigo-200 transition-all active:scale-95 disabled:opacity-30 shadow-sm"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
           </div>
         </div>
       )}

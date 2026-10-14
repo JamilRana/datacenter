@@ -247,35 +247,35 @@ export function AdminWidgets({ data }: AdminWidgetsProps) {
             </Link>
 
             {/* Stage 2: L1 */}
-            <Link href="/approvals" className="p-3 bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/60 rounded-xl border border-amber-200 dark:border-amber-900/50 text-center transition-all group">
+            <Link href="/approvals?status=PENDING_L1" className="p-3 bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/60 rounded-xl border border-amber-200 dark:border-amber-900/50 text-center transition-all group">
               <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">2. Level 1</span>
               <span className="text-2xl font-black text-amber-700 dark:text-amber-300 block mt-1 group-hover:scale-105 transition-transform">{requestPipeline.l1}</span>
               <span className="text-[10px] text-amber-600/80 block mt-0.5">Assistant Maintenance Engineer</span>
             </Link>
 
             {/* Stage 3: L2 */}
-            <Link href="/approvals" className="p-3 bg-blue-50/60 dark:bg-blue-950/30 hover:bg-blue-100/60 rounded-xl border border-blue-200 dark:border-blue-900/50 text-center transition-all group">
+            <Link href="/approvals?status=PENDING_L2" className="p-3 bg-blue-50/60 dark:bg-blue-950/30 hover:bg-blue-100/60 rounded-xl border border-blue-200 dark:border-blue-900/50 text-center transition-all group">
               <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider block">3. Level 2</span>
               <span className="text-2xl font-black text-blue-700 dark:text-blue-300 block mt-1 group-hover:scale-105 transition-transform">{requestPipeline.l2}</span>
               <span className="text-[10px] text-blue-600/80 block mt-0.5">Maintenance Engineer</span>
             </Link>
 
             {/* Stage 4: L3 */}
-            <Link href="/approvals" className="p-3 bg-purple-50/60 dark:bg-purple-950/30 hover:bg-purple-100/60 rounded-xl border border-purple-200 dark:border-purple-900/50 text-center transition-all group">
+            <Link href="/approvals?status=PENDING_L3" className="p-3 bg-purple-50/60 dark:bg-purple-950/30 hover:bg-purple-100/60 rounded-xl border border-purple-200 dark:border-purple-900/50 text-center transition-all group">
               <span className="text-[10px] font-bold text-purple-700 dark:text-purple-400 uppercase tracking-wider block">4. Level 3</span>
               <span className="text-2xl font-black text-purple-700 dark:text-purple-300 block mt-1 group-hover:scale-105 transition-transform">{requestPipeline.l3}</span>
               <span className="text-[10px] text-purple-600/80 block mt-0.5">System Analyst</span>
             </Link>
 
             {/* Stage 5: L4 */}
-            <Link href="/approvals" className="p-3 bg-rose-50/60 dark:bg-rose-950/30 hover:bg-rose-100/60 rounded-xl border border-rose-200 dark:border-rose-900/50 text-center transition-all group">
+            <Link href="/approvals?status=PENDING_L4" className="p-3 bg-rose-50/60 dark:bg-rose-950/30 hover:bg-rose-100/60 rounded-xl border border-rose-200 dark:border-rose-900/50 text-center transition-all group">
               <span className="text-[10px] font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider block">5. Level 4</span>
               <span className="text-2xl font-black text-rose-700 dark:text-rose-300 block mt-1 group-hover:scale-105 transition-transform">{requestPipeline.l4}</span>
-              <span className="text-[10px] text-rose-600/80 block mt-0.5">Director</span>
+              <span className="text-[10px] text-rose-600/80 block mt-0.5">DC Ops</span>
             </Link>
 
             {/* Stage 6: DC_OPS */}
-            <Link href="/approvals" className="p-3 bg-teal-50/60 dark:bg-teal-950/30 hover:bg-teal-100/60 rounded-xl border border-teal-200 dark:border-teal-900/50 text-center transition-all group">
+            <Link href="/approvals?status=APPROVED" className="p-3 bg-teal-50/60 dark:bg-teal-950/30 hover:bg-teal-100/60 rounded-xl border border-teal-200 dark:border-teal-900/50 text-center transition-all group">
               <span className="text-[10px] font-bold text-teal-700 dark:text-teal-400 uppercase tracking-wider block">6. DC_OPS</span>
               <span className="text-2xl font-black text-teal-700 dark:text-teal-300 block mt-1 group-hover:scale-105 transition-transform">{requestPipeline.dcops}</span>
               <span className="text-[10px] text-teal-600/80 block mt-0.5">Provisioning</span>

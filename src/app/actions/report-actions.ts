@@ -19,6 +19,8 @@ import {
   parseISO, 
   differenceInHours 
 } from "date-fns";
+import { resolveVmResourceSpecs } from "@/lib/reports/spec-resolver";
+import { getReportScope, formatSystemName, getEffectiveSpec } from "@/lib/reports/shared-reporting";
 
 // ============================================================================
 // FILTER & RETURN TYPE INTERFACES (Flattened - No Prisma internals)
@@ -163,7 +165,7 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
 
   // 1. High-Level Summary Counts
   const [vmsCount, requestsCount, pendingCount, licensesCount] = await Promise.all([
-    prisma.vmInstance.count({ where: { status: "ACTIVE" } }),
+    prisma.vmInstance.count({ where: { status: "ACTIVE", decommissionedAt: null } }),
     prisma.request.count({ where: whereClause }),
     prisma.request.count({ 
       where: { 
@@ -353,24 +355,28 @@ export async function getSystemReportData(filters: ReportFilters = {}): Promise<
     .slice(0, 8);
 
   // 8. Resource Metrics from VM instances (avg specs by environment)
-  // Get VMs with their current specs via relation
+  // Get VMs with their current specs via relation and fallback chain
   const vmsWithSpecs = await prisma.vmInstance.findMany({
-    where: { status: "ACTIVE" },
-    include: { currentSpec: true }
+    where: { status: "ACTIVE", decommissionedAt: null },
+    include: { 
+      currentSpec: true,
+      specHistory: { orderBy: { effectiveFrom: 'desc' }, take: 1 },
+      request: { select: { vcpu: true, ramGb: true, storageGb: true, vmSpecifications: true } }
+    }
   });
   
   // Group by environment and calculate averages
   const envMetrics = new Map<string, { cpu: number; ram: number; storage: number; count: number }>();
   for (const vm of vmsWithSpecs) {
     const env = vm.environment || "UNKNOWN";
-    const spec = vm.currentSpec;
+    const spec = resolveVmResourceSpecs(vm);
     if (!envMetrics.has(env)) {
       envMetrics.set(env, { cpu: 0, ram: 0, storage: 0, count: 0 });
     }
     const m = envMetrics.get(env)!;
-    m.cpu += spec?.vcpu || 0;
-    m.ram += spec?.ramGb || 0;
-    m.storage += spec?.storageGb || 0;
+    m.cpu += spec.vcpu;
+    m.ram += spec.ramGb;
+    m.storage += spec.storageGb;
     m.count += 1;
   }
   
@@ -443,6 +449,8 @@ export async function getExportData(
   const session = await getServerSession(authOptions);
   if (!session?.user) throw new Error("Unauthorized");
 
+  const scope = getReportScope({ id: session.user.id, roles: session.user.roles });
+
   const dateFilter: Prisma.DateTimeFilter = {};
   if (filters.startDate) {
     dateFilter.gte = startOfDay(parseISO(filters.startDate));
@@ -452,6 +460,7 @@ export async function getExportData(
   }
 
   const whereClause: Prisma.RequestWhereInput = {
+    ...scope.requestWhere,
     ...(Object.keys(dateFilter).length > 0 && { createdAt: dateFilter }),
     ...(filters.environment && { environment: filters.environment }),
     ...(filters.status && { status: filters.status }),
@@ -467,8 +476,12 @@ export async function getExportData(
         take: 1
       },
       vmInstances: { 
-        include: { currentSpec: true }
-      }
+        include: { 
+          currentSpec: true,
+          specHistory: { orderBy: { effectiveFrom: 'desc' } }
+        }
+      },
+      vmSpecifications: true
     },
     orderBy: { createdAt: 'desc' },
     take: 1000 // Limit for export performance
@@ -476,10 +489,10 @@ export async function getExportData(
 
   return requests.map((r: any) => {
     const firstVm = r.vmInstances[0];
-    const vmSpec = firstVm?.currentSpec;
+    const effective = firstVm ? getEffectiveSpec({ ...firstVm, request: r }) : null;
     return {
       RequestID: r.id,
-      SystemName: r.systemName,
+      SystemName: formatSystemName(r.systemName),
       ProjectName: r.projectName || "N/A",
       RequestType: r.requestType,
       Status: r.status,
@@ -490,9 +503,9 @@ export async function getExportData(
       CreatedDate: format(r.createdAt, "yyyy-MM-dd HH:mm"),
       ApprovedDate: r.approvals[0]?.decidedAt ? format(r.approvals[0].decidedAt, "yyyy-MM-dd") : "Pending",
       ProvisionedDate: r.provisionedAt ? format(r.provisionedAt, "yyyy-MM-dd") : "N/A",
-      vCPU: vmSpec?.vcpu ?? null,
-      RAM_GB: vmSpec?.ramGb ?? null,
-      Storage_GB: vmSpec?.storageGb ?? null,
+      vCPU: effective ? effective.vcpu : (r.vcpu ?? null),
+      RAM_GB: effective ? effective.ramGb : (r.ramGb ?? null),
+      Storage_GB: effective ? effective.storageGb : (r.storageGb ?? null),
       ApprovalLevel: r.approvals[0]?.level?.toString() ?? "N/A",
       ApprovalDecision: r.approvals[0]?.decision ?? "N/A"
     };
@@ -544,65 +557,167 @@ export async function fetchUserReport(params: Record<string, unknown>) {
   });
 }
 
-export interface VpnHorizonReportItem {
-  id: string;
-  systemName: string;
-  projectName: string | null;
-  requestType: RequestType;
-  status: RequestStatus;
-  requesterName: string;
-  requesterEmail: string;
-  requesterOrg: string | null;
-  targetVmName: string | null;
-  targetVmIp: string | null;
-  createdAt: string;
-  provisionedAt: string | null;
+export async function fetchUserResourceDetail(userId: string) {
+  const { getUserResourceDetail } = await import("@/lib/reports/userReport");
+  const session = await getServerSession(authOptions);
+  if (!session?.user) throw new Error("Unauthorized");
+  
+  const userRoles = session.user.roles || [];
+  const isAdmin = userRoles.some((r: any) => ["ADMIN", "DC_OPS"].includes(r.toUpperCase()));
+  if (!isAdmin && session.user.id !== userId) {
+    throw new Error("Forbidden");
+  }
+
+  return getUserResourceDetail(userId);
 }
 
-export async function getVpnHorizonReportData(): Promise<{ success: boolean; data: VpnHorizonReportItem[] }> {
+import type { VpnHorizonUserReportItem, VpnHorizonReportItem } from "@/types/reports";
+import { transformVpnHorizonAssignmentsToUsers } from "@/lib/reports/vpn-horizon-reporting";
+export type { VpnHorizonUserReportItem, VpnHorizonReportItem };
+
+export async function getVpnHorizonReportData(): Promise<{ success: boolean; data: VpnHorizonUserReportItem[] }> {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) throw new Error("Unauthorized");
 
-    const isAdmin = session.user.roles?.includes(ROLES.ADMIN);
-    const isDCOps = session.user.roles?.includes(ROLES.DCOPS);
-    const isAuditor = session.user.roles?.includes("AUDITOR");
+    const actor = { id: session.user.id, roles: session.user.roles || [] };
+    const scope = getReportScope(actor);
+    const isRequester = !scope.isAdminOrDcOps;
 
-    if (!isAdmin && !isDCOps && !isAuditor) {
-      throw new Error("Forbidden: Access restricted to administrative/auditor roles.");
+    // Build Prisma where clauses respecting requester scope
+    // Requesters only see assignments that point at their own VMs and namespaces
+    let horizonWhere: Prisma.HorizonAssignmentWhereInput = {};
+    let vpnWhere: Prisma.VpnAssignmentWhereInput = {};
+    let requesterScopedVmIds: Set<string> | undefined;
+    let requesterScopedNamespaceIds: Set<string> | undefined;
+
+    if (isRequester) {
+      horizonWhere = {
+        OR: [
+          { vm: scope.vmWhere },
+          { namespace: scope.namespaceWhere },
+          { oldVm: scope.vmWhere },
+        ]
+      };
+      vpnWhere = {
+        OR: [
+          { vm: scope.vmWhere },
+          { namespace: scope.namespaceWhere },
+        ]
+      };
+
+      const [scopedVms, scopedNamespaces] = await Promise.all([
+        prisma.vmInstance.findMany({
+          where: scope.vmWhere,
+          select: { id: true },
+        }),
+        prisma.k8sNamespace.findMany({
+          where: scope.namespaceWhere,
+          select: { id: true },
+        })
+      ]);
+      requesterScopedVmIds = new Set(scopedVms.map(v => v.id));
+      requesterScopedNamespaceIds = new Set(scopedNamespaces.map(n => n.id));
     }
 
-    const requests = await prisma.request.findMany({
-      where: {
-        requestType: { in: [RequestType.VPN_ACCESS, RequestType.HORIZON_ACCESS] },
-        status: { in: [RequestStatus.PROVISIONED, RequestStatus.APPROVED] }
-      },
-      include: {
-        requester: { select: { name: true, email: true, organization: true } },
-        accessTargetVm: {
-          select: {
-            hostname: true,
-            ipAddress: true
-          }
+    // Query assignments and accounts
+    const [horizonAssignments, vpnAssignments, vpnUsers, horizonUsers] = await Promise.all([
+      prisma.horizonAssignment.findMany({
+        where: horizonWhere,
+        include: {
+          horizonUser: {
+            include: {
+              user: { select: { id: true, name: true, email: true, organization: true } }
+            }
+          },
+          vm: {
+            select: {
+              id: true,
+              hostname: true,
+              ipAddress: true,
+              systemName: true,
+              environment: true,
+              status: true,
+              request: { select: { systemName: true, projectName: true } }
+            }
+          },
+          namespace: {
+            select: {
+              id: true,
+              name: true,
+              supervisorIp: true,
+              clusters: { select: { clusterName: true } },
+              requests: { select: { systemName: true, projectName: true } }
+            }
+          },
+          assignedBy: { select: { name: true, email: true } },
+          oldVm: {
+            select: {
+              id: true,
+              hostname: true,
+              ipAddress: true,
+              systemName: true,
+              environment: true,
+              status: true,
+              request: { select: { systemName: true, projectName: true } }
+            }
+          },
+        },
+        orderBy: { assignedAt: "desc" }
+      }),
+      prisma.vpnAssignment.findMany({
+        where: vpnWhere,
+        include: {
+          vpnUser: {
+            include: {
+              user: { select: { id: true, name: true, email: true, organization: true } }
+            }
+          },
+          vm: {
+            select: {
+              id: true,
+              hostname: true,
+              ipAddress: true,
+              systemName: true,
+              environment: true,
+              status: true,
+              request: { select: { systemName: true, projectName: true } }
+            }
+          },
+          namespace: {
+            select: {
+              id: true,
+              name: true,
+              supervisorIp: true,
+              clusters: { select: { clusterName: true } },
+              requests: { select: { systemName: true, projectName: true } }
+            }
+          },
+          assignedBy: { select: { name: true, email: true } },
+        },
+        orderBy: { assignedAt: "desc" }
+      }),
+      !isRequester ? prisma.vpnUser.findMany({
+        include: {
+          user: { select: { id: true, name: true, email: true, organization: true } }
         }
-      },
-      orderBy: { createdAt: "desc" }
-    });
+      }) : Promise.resolve([]),
+      !isRequester ? prisma.horizonUser.findMany({
+        include: {
+          user: { select: { id: true, name: true, email: true, organization: true } }
+        }
+      }) : Promise.resolve([]),
+    ]);
 
-    const formattedData: VpnHorizonReportItem[] = requests.map((r: any) => ({
-      id: r.id,
-      systemName: r.systemName,
-      projectName: r.projectName,
-      requestType: r.requestType,
-      status: r.status,
-      requesterName: r.requester?.name || "Unknown",
-      requesterEmail: r.requester?.email || "N/A",
-      requesterOrg: r.requester?.organization || "N/A",
-      targetVmName: r.accessTargetVm?.hostname || "N/A",
-      targetVmIp: r.accessTargetVm?.ipAddress || "N/A",
-      createdAt: r.createdAt.toISOString(),
-      provisionedAt: r.provisionedAt ? r.provisionedAt.toISOString() : null
-    }));
+    const formattedData = transformVpnHorizonAssignmentsToUsers({
+      horizonAssignments,
+      vpnAssignments,
+      vpnUsers,
+      horizonUsers,
+      requesterScopedVmIds,
+      requesterScopedNamespaceIds,
+      isRequester,
+    });
 
     return { success: true, data: formattedData };
   } catch (error) {

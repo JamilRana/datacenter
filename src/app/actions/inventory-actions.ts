@@ -105,7 +105,33 @@ export async function getK8sNamespacesInventory(params: {
       searchTerm ? {
         OR: [
           { name: { contains: searchTerm, mode: "insensitive" } },
-          { supervisorIp: { contains: searchTerm, mode: "insensitive" } }
+          { supervisorIp: { contains: searchTerm, mode: "insensitive" } },
+          {
+            clusters: {
+              some: {
+                request: {
+                  OR: [
+                    { systemName: { contains: searchTerm, mode: "insensitive" } },
+                    { projectName: { contains: searchTerm, mode: "insensitive" } },
+                    { requester: { name: { contains: searchTerm, mode: "insensitive" } } },
+                    { requester: { email: { contains: searchTerm, mode: "insensitive" } } }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            requests: {
+              some: {
+                OR: [
+                  { systemName: { contains: searchTerm, mode: "insensitive" } },
+                  { projectName: { contains: searchTerm, mode: "insensitive" } },
+                  { requester: { name: { contains: searchTerm, mode: "insensitive" } } },
+                  { requester: { email: { contains: searchTerm, mode: "insensitive" } } }
+                ]
+              }
+            }
+          }
         ]
       } : {}
     ]
@@ -117,6 +143,19 @@ export async function getK8sNamespacesInventory(params: {
       include: {
         subdomains: {
           orderBy: { createdAt: "desc" }
+        },
+        requests: {
+          select: {
+            id: true,
+            systemName: true,
+            projectName: true,
+            requester: {
+              select: {
+                name: true,
+                email: true
+              }
+            }
+          }
         },
         clusters: {
           include: {

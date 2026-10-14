@@ -19,6 +19,7 @@ import {
 import { generateApprovals } from "./approval-actions";
 import { AdditionalDisk, FirewallPort } from "@/types/requests";
 import { ROLES, hasRole } from "@/lib/roles";
+import { formatSystemName } from "@/lib/system-utils";
 
 interface Attachment {
   fileName: string;
@@ -123,8 +124,8 @@ export async function createK8sNamespaceRequest(formData: FormData) {
         requestType: RequestType.K8S_NAMESPACE,
         status: (formData.get("status") as RequestStatus) || RequestStatus.DRAFT,
         quantity: totalNodeCount || 1,
-        systemName: formData.get("systemName")?.toString() || "",
-        projectName: formData.get("projectName")?.toString() || null,
+        systemName: formatSystemName(formData.get("systemName")?.toString() || ""),
+        projectName: formData.get("projectName")?.toString() ? formatSystemName(formData.get("projectName")?.toString()) : null,
         purpose: formData.get("purpose")?.toString() || "",
         environment: env as Environment,
 
@@ -1287,7 +1288,7 @@ export async function approveSubdomain(
             link: "/my-vms"
           }
         });
-      } catch (_) { }
+      } catch { }
 
       // Audit Log
       await prisma.auditLog.create({
@@ -1453,6 +1454,7 @@ export interface CreateK8sNamespaceInput {
   totalSpaceGb?: number;
   subdomain?: string;
   subdomainIp?: string;
+  systemName?: string;
   nodeGroups?: CreateK8sNamespaceNodeGroupInput[];
 }
 
@@ -1500,12 +1502,34 @@ export async function createK8sNamespace(data: CreateK8sNamespaceInput) {
     });
 
     const clusterName = data.clusterName?.trim() || `${name}-cluster`;
+
+    let directRequestId: string | null = null;
+    if (data.systemName && data.systemName.trim()) {
+      const formattedSystemName = formatSystemName(data.systemName);
+      const directReq = await tx.request.create({
+        data: {
+          requestType: RequestType.K8S_NAMESPACE,
+          status: RequestStatus.APPROVED,
+          requesterId: session.user.id,
+          systemName: formattedSystemName,
+          projectName: formattedSystemName,
+          purpose: "Direct Operations Provisioning",
+          environment: Environment.PRODUCTION,
+          serverType: ServerType.OTHER,
+          kubernetesNamespace: name,
+          existingNamespaceId: ns.id,
+        }
+      });
+      directRequestId = directReq.id;
+    }
+
     const cluster = await tx.k8sCluster.create({
       data: {
         namespaceId: ns.id,
         clusterName,
         totalSpaceGb: data.totalSpaceGb ? Number(data.totalSpaceGb) : null,
-        status: "ACTIVE"
+        status: "ACTIVE",
+        requestId: directRequestId,
       }
     });
 
@@ -1581,6 +1605,7 @@ export async function updateK8sNamespace(
     supervisorIp: string;
     clusterName?: string;
     totalSpaceGb?: number;
+    systemName?: string;
   }
 ) {
   const session = await getServerSession(authOptions);
@@ -1630,6 +1655,41 @@ export async function updateK8sNamespace(
             totalSpaceGb: data.totalSpaceGb !== undefined ? Number(data.totalSpaceGb) : cluster.totalSpaceGb,
           }
         });
+      }
+    }
+
+    if (data.systemName !== undefined) {
+      const cleanSystemName = data.systemName.trim() ? formatSystemName(data.systemName) : null;
+      const cluster = await tx.k8sCluster.findFirst({ where: { namespaceId: id }, include: { request: true } });
+      if (cluster) {
+        if (cluster.request) {
+          await tx.request.update({
+            where: { id: cluster.request.id },
+            data: {
+              systemName: cleanSystemName || "",
+              projectName: cleanSystemName,
+            }
+          });
+        } else if (cleanSystemName) {
+          const directReq = await tx.request.create({
+            data: {
+              requestType: RequestType.K8S_NAMESPACE,
+              status: RequestStatus.APPROVED,
+              requesterId: session.user.id,
+              systemName: cleanSystemName,
+              projectName: cleanSystemName,
+              purpose: "Direct Operations Provisioning",
+              environment: Environment.PRODUCTION,
+              serverType: ServerType.OTHER,
+              kubernetesNamespace: name,
+              existingNamespaceId: id,
+            }
+          });
+          await tx.k8sCluster.update({
+            where: { id: cluster.id },
+            data: { requestId: directReq.id }
+          });
+        }
       }
     }
 

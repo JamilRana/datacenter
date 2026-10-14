@@ -150,7 +150,7 @@ export function Navbar() {
                 </Link>
               )}
               {hasRole(ROLES.ADMIN) && (
-                <Link href="/admin/settings" className={linkClass("/admin")}>Admin</Link>
+                <Link href="/admin" className={linkClass("/admin")}>Admin</Link>
               )}
             </div>
           </div>

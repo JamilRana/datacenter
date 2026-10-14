@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { RequestList } from "./components/RequestList";
 import { getRequests, getRequestStats } from "@/app/actions/request-actions";
+import { getDynamicApprovalLevelsAction } from "@/app/actions/admin-actions";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
@@ -66,10 +67,18 @@ export default function MyRequestsPage() {
     search: "",
   });
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [workflowLevels, setWorkflowLevels] = useState<Array<{ level: number; displayName: string; statusCode: string; shortName: string }>>([]);
   const isFirstRender = useRef(true);
   const initializedRef = useRef(false);
   const fetchingRef = useRef(false);
   const PAGE_SIZE = 10;
+
+  // Load dynamic workflow levels
+  useEffect(() => {
+    getDynamicApprovalLevelsAction()
+      .then((lvls) => setWorkflowLevels(lvls))
+      .catch((err) => console.error("Failed to load workflow levels:", err));
+  }, []);
 
   // Initialize from sessionStorage on mount (only once)
   useEffect(() => {
@@ -437,10 +446,20 @@ export default function MyRequestsPage() {
               <SelectContent>
                 <SelectItem value="ALL">All Statuses</SelectItem>
                 <SelectItem value="DRAFT">Draft</SelectItem>
-                <SelectItem value="PENDING_L1">Pending L1</SelectItem>
-                <SelectItem value="PENDING_L2">Pending L2</SelectItem>
-                <SelectItem value="PENDING_L3">Pending L3</SelectItem>
-                <SelectItem value="PENDING_L4">Pending Director</SelectItem>
+                {workflowLevels.length > 0 ? (
+                  workflowLevels.map((lvl) => (
+                    <SelectItem key={lvl.level} value={lvl.statusCode}>
+                      {lvl.displayName}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <>
+                    <SelectItem value="PENDING_L1">Level 1 - Assistant Maintenance Engineer</SelectItem>
+                    <SelectItem value="PENDING_L2">Level 2 - Maintenance Engineer</SelectItem>
+                    <SelectItem value="PENDING_L3">Level 3 - System Analyst</SelectItem>
+                    <SelectItem value="PENDING_L4">Level 4 - DC Ops</SelectItem>
+                  </>
+                )}
                 <SelectItem value="APPROVED">Approved</SelectItem>
                 <SelectItem value="REJECTED">Rejected</SelectItem>
                 <SelectItem value="PROVISIONED">Provisioned</SelectItem>

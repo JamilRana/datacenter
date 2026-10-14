@@ -1,6 +1,6 @@
-// lib/reports/vmReport.ts
 import prisma from "@/lib/prisma";
 import { Prisma, VmStatus, Environment } from "@prisma/client";
+import { resolveVmResourceSpecs } from "@/lib/reports/spec-resolver";
 
 export interface VmReportParams {
   page?: number;
@@ -69,12 +69,14 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
 
   const where: Prisma.VmInstanceWhereInput = {};
 
-  // Role-based filtering
+  // Role-based filtering: correct requester scope (ownerId OR request.requesterId)
   if (!isAdmin) {
-    if (ownerId) {
-      where.ownerId = ownerId;
-    } else if (userId) {
-      where.ownerId = userId;
+    const targetUserId = ownerId || userId;
+    if (targetUserId) {
+      where.OR = [
+        { ownerId: targetUserId },
+        { request: { requesterId: targetUserId } }
+      ];
     }
   }
 
@@ -84,7 +86,12 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
     if (dateTo) where.createdAt.lte = dateTo;
   }
 
-  if (status) where.status = status as VmStatus;
+  if (status) {
+    where.status = status as VmStatus;
+    if (status === 'ACTIVE') {
+      where.decommissionedAt = null;
+    }
+  }
   if (ownerId && isAdmin) where.ownerId = ownerId;
   if (environment) where.environment = environment as Environment;
   
@@ -92,10 +99,15 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
     where.OR = [
       { hostname: { contains: search, mode: "insensitive" } },
       { subdomain: { contains: search, mode: "insensitive" } },
+      { ipAddress: { contains: search, mode: "insensitive" } },
+      { systemName: { contains: search, mode: "insensitive" } },
+      { request: { systemName: { contains: search, mode: "insensitive" } } },
+      { owner: { name: { contains: search, mode: "insensitive" } } },
+      { owner: { email: { contains: search, mode: "insensitive" } } },
     ];
   }
 
-  // Include request for system name
+  // Include request for system name, specHistory and currentSpec for allocated specs
   const [vms, total, analytics] = await Promise.all([
     prisma.vmInstance.findMany({
       where,
@@ -104,7 +116,19 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
       orderBy: { createdAt: "desc" },
       include: {
         owner: { select: { name: true, email: true } },
-        request: { select: { systemName: true } },
+        request: {
+          select: {
+            systemName: true,
+            vcpu: true,
+            ramGb: true,
+            storageGb: true,
+            osName: true,
+            osVersion: true,
+            vmSpecifications: true
+          }
+        },
+        currentSpec: true,
+        specHistory: { orderBy: { effectiveFrom: 'desc' as const }, take: 1 },
       },
     }),
     prisma.vmInstance.count({ where }),
@@ -112,21 +136,25 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
   ]);
 
   return {
-    data: vms.map((vm: any) => ({
-      id: vm.id,
-      vmName: vm.request?.systemName || "Manual VM",
-      hostname: vm.hostname || "-",
-      ownerName: vm.owner?.name || "Unassigned",
-      ownerEmail: vm.owner?.email || "-",
-      systemName: vm.request?.systemName || "Manual",
-      domain: vm.subdomain || "-",
-      environment: vm.environment || "-",
-      vcpu: 0,
-      ramGb: 0,
-      storageGb: 0,
-      status: vm.status,
-      createdAt: vm.createdAt,
-    })),
+    data: vms.map((vm: any) => {
+      const resolvedSystem = vm.systemName || vm.request?.systemName || "Standalone / Unassigned";
+      const spec = resolveVmResourceSpecs(vm);
+      return {
+        id: vm.id,
+        vmName: vm.hostname || resolvedSystem,
+        hostname: vm.hostname || "-",
+        ownerName: vm.owner?.name || "Unassigned",
+        ownerEmail: vm.owner?.email || "-",
+        systemName: resolvedSystem,
+        domain: vm.subdomain || "-",
+        environment: vm.environment || "-",
+        vcpu: spec.vcpu,
+        ramGb: spec.ramGb,
+        storageGb: spec.storageGb,
+        status: vm.status,
+        createdAt: vm.createdAt,
+      };
+    }),
     analytics,
     total,
     page,
@@ -135,7 +163,7 @@ export async function getVmReport(params: VmReportParams): Promise<VmReportResul
 }
 
 async function getVmReportAnalytics(where: Prisma.VmInstanceWhereInput) {
-  const [allVms, byOwner, bySystem, byStatus] = await Promise.all([
+  const [allVms, byOwner, byStatus] = await Promise.all([
     prisma.vmInstance.findMany({
       where,
       include: {
@@ -145,11 +173,6 @@ async function getVmReportAnalytics(where: Prisma.VmInstanceWhereInput) {
     }),
     prisma.vmInstance.groupBy({
       by: ["ownerId"],
-      _count: true,
-      where,
-    }),
-    prisma.vmInstance.groupBy({
-      by: ["environment"],
       _count: true,
       where,
     }),
@@ -167,23 +190,33 @@ async function getVmReportAnalytics(where: Prisma.VmInstanceWhereInput) {
   });
   const ownerMap = new Map(owners.map((u: any) => [u.id, u.name]));
 
+  // Calculate actual system distribution
+  const systemCounts: Record<string, number> = {};
+  for (const vm of allVms) {
+    const sys = (vm as any).systemName || vm.request?.systemName || "Standalone / Unassigned";
+    systemCounts[sys] = (systemCounts[sys] || 0) + 1;
+  }
+  const bySystem = Object.entries(systemCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([systemName, count]) => ({ systemName, count }));
+
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   
-  const monthlyTrend = await prisma.vmInstance.groupBy({
-    by: ["createdAt"],
-    _count: true,
+  const recentVms = await prisma.vmInstance.findMany({
     where: {
       ...where,
       createdAt: { gte: sixMonthsAgo },
     },
+    select: { createdAt: true },
     orderBy: { createdAt: "asc" },
   });
 
   const monthlyMap: Record<string, number> = {};
-  for (const vm of monthlyTrend) {
+  for (const vm of recentVms) {
     const month = vm.createdAt.toISOString().slice(0, 7);
-    monthlyMap[month] = (monthlyMap[month] || 0) + vm._count;
+    monthlyMap[month] = (monthlyMap[month] || 0) + 1;
   }
 
   return {
@@ -192,10 +225,7 @@ async function getVmReportAnalytics(where: Prisma.VmInstanceWhereInput) {
       ownerName: ownerMap.get(r.ownerId!) || "Unknown",
       count: r._count,
     })),
-    bySystem: bySystem.map((r: any) => ({
-      systemName: r.environment || "Unknown",
-      count: r._count,
-    })),
+    bySystem,
     byStatus: byStatus.map((r: any) => ({
       status: r.status,
       count: r._count,

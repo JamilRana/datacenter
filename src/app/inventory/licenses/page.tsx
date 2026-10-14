@@ -1,7 +1,7 @@
 // src/app/inventory/licenses/page.tsx
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ROLES } from "@/lib/roles";
 import { FileText, ChevronLeft, Trash2, AlertTriangle, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -24,19 +24,16 @@ import { RecentActivity } from "@/components/analytics/RecentActivity";
 import { fetchLicenseAnalytics } from "@/app/actions/analytics-actions";
 import { LicenseAnalytics } from "@/lib/analytics/licenseAnalytics";
 
-export default function LicensesPage({
-  searchParams,
-}: {
-  searchParams: { page?: string };
-}) {
+export default function LicensesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const urlSearchParams = useSearchParams();
   const [licenses, setLicenses] = useState<SoftwareLicense[]>([]);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [licenseAnalytics, setLicenseAnalytics] = useState<LicenseAnalytics | null>(null);
 
-  const page = searchParams.page ? parseInt(searchParams.page, 10) : 1;
+  const page = urlSearchParams?.get("page") ? parseInt(urlSearchParams.get("page")!, 10) : 1;
 
   useEffect(() => {
     if (status === "loading") return;

@@ -5,25 +5,29 @@ import { redirect } from "next/navigation";
 import { ROLES } from "@/lib/roles";
 import { ApproverDashboardClient } from "./components/ApproverDashboardClient";
 import { fetchDashboardData } from "./lib";
+import { getDistinctWorkflowLevels, getAllWorkflowConfigs } from "@/lib/workflow";
 
 export default async function ApprovalsDashboard({
   searchParams,
 }: {
-  searchParams: { page?: string; filter?: string };
+  searchParams: Promise<{ page?: string; filter?: string; status?: string }>;
 }) {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/auth");
 
-  console.log("Session user roles:", session.user.roles);
-  console.log("Session user:", session.user);
-
-  const page = searchParams.page ? parseInt(searchParams.page, 10) : 1;
-  const decisionFilter = searchParams.filter as "PENDING" | "APPROVED" | "REJECTED" | undefined;
+  const resolvedSearchParams = await searchParams;
+  const page = resolvedSearchParams?.page ? parseInt(resolvedSearchParams.page, 10) : 1;
+  const decisionFilter = resolvedSearchParams?.filter as "PENDING" | "APPROVED" | "REJECTED" | undefined;
+  const initialStatusFilter = resolvedSearchParams?.status || resolvedSearchParams?.filter;
   const userRoles = session.user.roles;
   const isAdmin = userRoles.includes(ROLES.ADMIN);
 
-  // ✅ Single source of truth: Reuse shared data fetcher
-  const { requests } = await fetchDashboardData(session.user.id, userRoles, isAdmin, page, 100, decisionFilter);
+  // Single source of truth: Fetch shared data and dynamic workflow levels
+  const [{ requests }, workflowLevels, workflowConfigs] = await Promise.all([
+    fetchDashboardData(session.user.id, userRoles, isAdmin, page, 100, decisionFilter),
+    getDistinctWorkflowLevels(),
+    getAllWorkflowConfigs(),
+  ]);
 
   return (
     <div className="p-6 md:p-10 space-y-8 bg-slate-50/30 min-h-screen">
@@ -38,6 +42,9 @@ export default async function ApprovalsDashboard({
         initialRequests={JSON.parse(JSON.stringify(requests))}
         userRoles={userRoles}
         currentUserId={session.user.id}
+        initialStatusFilter={initialStatusFilter}
+        workflowLevels={workflowLevels}
+        workflowConfigs={workflowConfigs}
       />
     </div>
   );

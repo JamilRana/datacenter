@@ -150,6 +150,32 @@ export interface detailsRequest {
   requestResources?: any[] | null;
   vmSpecifications?: VmSpecification[] | null;
   auditLogs?: RequestAuditLogItem[] | null;
+  systemFleet?: SystemFleetOverview | null;
+}
+
+export interface SystemFleetVmItem {
+  id: string;
+  hostname: string | null;
+  ipAddress: string | null;
+  status: string;
+  environment: string | null;
+  vcpu: number | null;
+  ramGb: number | null;
+  storageGb: number | null;
+  isCurrentRequest: boolean;
+  requestId: string | null;
+  requestNumber: string | null;
+  ownerName: string | null;
+}
+
+export interface SystemFleetOverview {
+  systemName: string;
+  totalVms: number;
+  activeVms: number;
+  totalVcpu: number;
+  totalRamGb: number;
+  totalStorageGb: number;
+  vms: SystemFleetVmItem[];
 }
 
 export interface RequestAuditLogItem {

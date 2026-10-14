@@ -128,14 +128,18 @@ async function fetchWorkflowFromDb(requestType: string): Promise<WorkflowConfig 
 export async function getWorkflowConfig(requestType: string): Promise<WorkflowConfig> {
   const now = Date.now();
 
-  if (configCache && now - configCache.timestamp < CACHE_TTL) {
-    return configCache.data[requestType] || DEFAULT_WORKFLOW_CONFIG[requestType] || DEFAULT_WORKFLOW_CONFIG.NEW_VM;
+  if (configCache && now - configCache.timestamp < CACHE_TTL && configCache.data[requestType]) {
+    return configCache.data[requestType];
   }
 
   const dbWorkflow = await fetchWorkflowFromDb(requestType);
 
   if (dbWorkflow) {
-    configCache = { data: { [requestType]: dbWorkflow }, timestamp: now };
+    if (configCache && now - configCache.timestamp < CACHE_TTL) {
+      configCache.data[requestType] = dbWorkflow;
+    } else {
+      configCache = { data: { [requestType]: dbWorkflow }, timestamp: now };
+    }
     return dbWorkflow;
   }
 
@@ -145,7 +149,7 @@ export async function getWorkflowConfig(requestType: string): Promise<WorkflowCo
 export async function getAllWorkflowConfigs(): Promise<Record<string, WorkflowConfig>> {
   const now = Date.now();
 
-  if (configCache && now - configCache.timestamp < CACHE_TTL) {
+  if (configCache && now - configCache.timestamp < CACHE_TTL && Object.keys(configCache.data).length > 1) {
     return configCache.data;
   }
 
@@ -189,6 +193,102 @@ export async function getAllWorkflowConfigs(): Promise<Record<string, WorkflowCo
   return DEFAULT_WORKFLOW_CONFIG;
 }
 
+export interface DynamicWorkflowLevel {
+  level: number;
+  role: string;
+  roleLabel: string;
+  statusCode: string;
+  filterValue: string;
+  displayName: string;
+  shortName: string;
+}
+
+export function getDefaultRoleLabel(level: number, role?: string): string {
+  if (role === "DC_OPS") return "DC Ops";
+  if (level === 1) return "Assistant Maintenance Engineer";
+  if (level === 2) return "Maintenance Engineer";
+  if (level === 3) return "System Analyst";
+  if (level === 4) return "DC Ops";
+  return `Level ${level}`;
+}
+
+export async function getDistinctWorkflowLevels(): Promise<DynamicWorkflowLevel[]> {
+  try {
+    const dbWorkflows = await prisma.approvalWorkflow.findMany({
+      orderBy: [{ level: "asc" }, { requestType: "asc" }],
+    });
+
+    const levelMap = new Map<number, { role: string; roleLabel: string }>();
+
+    for (const w of dbWorkflows) {
+      if (!levelMap.has(w.level)) {
+        levelMap.set(w.level, {
+          role: w.role,
+          roleLabel: w.roleLabel || getDefaultRoleLabel(w.level, w.role),
+        });
+      }
+    }
+
+    if (levelMap.size === 0) {
+      for (const config of Object.values(DEFAULT_WORKFLOW_CONFIG)) {
+        for (const l of config.levels) {
+          if (!levelMap.has(l.level)) {
+            levelMap.set(l.level, {
+              role: l.role,
+              roleLabel: l.roleLabel || getDefaultRoleLabel(l.level, l.role),
+            });
+          }
+        }
+      }
+    }
+
+    const sortedLevels = Array.from(levelMap.entries()).sort((a, b) => a[0] - b[0]);
+
+    return sortedLevels.map(([level, data]) => {
+      const short = data.roleLabel.replace(/Assistant/i, "Asstt.");
+      return {
+        level,
+        role: data.role,
+        roleLabel: data.roleLabel,
+        statusCode: `PENDING_L${level}`,
+        filterValue: `PENDING_L${level}`,
+        displayName: `Level ${level} - ${data.roleLabel}`,
+        shortName: short,
+      };
+    });
+  } catch (error) {
+    console.error("Failed to get distinct workflow levels:", error);
+    return [
+      { level: 1, role: "APPROVER_L1", roleLabel: "Assistant Maintenance Engineer", statusCode: "PENDING_L1", filterValue: "PENDING_L1", displayName: "Level 1 - Assistant Maintenance Engineer", shortName: "Asstt. Maintenance Engineer" },
+      { level: 2, role: "APPROVER_L2", roleLabel: "Maintenance Engineer", statusCode: "PENDING_L2", filterValue: "PENDING_L2", displayName: "Level 2 - Maintenance Engineer", shortName: "Maintenance Engineer" },
+      { level: 3, role: "APPROVER_L3", roleLabel: "System Analyst", statusCode: "PENDING_L3", filterValue: "PENDING_L3", displayName: "Level 3 - System Analyst", shortName: "System Analyst" },
+      { level: 4, role: "DC_OPS", roleLabel: "DC Ops", statusCode: "PENDING_L4", filterValue: "PENDING_L4", displayName: "Level 4 - DC Ops", shortName: "DC Ops" },
+    ];
+  }
+}
+
+export async function getWorkflowLevelsForType(requestType: string): Promise<DynamicWorkflowLevel[]> {
+  const config = await getWorkflowConfig(requestType);
+  return config.levels.map(l => ({
+    level: l.level,
+    role: l.role,
+    roleLabel: l.roleLabel || getDefaultRoleLabel(l.level, l.role),
+    statusCode: `PENDING_L${l.level}`,
+    filterValue: `PENDING_L${l.level}`,
+    displayName: `Level ${l.level} - ${l.roleLabel || getDefaultRoleLabel(l.level, l.role)}`,
+    shortName: (l.roleLabel || getDefaultRoleLabel(l.level, l.role)).replace(/Assistant/i, "Asstt."),
+  }));
+}
+
+export async function getWorkflowLevelMap(): Promise<Record<number, string>> {
+  const levels = await getDistinctWorkflowLevels();
+  const map: Record<number, string> = {};
+  for (const l of levels) {
+    map[l.level] = l.roleLabel;
+  }
+  return map;
+}
+
 export async function getNextLevel(currentLevel: number, workflow: WorkflowConfig): Promise<ApprovalLevel | null> {
   const sortedLevels = [...workflow.levels].sort((a, b) => a.level - b.level);
   const nextLevel = sortedLevels.find(l => l.level > currentLevel);
@@ -214,11 +314,7 @@ export function canForward(level: number, workflow: WorkflowConfig): boolean {
 }
 
 export function getStatusForLevel(level: number): string {
-  if (level === 1) return "PENDING_L1";
-  if (level === 2) return "PENDING_L2";
-  if (level === 3) return "PENDING_L3";
-  if (level === 4) return "PENDING_L4";
-  return "PENDING_L5";
+  return `PENDING_L${level}`;
 }
 
 export function isFinalLevel(level: number, workflow: WorkflowConfig): boolean {

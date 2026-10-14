@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { updateVm, deleteVm } from "@/app/actions/vm-actions";
 import { getAllActiveUsers } from "@/app/actions/user-actions";
+import { getUserExistingSystems } from "@/app/actions/vm-management-actions";
 import { VmStatus } from "@/types/enums";
 import { SerializedVmInstance } from "@/types/vm";
 import { DeleteConfirmationModal } from "./DeleteConfirmationModal";
@@ -47,9 +48,14 @@ export function EditVmModal({ vm, trigger }: EditVmModalProps) {
   const [isPending, startTransition] = useTransition();
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedOwnerId, setSelectedOwnerId] = useState<string>(vm.owner?.id || "unassigned");
+  const [existingSystems, setExistingSystems] = useState<{ systemName: string; activeVmCount: number }[]>([]);
+  const [systemMode, setSystemMode] = useState<"EXISTING" | "NEW" | "STANDALONE">("EXISTING");
+  const [selectedExistingSystem, setSelectedExistingSystem] = useState<string>("");
+  const [customSystemName, setCustomSystemName] = useState<string>("");
 
   useEffect(() => {
     if (open) {
+      const currentSys = (vm.systemName || vm.request?.systemName || "").trim();
       setSelectedOwnerId(vm.owner?.id || "unassigned");
       if (users.length === 0) {
         getAllActiveUsers()
@@ -60,8 +66,28 @@ export function EditVmModal({ vm, trigger }: EditVmModalProps) {
             console.error("Failed to load users:", err);
           });
       }
+      getUserExistingSystems()
+        .then((systems) => {
+          setExistingSystems(systems);
+          if (currentSys) {
+            const exists = systems.some(s => s.systemName.toLowerCase() === currentSys.toLowerCase());
+            if (exists) {
+              setSystemMode("EXISTING");
+              const exact = systems.find(s => s.systemName.toLowerCase() === currentSys.toLowerCase());
+              setSelectedExistingSystem(exact ? exact.systemName : currentSys);
+            } else {
+              setSystemMode("NEW");
+              setCustomSystemName(currentSys);
+            }
+          } else {
+            setSystemMode("STANDALONE");
+            setSelectedExistingSystem(systems.length > 0 ? systems[0].systemName : "");
+            setCustomSystemName("");
+          }
+        })
+        .catch((err) => console.error("Failed to load existing systems:", err));
     }
-  }, [open, vm.owner?.id, users.length]);
+  }, [open, vm.owner?.id, vm.systemName, vm.request?.systemName, users.length]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -74,6 +100,16 @@ export function EditVmModal({ vm, trigger }: EditVmModalProps) {
     } else {
       formData.set("ownerId", "");
     }
+
+    let finalSystemName = "";
+    if (systemMode === "EXISTING") {
+      finalSystemName = selectedExistingSystem;
+    } else if (systemMode === "NEW") {
+      finalSystemName = customSystemName.trim();
+    } else {
+      finalSystemName = "";
+    }
+    formData.set("systemName", finalSystemName);
 
     startTransition(async () => {
       try {
@@ -117,25 +153,126 @@ export function EditVmModal({ vm, trigger }: EditVmModalProps) {
             </h4>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="systemName">System / Project</Label>
+                  <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSystemMode("EXISTING");
+                        if (!selectedExistingSystem && existingSystems.length > 0) {
+                          setSelectedExistingSystem(existingSystems[0].systemName);
+                        }
+                      }}
+                      className={`px-1.5 py-0.5 rounded font-semibold transition-all ${
+                        systemMode === "EXISTING"
+                          ? "bg-white text-indigo-600 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      Existing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSystemMode("NEW")}
+                      className={`px-1.5 py-0.5 rounded font-semibold transition-all ${
+                        systemMode === "NEW"
+                          ? "bg-white text-indigo-600 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      + New
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSystemMode("STANDALONE")}
+                      className={`px-1.5 py-0.5 rounded font-semibold transition-all ${
+                        systemMode === "STANDALONE"
+                          ? "bg-white text-slate-800 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      None
+                    </button>
+                  </div>
+                </div>
+
+                {systemMode === "EXISTING" && (
+                  <Select
+                    value={selectedExistingSystem}
+                    onValueChange={(val) => {
+                      if (val === "__NEW__") {
+                        setSystemMode("NEW");
+                      } else if (val === "__STANDALONE__") {
+                        setSystemMode("STANDALONE");
+                      } else {
+                        setSelectedExistingSystem(val);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="bg-white text-xs h-9">
+                      <SelectValue placeholder="Choose existing fleet..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {existingSystems.map((sys) => (
+                        <SelectItem key={sys.systemName} value={sys.systemName} className="text-xs">
+                          {sys.systemName} ({sys.activeVmCount} active VMs)
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="__NEW__" className="text-indigo-600 font-bold border-t mt-1 text-xs">
+                        + Type a new system name...
+                      </SelectItem>
+                      <SelectItem value="__STANDALONE__" className="text-slate-500 border-t text-xs">
+                        ⚪ None (Standalone / Unassigned)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+
+                {systemMode === "NEW" && (
+                  <Input
+                    id="customSystemName"
+                    value={customSystemName}
+                    onChange={(e) => setCustomSystemName(e.target.value)}
+                    placeholder="Enter new system name..."
+                    className="bg-white text-xs h-9"
+                    autoFocus
+                  />
+                )}
+
+                {systemMode === "STANDALONE" && (
+                  <div className="p-2 rounded-md bg-slate-50 border border-slate-200 text-[11px] text-slate-500 flex items-center justify-between">
+                    <span>Standalone (No system)</span>
+                    <button
+                      type="button"
+                      onClick={() => setSystemMode("EXISTING")}
+                      className="text-indigo-600 font-semibold hover:underline"
+                    >
+                      Assign
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="hostname">Hostname</Label>
                 <Input id="hostname" name="hostname" defaultValue={vm.hostname || ""} placeholder="vm-prod-web-01" required />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="subdomain">Subdomain</Label>
                 <Input id="subdomain" name="subdomain" defaultValue={vm.subdomain || ""} placeholder="example.com" />
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="ipAddress">IP Address</Label>
                 <Input id="ipAddress" name="ipAddress" defaultValue={vm.ipAddress || ""} placeholder="10.0.0.x" />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="publicIpAddress">Public IP Address</Label>
                 <Input id="publicIpAddress" name="publicIpAddress" defaultValue={vm.publicIpAddress || ""} placeholder="203.0.113.x" />
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
                 <Select name="status" defaultValue={vm.status || VmStatus.ACTIVE}>

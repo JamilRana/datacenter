@@ -23,6 +23,8 @@ import { StatCard } from "@/components/analytics/StatCard";
 import { InventoryChart } from "@/components/analytics/InventoryChart";
 import { exportToCsv, exportToExcel, exportToPdf } from "@/lib/export-utils";
 import { toast } from "sonner";
+import { ReportEmptyState } from "@/app/reports/components/ReportSkeletons";
+import { autoScaleRam, autoScaleStorage } from "@/lib/format-utils";
 
 interface VmReportRow {
   id: string;
@@ -233,6 +235,7 @@ export default function VmReportPage() {
           value={reportData.analytics.totalCount}
           icon={Server}
           description="All VM instances"
+          periodType="Current"
         />
         {reportData.analytics.byStatus.map((stat) => (
           <StatCard
@@ -241,6 +244,7 @@ export default function VmReportPage() {
             value={stat.count}
             icon={Server}
             description="By status"
+            periodType="Current"
           />
         ))}
       </div>
@@ -341,8 +345,11 @@ export default function VmReportPage() {
             <TableBody>
               {reportData.data.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-slate-500">
-                    No VMs found matching your criteria
+                  <TableCell colSpan={9} className="p-8 text-center">
+                    <ReportEmptyState 
+                      message="No data for this period and filters" 
+                      onClearFilters={() => setFilters({ search: "", status: "all", environment: "all", page: 1 })} 
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -363,8 +370,8 @@ export default function VmReportPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>{vm.vcpu}</TableCell>
-                    <TableCell>{vm.ramGb}</TableCell>
-                    <TableCell>{vm.storageGb}</TableCell>
+                    <TableCell>{autoScaleRam(vm.ramGb)}</TableCell>
+                    <TableCell>{autoScaleStorage(vm.storageGb)}</TableCell>
                     <TableCell>{new Date(vm.createdAt).toLocaleDateString()}</TableCell>
                   </TableRow>
                 ))

@@ -1,5 +1,6 @@
 // lib/admin/workflowService.ts
 import prisma from "@/lib/prisma";
+import { clearWorkflowCache } from "@/lib/workflow";
 
 export interface WorkflowLevel {
   id: string;
@@ -64,7 +65,7 @@ export async function createWorkflowLevel(input: CreateWorkflowInput) {
     });
   }
 
-  return prisma.approvalWorkflow.create({
+  const created = await prisma.approvalWorkflow.create({
     data: {
       requestType,
       level,
@@ -73,6 +74,8 @@ export async function createWorkflowLevel(input: CreateWorkflowInput) {
       isFinal,
     },
   });
+  clearWorkflowCache();
+  return created;
 }
 
 export async function updateWorkflowLevel(id: string, input: UpdateWorkflowInput) {
@@ -86,10 +89,12 @@ export async function updateWorkflowLevel(id: string, input: UpdateWorkflowInput
     });
   }
 
-  return prisma.approvalWorkflow.update({
+  const updated = await prisma.approvalWorkflow.update({
     where: { id },
     data: input,
   });
+  clearWorkflowCache();
+  return updated;
 }
 
 export async function deleteWorkflowLevel(id: string) {
@@ -118,10 +123,11 @@ export async function deleteWorkflowLevel(id: string) {
       data: { isFinal: true },
     });
   }
+  clearWorkflowCache();
 }
 
 export async function reorderWorkflowLevels(requestType: string, levelIds: string[]) {
-  return prisma.$transaction(
+  const res = await prisma.$transaction(
     levelIds.map((id, index) =>
       prisma.approvalWorkflow.update({
         where: { id },
@@ -129,6 +135,8 @@ export async function reorderWorkflowLevels(requestType: string, levelIds: strin
       })
     )
   );
+  clearWorkflowCache();
+  return res;
 }
 
 export async function getRequestTypes() {
@@ -155,7 +163,7 @@ export async function duplicateWorkflow(sourceRequestType: string, targetRequest
     where: { requestType: targetRequestType },
   });
 
-  return prisma.$transaction(
+  const res = await prisma.$transaction(
     sourceWorkflows.map((w: any) =>
       prisma.approvalWorkflow.create({
         data: {
@@ -168,4 +176,6 @@ export async function duplicateWorkflow(sourceRequestType: string, targetRequest
       })
     )
   );
+  clearWorkflowCache();
+  return res;
 }

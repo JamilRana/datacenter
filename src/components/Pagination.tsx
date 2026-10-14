@@ -7,10 +7,12 @@ interface PaginationProps {
   currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
+  showSinglePage?: boolean;
 }
 
-export function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) {
-  if (totalPages <= 1) return null;
+export function Pagination({ currentPage, totalPages, onPageChange, showSinglePage = false }: PaginationProps) {
+  if (totalPages <= 0) return null;
+  if (totalPages <= 1 && !showSinglePage) return null;
 
   const getVisiblePages = (): (number | string)[] => {
     if (totalPages <= 7) {

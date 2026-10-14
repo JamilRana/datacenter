@@ -2,7 +2,7 @@
 "use client";
 import type { ApprovalDecision } from "@prisma/client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useMemo } from "react";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ROLES } from "@/lib/roles";
@@ -106,14 +106,29 @@ function getCurrentLevel(status?: string): number | null {
   return null;
 }
 
+export interface DynamicWorkflowLevelItem {
+  level: number;
+  role: string;
+  roleLabel: string;
+  statusCode: string;
+  displayName: string;
+  shortName: string;
+}
+
 export function ApproverDashboardClient({ 
   initialRequests, 
   userRoles,
-  currentUserId: _currentUserId
+  currentUserId: _currentUserId,
+  initialStatusFilter,
+  workflowLevels,
+  workflowConfigs,
 }: { 
-  initialRequests: ApproverRequest[], 
-  userRoles: string[],
-  currentUserId?: string,
+  initialRequests: ApproverRequest[];
+  userRoles: string[];
+  currentUserId?: string;
+  initialStatusFilter?: string;
+  workflowLevels?: DynamicWorkflowLevelItem[];
+  workflowConfigs?: Record<string, { requestType: string; levels: Array<{ level: number; role: string; roleLabel: string | null; isFinal: boolean }> }>;
 }) {
   const router = useRouter();
 
@@ -145,7 +160,7 @@ export function ApproverDashboardClient({
   })();
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState(defaultStatusFilter);
+  const [statusFilter, setStatusFilter] = useState(initialStatusFilter || defaultStatusFilter);
   const [typeFilter, setTypeFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -153,6 +168,26 @@ export function ApproverDashboardClient({
   const [pageSize, setPageSize] = useState(10);
 
   const [activeMainTab, setActiveMainTab] = useState<"requests" | "subdomains">("requests");
+
+  // Dynamic workflow levels reflecting active request type or all distinct system workflows
+  const activeLevels = useMemo(() => {
+    if (typeFilter && typeFilter !== "all" && workflowConfigs && workflowConfigs[typeFilter]) {
+      return workflowConfigs[typeFilter].levels.map(l => ({
+        level: l.level,
+        role: l.role,
+        roleLabel: l.roleLabel || `Level ${l.level}`,
+        statusCode: `PENDING_L${l.level}`,
+        displayName: `Level ${l.level} - ${l.roleLabel || l.role}`,
+        shortName: (l.roleLabel || l.role).replace(/Assistant/i, "Asstt."),
+      }));
+    }
+    return workflowLevels && workflowLevels.length > 0 ? workflowLevels : [
+      { level: 1, role: "APPROVER_L1", roleLabel: "Assistant Maintenance Engineer", statusCode: "PENDING_L1", displayName: "Level 1 - Assistant Maintenance Engineer", shortName: "Asstt. Maintenance Engineer" },
+      { level: 2, role: "APPROVER_L2", roleLabel: "Maintenance Engineer", statusCode: "PENDING_L2", displayName: "Level 2 - Maintenance Engineer", shortName: "Maintenance Engineer" },
+      { level: 3, role: "APPROVER_L3", roleLabel: "System Analyst", statusCode: "PENDING_L3", displayName: "Level 3 - System Analyst", shortName: "System Analyst" },
+      { level: 4, role: "DC_OPS", roleLabel: "DC Ops", statusCode: "PENDING_L4", displayName: "Level 4 - DC Ops", shortName: "DC Ops" },
+    ];
+  }, [typeFilter, workflowConfigs, workflowLevels]);
 
   // Sort requests - pending first, then by date
   const sortedRequests = [...initialRequests].sort((a, b) => {
@@ -274,14 +309,8 @@ export function ApproverDashboardClient({
       matchesStatus = reqLevel !== null && userActionableLevels.includes(reqLevel);
     } else if (filter === "PENDING") {
       matchesStatus = req.status?.startsWith("PENDING_L") || false;
-    } else if (filter === "PENDING_L1") {
-      matchesStatus = req.status === "PENDING_L1";
-    } else if (filter === "PENDING_L2") {
-      matchesStatus = req.status === "PENDING_L2";
-    } else if (filter === "PENDING_L3") {
-      matchesStatus = req.status === "PENDING_L3";
-    } else if (filter === "PENDING_L4") {
-      matchesStatus = req.status === "PENDING_L4";
+    } else if (filter.startsWith("PENDING_L")) {
+      matchesStatus = req.status === filter;
     } else if (filter === "APPROVED" || filter === "PENDING_EXECUTION") {
       matchesStatus = req.status === "APPROVED";
     } else if (filter === "PARTIAL" || filter === "PARTIALLY_PROVISIONED") {
@@ -588,21 +617,23 @@ export function ApproverDashboardClient({
               >
                 All Pending
               </button>
-              {[1, 2, 3, 4].map((lvl) => {
-                const isSelected = statusFilter.toUpperCase() === `PENDING_L${lvl}`;
-                const isUserLevel = userActionableLevels.includes(lvl);
+              {activeLevels.map((lvl) => {
+                const isSelected = statusFilter.toUpperCase() === lvl.statusCode;
+                const isUserLevel = userActionableLevels.includes(lvl.level);
                 return (
                   <button
-                    key={lvl}
+                    key={lvl.level}
                     type="button"
-                    onClick={() => setStatusFilter(`PENDING_L${lvl}`)}
-                    className={`px-3 py-1.5 text-xs rounded-lg transition-all border flex items-center gap-1 ${
+                    onClick={() => setStatusFilter(lvl.statusCode)}
+                    className={`px-3 py-1.5 text-xs rounded-lg transition-all border flex items-center gap-1.5 ${
                       isSelected
                         ? "bg-amber-500 text-white border-amber-500 shadow-sm font-bold"
                         : "bg-white text-slate-700 border-slate-200 hover:bg-amber-50 hover:border-amber-300 font-medium"
                     }`}
+                    title={lvl.roleLabel}
                   >
-                    Level {lvl}
+                    <span>Level {lvl.level}</span>
+                    <span className="text-[10px] opacity-80 font-normal hidden sm:inline">({lvl.shortName})</span>
                     {isUserLevel && !isSelected && (
                       <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block ml-0.5" title="Assigned to you" />
                     )}
@@ -640,7 +671,7 @@ export function ApproverDashboardClient({
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <Input 
                     placeholder="Search system, requester, project..." 
-                    className="pl-9 h-11 bg-slate-50/50 border-slate-100 focus:bg-white transition-all shadow-sm"
+                    className="pl-9 h-11 bg-slate-50/50 border-slate-100 focus:bg-white transition-all shadow-sm" 
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
@@ -661,10 +692,11 @@ export function ApproverDashboardClient({
                   )}
                   <option value="all">All Requests</option>
                   <option value="pending">All Pending Approvals</option>
-                  <option value="PENDING_L1">Level 1 (Pending L1)</option>
-                  <option value="PENDING_L2">Level 2 (Pending L2)</option>
-                  <option value="PENDING_L3">Level 3 (Pending L3)</option>
-                  <option value="PENDING_L4">Level 4 (Pending L4)</option>
+                  {activeLevels.map((lvl) => (
+                    <option key={lvl.level} value={lvl.statusCode}>
+                      Level {lvl.level}: {lvl.roleLabel} ({lvl.statusCode.replace(/_/g, " ")})
+                    </option>
+                  ))}
                   <option value="APPROVED">Ready for DC Ops Execution</option>
                   <option value="PARTIAL">Partially Provisioned</option>
                   <option value="PROVISIONED">Fully Provisioned</option>
@@ -739,7 +771,7 @@ export function ApproverDashboardClient({
                       (Filtered by: <span className="font-semibold text-indigo-600">
                         {statusFilter === "MY_LEVELS" 
                           ? `My Level (${userActionableLevels.map(l => `L${l}`).join(", ")})` 
-                          : statusFilter.replace(/_/g, " ")}
+                          : activeLevels.find(l => l.statusCode === statusFilter)?.displayName || statusFilter.replace(/_/g, " ")}
                       </span>)
                     </span>
                   )}

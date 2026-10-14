@@ -30,6 +30,7 @@ import { User } from "@/types/users";
 import { Approval } from "@/types/approvals";
 import { generateApprovals } from "./approval-actions";
 import { NotificationService } from "@/lib/services/notification.service";
+import { getSystemFleetForRequest } from "./vm-management-actions";
 
 type RequestWithRelations = Prisma.RequestGetPayload<{
   include: {
@@ -1399,6 +1400,18 @@ export async function getDetailedRequest(requestId: string): Promise<detailsRequ
   } catch (err) {
     console.error("Failed to fetch audit logs for request:", err);
     transformed.auditLogs = [];
+  }
+
+  // Fetch associated System Fleet overview
+  try {
+    if (request.systemName && request.systemName.trim()) {
+      transformed.systemFleet = await getSystemFleetForRequest(request.systemName, request.id);
+    } else {
+      transformed.systemFleet = null;
+    }
+  } catch (err) {
+    console.error("Failed to fetch system fleet for request:", err);
+    transformed.systemFleet = null;
   }
 
   return transformed;

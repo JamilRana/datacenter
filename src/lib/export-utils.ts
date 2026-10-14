@@ -1,13 +1,18 @@
 // src/lib/export-utils.ts
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 
 export function exportToCsv<T extends Record<string, unknown>>(
   filename: string,
   rows: T[]
 ) {
-  if (!rows || !rows.length) return;
+  if (!rows || !rows.length) {
+    toast.error("No data available to export");
+    return;
+  }
 
+  const ensureFilename = filename.endsWith(".csv") ? filename : `${filename}.csv`;
   const separator = ",";
   const keys = Object.keys(rows[0]) as (keyof T)[];
   const csvContent = [
@@ -24,56 +29,154 @@ export function exportToCsv<T extends Record<string, unknown>>(
     ),
   ].join("\n");
 
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  // Include UTF-8 BOM (\uFEFF) so Excel parses Unicode and symbols correctly
+  const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
   if (link.download !== undefined) {
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", filename);
+    link.setAttribute("download", ensureFilename);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 }
 
 // Alias for exportToCsv
 export const exportToCSV = exportToCsv;
 
+export interface ExcelSheetData {
+  name: string;
+  data: Record<string, unknown>[];
+}
+
+export interface ExcelExportOptions {
+  sheetName?: string;
+  sheets?: ExcelSheetData[];
+  metadata?: {
+    reportTitle?: string;
+    dateRange?: string;
+    scope?: string;
+    generatedAt?: string;
+    filters?: Record<string, string | number | undefined | null>;
+    definitions?: Record<string, string>;
+  };
+}
+
 export async function exportToExcel(
   filename: string,
-  rows: Record<string, unknown>[]
+  rows: Record<string, unknown>[],
+  options?: ExcelExportOptions
 ) {
-  if (!rows || !rows.length) return;
-  
-  // Simple Excel XML format
-  const xmlHeader = '<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>';
-  const workbook = '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">';
-  const worksheet = '<Worksheet ss:Name="Sheet1">';
-  const table = '<Table>';
-  
-  const keys = Object.keys(rows[0]);
-  const headerRow = '<Row>' + keys.map(k => `<Cell><Data ss:Type="String">${k}</Data></Cell>`).join('') + '</Row>';
-  const dataRows = rows.map(row => 
-    '<Row>' + keys.map(k => {
-      const cell = row[k];
-      const value = cell === null || cell === undefined ? "" : String(cell);
-      return `<Cell><Data ss:Type="String">${value.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Data></Cell>`;
-    }).join('') + '</Row>'
-  ).join('');
-  
-  const xml = xmlHeader + workbook + worksheet + table + headerRow + dataRows + '</Table></Worksheet></Workbook>';
-  
-  const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
+  if ((!rows || !rows.length) && (!options?.sheets || !options.sheets.length)) {
+    toast.error("No data available to export");
+    return;
+  }
+
+  // Ensure filename has .xlsx extension
+  let ensureFilename = filename;
+  if (ensureFilename.endsWith(".xls")) {
+    ensureFilename = ensureFilename.replace(/\.xls$/, ".xlsx");
+  } else if (!ensureFilename.endsWith(".xlsx")) {
+    ensureFilename = `${ensureFilename}.xlsx`;
+  }
+
+  // Create real SheetJS OpenXML workbook
+  const workbook = XLSX.utils.book_new();
+
+  // Helper to auto-fit column widths
+  const autoFitColumns = (data: Record<string, unknown>[]) => {
+    if (!data.length) return [];
+    const keys = Object.keys(data[0]);
+    return keys.map((key) => {
+      let maxLen = key.length;
+      for (const row of data) {
+        const val = row[key];
+        if (val !== null && val !== undefined) {
+          const str = String(val);
+          if (str.length > maxLen) {
+            maxLen = Math.min(str.length, 60);
+          }
+        }
+      }
+      return { wch: Math.max(maxLen + 3, 12) };
+    });
+  };
+
+  // 1. Primary Sheet
+  if (rows && rows.length > 0) {
+    const primarySheetName = (options?.sheetName || "Data").slice(0, 31);
+    const primaryWorksheet = XLSX.utils.json_to_sheet(rows);
+    primaryWorksheet["!cols"] = autoFitColumns(rows);
+    XLSX.utils.book_append_sheet(workbook, primaryWorksheet, primarySheetName);
+  }
+
+  // 2. Extra Sheets (if provided)
+  if (options?.sheets && options.sheets.length > 0) {
+    for (const extraSheet of options.sheets) {
+      if (extraSheet.data && extraSheet.data.length > 0) {
+        const cleanSheetName = extraSheet.name.slice(0, 31);
+        const ws = XLSX.utils.json_to_sheet(extraSheet.data);
+        ws["!cols"] = autoFitColumns(extraSheet.data);
+        XLSX.utils.book_append_sheet(workbook, ws, cleanSheetName);
+      }
+    }
+  }
+
+  // 3. Metadata / Summary Sheet (if provided)
+  if (options?.metadata) {
+    const meta = options.metadata;
+    const metaRows: Array<Record<string, unknown>> = [
+      { "Report Property": "Report Title", "Details": meta.reportTitle || "Report" },
+    ];
+    if (meta.dateRange) {
+      metaRows.push({ "Report Property": "Date Range", "Details": meta.dateRange });
+    }
+    if (meta.scope) {
+      metaRows.push({ "Report Property": "User Scope", "Details": meta.scope });
+    }
+    metaRows.push({ "Report Property": "Generated At", "Details": meta.generatedAt || new Date().toISOString() });
+    metaRows.push({ "Report Property": "Total Records", "Details": rows ? rows.length : 0 });
+
+    if (meta.filters && Object.keys(meta.filters).length > 0) {
+      metaRows.push({ "Report Property": "--- ACTIVE FILTERS ---", "Details": "" });
+      for (const [fKey, fVal] of Object.entries(meta.filters)) {
+        if (fVal !== undefined && fVal !== null && fVal !== "") {
+          metaRows.push({ "Report Property": fKey, "Details": String(fVal) });
+        }
+      }
+    }
+
+    if (meta.definitions && Object.keys(meta.definitions).length > 0) {
+      metaRows.push({ "Report Property": "--- METRIC DEFINITIONS ---", "Details": "" });
+      for (const [dKey, dVal] of Object.entries(meta.definitions)) {
+        metaRows.push({ "Report Property": dKey, "Details": dVal });
+      }
+    }
+
+    const metaWorksheet = XLSX.utils.json_to_sheet(metaRows);
+    metaWorksheet["!cols"] = [{ wch: 25 }, { wch: 60 }];
+    XLSX.utils.book_append_sheet(workbook, metaWorksheet, "Filter Summary");
+  }
+
+  // Write genuine OpenXML .xlsx binary data
+  const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([excelBuffer], { 
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" 
+  });
+
   const link = document.createElement("a");
   if (link.download !== undefined) {
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", filename);
+    link.setAttribute("download", ensureFilename);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -106,6 +209,7 @@ export function exportToPdf(
     link.href = url;
     link.download = `${filename}.html`;
     link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
     
     toast.success(`Exported to HTML/PDF`);

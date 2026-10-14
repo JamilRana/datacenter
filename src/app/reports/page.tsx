@@ -27,7 +27,8 @@ export default async function ReportsPage() {
     canViewCapacity: isAdmin || isDcops || isApprover,
     canViewRequests: true, // Requesters see only their own
     canViewRenewals: true, // Requesters see only their own
-    canViewAudit: isAdmin || isAuditor
+    canViewAudit: isAdmin || isAuditor,
+    canViewLicenses: true
   };
 
   return (
