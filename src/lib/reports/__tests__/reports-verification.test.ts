@@ -1216,5 +1216,149 @@ describe("10. Hardware report: Assets by type, warranty lifecycle, per-host util
   });
 });
 
+// ============================================================================
+// 11. CLUSTER CAPACITY & FLEET TOTALS AGGREGATION TESTS
+// ============================================================================
+describe("11. Cluster Capacity and Fleet Totals Calculation", () => {
+  const mockClusters = [
+    {
+      clusterId: "cls-01",
+      clusterName: "vsan-dc-sddc-cls01",
+      hostCount: 8,
+      totalVcpu: 768,
+      usedVcpu: 0,
+      freeVcpu: 768,
+      cpuUtilPercent: 0,
+      totalRamGb: 8192,
+      usedRamGb: 0,
+      freeRamGb: 8192,
+      ramUtilPercent: 0,
+      totalStorageGb: 288358,
+      usedStorageGb: 0,
+      freeStorageGb: 288358,
+      storageUtilPercent: 0,
+      isOverAllocated: false,
+    },
+    {
+      clusterId: "cls-02",
+      clusterName: "vsan-dc-sddc-cls02",
+      hostCount: 4,
+      totalVcpu: 352,
+      usedVcpu: 0,
+      freeVcpu: 352,
+      cpuUtilPercent: 0,
+      totalRamGb: 2048,
+      usedRamGb: 0,
+      freeRamGb: 2048,
+      ramUtilPercent: 0,
+      totalStorageGb: 154800,
+      usedStorageGb: 0,
+      freeStorageGb: 154800,
+      storageUtilPercent: 0,
+      isOverAllocated: false,
+    },
+    {
+      clusterId: "cls-03",
+      clusterName: "vsan-dc-sddc-cls03",
+      hostCount: 5,
+      totalVcpu: 176,
+      usedVcpu: 0,
+      freeVcpu: 176,
+      cpuUtilPercent: 0,
+      totalRamGb: 2560,
+      usedRamGb: 0,
+      freeRamGb: 2560,
+      ramUtilPercent: 0,
+      totalStorageGb: 129000,
+      usedStorageGb: 0,
+      freeStorageGb: 129000,
+      storageUtilPercent: 0,
+      isOverAllocated: false,
+    },
+    {
+      clusterId: "unassigned-hosts-vms",
+      clusterName: "Unassigned VMs (No Host Placement)",
+      hostCount: 0,
+      totalVcpu: 0,
+      usedVcpu: 3413,
+      freeVcpu: -3413,
+      cpuUtilPercent: 100,
+      totalRamGb: 0,
+      usedRamGb: 9700,
+      freeRamGb: -9700,
+      ramUtilPercent: 100,
+      totalStorageGb: 0,
+      usedStorageGb: 266000,
+      freeStorageGb: -266000,
+      storageUtilPercent: 100,
+      isOverAllocated: true,
+      isUnassignedLine: true,
+      unassignedVmCount: 437,
+    }
+  ];
+
+  it("correctly aggregates physical capacity across all physical clusters", () => {
+    const physicalOnly = mockClusters.filter(c => !c.isUnassignedLine);
+    const totalPhysicalHosts = physicalOnly.reduce((acc, c) => acc + c.hostCount, 0);
+    const totalPhysicalVcpu = physicalOnly.reduce((acc, c) => acc + c.totalVcpu, 0);
+    const totalPhysicalRam = physicalOnly.reduce((acc, c) => acc + c.totalRamGb, 0);
+    const totalPhysicalStorage = physicalOnly.reduce((acc, c) => acc + c.totalStorageGb, 0);
+
+    expect(totalPhysicalHosts).toBe(17);
+    expect(totalPhysicalVcpu).toBe(1296);
+    expect(totalPhysicalRam).toBe(12800);
+    expect(totalPhysicalStorage).toBe(572158);
+  });
+
+  it("correctly calculates fleet totals including unassigned workloads and detects over-allocation", () => {
+    let totalHosts = 0;
+    let totalVcpu = 0;
+    let usedVcpu = 0;
+    let totalRamGb = 0;
+    let usedRamGb = 0;
+    let totalStorageGb = 0;
+    let usedStorageGb = 0;
+    let totalUnassignedVms = 0;
+
+    for (const item of mockClusters) {
+      totalHosts += item.hostCount || 0;
+      totalVcpu += item.totalVcpu || 0;
+      usedVcpu += item.usedVcpu || 0;
+      totalRamGb += item.totalRamGb || 0;
+      usedRamGb += item.usedRamGb || 0;
+      totalStorageGb += item.totalStorageGb || 0;
+      usedStorageGb += item.usedStorageGb || 0;
+      if (item.isUnassignedLine) {
+        totalUnassignedVms += item.unassignedVmCount || 0;
+      }
+    }
+
+    const freeVcpu = totalVcpu - usedVcpu;
+    const freeRamGb = totalRamGb - usedRamGb;
+    const freeStorageGb = totalStorageGb - usedStorageGb;
+
+    const cpuUtilPercent = Math.round((usedVcpu / totalVcpu) * 100);
+    const ramUtilPercent = Math.round((usedRamGb / totalRamGb) * 100);
+    const storageUtilPercent = Math.round((usedStorageGb / totalStorageGb) * 100);
+    const isOverAllocated = usedVcpu > totalVcpu || usedRamGb > totalRamGb || usedStorageGb > totalStorageGb;
+
+    expect(totalHosts).toBe(17);
+    expect(totalVcpu).toBe(1296);
+    expect(usedVcpu).toBe(3413);
+    expect(freeVcpu).toBe(-2117);
+    expect(cpuUtilPercent).toBe(263);
+    expect(isOverAllocated).toBe(true);
+
+    expect(totalRamGb).toBe(12800);
+    expect(usedRamGb).toBe(9700);
+    expect(freeRamGb).toBe(3100);
+    expect(ramUtilPercent).toBe(76);
+
+    expect(storageUtilPercent).toBe(46);
+    expect(totalUnassignedVms).toBe(437);
+  });
+});
+
+
 
 

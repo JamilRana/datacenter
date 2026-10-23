@@ -8,7 +8,8 @@ import {
   TableCell, 
   TableHead, 
   TableHeader, 
-  TableRow 
+  TableRow,
+  TableFooter 
 } from "@/components/ui/table";
 import { 
   Loader2, 
@@ -16,7 +17,10 @@ import {
   Activity, 
   RefreshCw, 
   AlertTriangle,
-  Search
+  Search,
+  Cpu,
+  Layers,
+  HardDrive
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +31,9 @@ import { DcCapacityItem } from "@/types/reports";
 import { exportToExcel, exportToCSV } from "@/lib/export-utils";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { StatCard } from "@/components/analytics/StatCard";
 import { 
+  ReportKpiSkeleton,
   ReportTableSkeleton, 
   ReportEmptyState, 
   ReportErrorState 
@@ -98,11 +104,63 @@ export function CapacityTable({
     );
   }, [data, searchTerm]);
 
+  const fleetTotals = useMemo(() => {
+    let totalHosts = 0;
+    let totalVcpu = 0;
+    let usedVcpu = 0;
+    let totalRamGb = 0;
+    let usedRamGb = 0;
+    let totalStorageGb = 0;
+    let usedStorageGb = 0;
+    let totalUnassignedVms = 0;
+
+    for (const item of filteredData) {
+      totalHosts += item.hostCount || 0;
+      totalVcpu += item.totalVcpu || 0;
+      usedVcpu += item.usedVcpu || 0;
+      totalRamGb += item.totalRamGb || 0;
+      usedRamGb += item.usedRamGb || 0;
+      totalStorageGb += item.totalStorageGb || 0;
+      usedStorageGb += item.usedStorageGb || 0;
+      if (item.isUnassignedLine) {
+        totalUnassignedVms += item.unassignedVmCount || 0;
+      }
+    }
+
+    const freeVcpu = totalVcpu - usedVcpu;
+    const freeRamGb = totalRamGb - usedRamGb;
+    const freeStorageGb = totalStorageGb - usedStorageGb;
+
+    const cpuUtilPercent = totalVcpu > 0 ? Math.round((usedVcpu / totalVcpu) * 100) : 0;
+    const ramUtilPercent = totalRamGb > 0 ? Math.round((usedRamGb / totalRamGb) * 100) : 0;
+    const storageUtilPercent = totalStorageGb > 0 ? Math.round((usedStorageGb / totalStorageGb) * 100) : 0;
+    const isOverAllocated = usedVcpu > totalVcpu || usedRamGb > totalRamGb || usedStorageGb > totalStorageGb;
+
+    return {
+      totalClusters: filteredData.filter(i => !i.isUnassignedLine).length,
+      totalHosts,
+      totalVcpu,
+      usedVcpu,
+      freeVcpu,
+      cpuUtilPercent,
+      totalRamGb,
+      usedRamGb,
+      freeRamGb,
+      ramUtilPercent,
+      totalStorageGb,
+      usedStorageGb,
+      freeStorageGb,
+      storageUtilPercent,
+      isOverAllocated,
+      totalUnassignedVms,
+    };
+  }, [filteredData]);
+
   const handleExport = async (formatType: 'xlsx' | 'csv') => {
     try {
       setIsExporting(true);
       toast.info("Preparing cluster capacity export...");
-      const dataToExport = filteredData.map(c => ({
+      const dataToExport: Array<Record<string, unknown>> = filteredData.map(c => ({
         "Cluster Name": c.clusterName,
         "Cluster Type": c.isUnassignedLine ? "Unassigned VMs" : "Physical Cluster",
         "Hosts Count": c.hostCount,
@@ -121,6 +179,27 @@ export function CapacityTable({
         "Over-allocated": c.isOverAllocated ? "YES" : "NO",
         "Hosted VM Count": c.isUnassignedLine ? (c.unassignedVmCount || 0) : "In Cluster",
       }));
+
+      // Append Fleet Total aggregate row
+      dataToExport.push({
+        "Cluster Name": `TOTAL (Fleet Aggregate: ${fleetTotals.totalClusters} Clusters, ${fleetTotals.totalHosts} Hosts)`,
+        "Cluster Type": "Fleet Summary",
+        "Hosts Count": fleetTotals.totalHosts,
+        "Total vCPU Cores": fleetTotals.totalVcpu,
+        "Allocated vCPU": fleetTotals.usedVcpu,
+        "Free vCPU": fleetTotals.freeVcpu,
+        "vCPU Util %": `${fleetTotals.cpuUtilPercent}%`,
+        "Total RAM (GB)": fleetTotals.totalRamGb,
+        "Allocated RAM (GB)": fleetTotals.usedRamGb,
+        "Free RAM (GB)": fleetTotals.freeRamGb,
+        "RAM Util %": `${fleetTotals.ramUtilPercent}%`,
+        "Total Storage (GB)": fleetTotals.totalStorageGb,
+        "Allocated Storage (GB)": fleetTotals.usedStorageGb,
+        "Free Storage (GB)": fleetTotals.freeStorageGb,
+        "Storage Util %": `${fleetTotals.storageUtilPercent}%`,
+        "Over-allocated": fleetTotals.isOverAllocated ? "YES" : "NO",
+        "Hosted VM Count": fleetTotals.totalUnassignedVms > 0 ? `${fleetTotals.totalUnassignedVms} Unplaced VMs` : "All Placed",
+      });
 
       const filename = getReportFilename("cluster_capacity", dateRange?.from, dateRange?.to, formatType);
 
@@ -157,6 +236,50 @@ export function CapacityTable({
   return (
     <div className="space-y-4">
       {error && <ReportErrorState error={error} onRetry={loadData} />}
+
+      {/* KPI Summary Cards */}
+      {loading ? (
+        <ReportKpiSkeleton count={4} />
+      ) : filteredData.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <StatCard 
+            title="Total Compute Capacity" 
+            value={`${fleetTotals.totalVcpu} Cores`} 
+            icon={<Cpu className="text-blue-600" size={18}/>}
+            subtitle={`${fleetTotals.totalHosts} physical hosts across ${fleetTotals.totalClusters} clusters`}
+            periodType="Current"
+            tooltip="Physical compute capacity across all baremetal hypervisors"
+          />
+          <StatCard 
+            title="vCPU Allocation" 
+            value={`${fleetTotals.usedVcpu} Cores`} 
+            icon={<Activity className="text-indigo-600" size={18}/>}
+            subtitle={
+              fleetTotals.freeVcpu < 0 
+                ? `${fleetTotals.cpuUtilPercent}% utilized • Over by ${Math.abs(fleetTotals.freeVcpu)} cores`
+                : `${fleetTotals.cpuUtilPercent}% utilized • ${fleetTotals.freeVcpu} cores free`
+            }
+            periodType="Current"
+            tooltip="Total virtual CPU cores provisioned for virtual machines"
+          />
+          <StatCard 
+            title="Total Memory (RAM)" 
+            value={autoScaleRam(fleetTotals.totalRamGb)} 
+            icon={<Layers className="text-emerald-600" size={18}/>}
+            subtitle={`${autoScaleRam(fleetTotals.usedRamGb)} in use • ${autoScaleRam(Math.max(0, fleetTotals.freeRamGb))} free (${fleetTotals.ramUtilPercent}%)`}
+            periodType="Current"
+            tooltip="Aggregate physical memory capacity vs allocated VM memory"
+          />
+          <StatCard 
+            title="Total Storage Footprint" 
+            value={autoScaleStorage(fleetTotals.totalStorageGb)} 
+            icon={<HardDrive className="text-purple-600" size={18}/>}
+            subtitle={`${autoScaleStorage(fleetTotals.usedStorageGb)} in use • ${autoScaleStorage(Math.max(0, fleetTotals.freeStorageGb))} free (${fleetTotals.storageUtilPercent}%)`}
+            periodType="Current"
+            tooltip="Aggregate physical storage vs allocated disk storage"
+          />
+        </div>
+      ) : null}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
         <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row justify-between items-center gap-4">
@@ -282,11 +405,21 @@ export function CapacityTable({
                         {cluster.usedVcpu}
                       </TableCell>
                       <TableCell className="text-center font-medium text-xs text-slate-700">
-                        {cluster.totalVcpu || "—"}
+                        {isUnassigned ? (
+                          <span className="text-slate-400 font-mono text-xs" title="No host capacity allocated to unassigned pool">0</span>
+                        ) : (
+                          cluster.totalVcpu || 0
+                        )}
                       </TableCell>
                       <TableCell className="border-r px-3">
                         {isUnassigned ? (
-                          <span className="text-[11px] text-amber-700 italic">No host bound</span>
+                          <div className="flex flex-col gap-1 min-w-[100px]">
+                            <div className="flex justify-between text-[10px]">
+                              <span className="text-amber-700 font-semibold">Pending Placement</span>
+                              <span className="text-rose-600 font-bold">-{cluster.usedVcpu} cores</span>
+                            </div>
+                            <Progress value={100} className="h-1.5 bg-amber-200 [&>div]:bg-amber-500" />
+                          </div>
                         ) : (
                           <div className="flex flex-col gap-1 min-w-[100px]">
                             <div className="flex justify-between text-[10px]">
@@ -303,11 +436,21 @@ export function CapacityTable({
                         {autoScaleRam(cluster.usedRamGb)}
                       </TableCell>
                       <TableCell className="text-center font-medium text-xs text-slate-700">
-                        {cluster.totalRamGb > 0 ? autoScaleRam(cluster.totalRamGb) : "—"}
+                        {isUnassigned ? (
+                          <span className="text-slate-400 font-mono text-xs" title="No host capacity allocated to unassigned pool">0 GB</span>
+                        ) : (
+                          cluster.totalRamGb > 0 ? autoScaleRam(cluster.totalRamGb) : "0 GB"
+                        )}
                       </TableCell>
                       <TableCell className="border-r px-3">
                         {isUnassigned ? (
-                          <span className="text-[11px] text-amber-700 italic">No host bound</span>
+                          <div className="flex flex-col gap-1 min-w-[100px]">
+                            <div className="flex justify-between text-[10px]">
+                              <span className="text-amber-700 font-semibold">Pending Placement</span>
+                              <span className="text-rose-600 font-bold">-{autoScaleRam(cluster.usedRamGb)}</span>
+                            </div>
+                            <Progress value={100} className="h-1.5 bg-amber-200 [&>div]:bg-amber-500" />
+                          </div>
                         ) : (
                           <div className="flex flex-col gap-1 min-w-[100px]">
                             <div className="flex justify-between text-[10px]">
@@ -324,11 +467,21 @@ export function CapacityTable({
                         {autoScaleStorage(cluster.usedStorageGb)}
                       </TableCell>
                       <TableCell className="text-center font-medium text-xs text-slate-700">
-                        {cluster.totalStorageGb > 0 ? autoScaleStorage(cluster.totalStorageGb) : "—"}
+                        {isUnassigned ? (
+                          <span className="text-slate-400 font-mono text-xs" title="No host capacity allocated to unassigned pool">0 GB</span>
+                        ) : (
+                          cluster.totalStorageGb > 0 ? autoScaleStorage(cluster.totalStorageGb) : "0 GB"
+                        )}
                       </TableCell>
                       <TableCell className="border-r px-3">
                         {isUnassigned ? (
-                          <span className="text-[11px] text-amber-700 italic">No host bound</span>
+                          <div className="flex flex-col gap-1 min-w-[100px]">
+                            <div className="flex justify-between text-[10px]">
+                              <span className="text-amber-700 font-semibold">Pending Placement</span>
+                              <span className="text-rose-600 font-bold">-{autoScaleStorage(cluster.usedStorageGb)}</span>
+                            </div>
+                            <Progress value={100} className="h-1.5 bg-amber-200 [&>div]:bg-amber-500" />
+                          </div>
                         ) : (
                           <div className="flex flex-col gap-1 min-w-[100px]">
                             <div className="flex justify-between text-[10px]">
@@ -360,6 +513,98 @@ export function CapacityTable({
                   );
                 })}
               </TableBody>
+
+              {/* Fleet Summary / Total Footer */}
+              <TableFooter className="bg-slate-100/95 font-bold border-t-2 border-slate-300">
+                <TableRow className="hover:bg-slate-100/90">
+                  <TableCell className="border-r py-3.5">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wide">
+                        Total (Fleet Aggregate)
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        {fleetTotals.totalClusters} Clusters • {fleetTotals.totalHosts} Hosts
+                        {fleetTotals.totalUnassignedVms > 0 && ` • ${fleetTotals.totalUnassignedVms} Unplaced VMs`}
+                      </span>
+                    </div>
+                  </TableCell>
+
+                  {/* vCPU */}
+                  <TableCell className="text-center font-extrabold text-xs text-indigo-800 bg-indigo-50/50">
+                    {fleetTotals.usedVcpu}
+                  </TableCell>
+                  <TableCell className="text-center font-bold text-xs text-slate-900">
+                    {fleetTotals.totalVcpu}
+                  </TableCell>
+                  <TableCell className="border-r px-3">
+                    <div className="flex flex-col gap-1 min-w-[100px]">
+                      <div className="flex justify-between text-[10px]">
+                        <span className={getPercentageText(fleetTotals.cpuUtilPercent)}>{fleetTotals.cpuUtilPercent}%</span>
+                        <span className={cn("font-semibold", fleetTotals.freeVcpu < 0 ? "text-rose-600" : "text-slate-600")}>
+                          {fleetTotals.freeVcpu < 0 ? `${Math.abs(fleetTotals.freeVcpu)} over` : `${fleetTotals.freeVcpu} free`}
+                        </span>
+                      </div>
+                      <Progress 
+                        value={Math.min(fleetTotals.cpuUtilPercent, 100)} 
+                        className={cn("h-1.5", getPercentageColor(fleetTotals.cpuUtilPercent))} 
+                      />
+                    </div>
+                  </TableCell>
+
+                  {/* RAM */}
+                  <TableCell className="text-center font-extrabold text-xs text-indigo-800 bg-indigo-50/50">
+                    {autoScaleRam(fleetTotals.usedRamGb)}
+                  </TableCell>
+                  <TableCell className="text-center font-bold text-xs text-slate-900">
+                    {autoScaleRam(fleetTotals.totalRamGb)}
+                  </TableCell>
+                  <TableCell className="border-r px-3">
+                    <div className="flex flex-col gap-1 min-w-[100px]">
+                      <div className="flex justify-between text-[10px]">
+                        <span className={getPercentageText(fleetTotals.ramUtilPercent)}>{fleetTotals.ramUtilPercent}%</span>
+                        <span className="text-slate-600 font-semibold">{autoScaleRam(Math.max(0, fleetTotals.freeRamGb))} free</span>
+                      </div>
+                      <Progress 
+                        value={Math.min(fleetTotals.ramUtilPercent, 100)} 
+                        className={cn("h-1.5", getPercentageColor(fleetTotals.ramUtilPercent))} 
+                      />
+                    </div>
+                  </TableCell>
+
+                  {/* Storage */}
+                  <TableCell className="text-center font-extrabold text-xs text-indigo-800 bg-indigo-50/50">
+                    {autoScaleStorage(fleetTotals.usedStorageGb)}
+                  </TableCell>
+                  <TableCell className="text-center font-bold text-xs text-slate-900">
+                    {autoScaleStorage(fleetTotals.totalStorageGb)}
+                  </TableCell>
+                  <TableCell className="border-r px-3">
+                    <div className="flex flex-col gap-1 min-w-[100px]">
+                      <div className="flex justify-between text-[10px]">
+                        <span className={getPercentageText(fleetTotals.storageUtilPercent)}>{fleetTotals.storageUtilPercent}%</span>
+                        <span className="text-slate-600 font-semibold">{autoScaleStorage(Math.max(0, fleetTotals.freeStorageGb))} free</span>
+                      </div>
+                      <Progress 
+                        value={Math.min(fleetTotals.storageUtilPercent, 100)} 
+                        className={cn("h-1.5", getPercentageColor(fleetTotals.storageUtilPercent))} 
+                      />
+                    </div>
+                  </TableCell>
+
+                  {/* Status / Alert */}
+                  <TableCell className="text-center py-3.5">
+                    {fleetTotals.isOverAllocated ? (
+                      <Badge variant="destructive" className="font-extrabold text-[10px] tracking-wide gap-1 animate-pulse">
+                        <AlertTriangle size={12} /> Over-allocated
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-emerald-200 text-emerald-700 bg-emerald-50 text-[10px] font-bold">
+                        Nominal
+                      </Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+              </TableFooter>
             </Table>
           )}
         </div>

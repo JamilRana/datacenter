@@ -88,6 +88,8 @@ export interface HardwareReportAnalytics {
   underutilizedCount: number;
   totalCapacity: { cpu: number; ram: number; storage: number };
   usedCapacity: { cpu: number; ram: number; storage: number };
+  unassignedVmCount?: number;
+  unassignedCapacity?: { cpu: number; ram: number; storage: number };
 }
 
 export interface HardwareReportParams {
@@ -458,7 +460,7 @@ export async function getHardwareReport(params: HardwareReportParams): Promise<H
 }
 
 async function getHardwareReportAnalytics(where: Prisma.AssetWhereInput): Promise<HardwareReportAnalytics> {
-  const [allAssets, byTypeRaw, byLocationRaw] = await Promise.all([
+  const [allAssets, byTypeRaw, byLocationRaw, unassignedVms] = await Promise.all([
     prisma.asset.findMany({
       where,
       include: {
@@ -481,6 +483,20 @@ async function getHardwareReportAnalytics(where: Prisma.AssetWhereInput): Promis
       where,
       _count: { _all: true }
     }),
+    // Query active unassigned VMs if overall infrastructure or compute servers are viewed
+    (!where.clusterId && (!where.type || where.type === 'SERVER'))
+      ? prisma.vmInstance.findMany({
+          where: {
+            hostAssetId: null,
+            status: { not: "RETIRED" },
+            decommissionedAt: null,
+          },
+          include: {
+            currentSpec: true,
+            specHistory: { orderBy: { effectiveFrom: 'desc' }, take: 1 },
+          }
+        })
+      : Promise.resolve([]),
   ]);
 
   const now = new Date();
@@ -546,6 +562,17 @@ async function getHardwareReportAnalytics(where: Prisma.AssetWhereInput): Promis
     }
   }
 
+  // Calculate unassigned active VM capacity
+  let unassignedCpu = 0;
+  let unassignedRam = 0;
+  let unassignedStorage = 0;
+  for (const vm of unassignedVms) {
+    const spec = getEffectiveSpec(vm as any);
+    unassignedCpu += spec.vcpu;
+    unassignedRam += spec.ramGb;
+    unassignedStorage += spec.storageGb;
+  }
+
   return {
     totalCount: allAssets.length,
     byType: byTypeRaw.map(b => ({ type: b.type, count: b._count._all })),
@@ -557,6 +584,16 @@ async function getHardwareReportAnalytics(where: Prisma.AssetWhereInput): Promis
     overloadedCount,
     underutilizedCount,
     totalCapacity: { cpu: totalCpu, ram: totalRam, storage: totalStorage },
-    usedCapacity: { cpu: usedCpu, ram: usedRam, storage: usedStorage },
+    usedCapacity: { 
+      cpu: usedCpu + unassignedCpu, 
+      ram: usedRam + unassignedRam, 
+      storage: usedStorage + unassignedStorage 
+    },
+    unassignedVmCount: unassignedVms.length,
+    unassignedCapacity: {
+      cpu: unassignedCpu,
+      ram: unassignedRam,
+      storage: unassignedStorage,
+    },
   };
 }

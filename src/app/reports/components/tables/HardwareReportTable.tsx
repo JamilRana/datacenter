@@ -110,8 +110,6 @@ export function HardwareReportTable({
         warrantyStatus: warrantyFilter !== "ALL" ? warrantyFilter : undefined,
         clusterId: clusterFilter !== "ALL" ? clusterFilter : undefined,
         location: locationFilter !== "ALL" ? locationFilter : undefined,
-        dateFrom: dateRange?.from,
-        dateTo: dateRange?.to,
       };
 
       const res = await fetchHardwareReport(params);
@@ -129,7 +127,7 @@ export function HardwareReportTable({
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, typeFilter, warrantyFilter, clusterFilter, locationFilter, dateRange]);
+  }, [page, pageSize, search, typeFilter, warrantyFilter, clusterFilter, locationFilter]);
 
   useEffect(() => {
     fetchData();
@@ -186,8 +184,6 @@ export function HardwareReportTable({
         warrantyStatus: warrantyFilter !== "ALL" ? warrantyFilter : undefined,
         clusterId: clusterFilter !== "ALL" ? clusterFilter : undefined,
         location: locationFilter !== "ALL" ? locationFilter : undefined,
-        dateFrom: dateRange?.from,
-        dateTo: dateRange?.to,
       };
 
       const fullRes = await fetchHardwareReport(params);
@@ -470,7 +466,11 @@ export function HardwareReportTable({
             title="Capacity In Use" 
             value={`${analytics.usedCapacity.cpu} Cores`} 
             icon={<Activity className="text-emerald-600" size={18}/>}
-            subtitle={`${autoScaleRam(analytics.usedCapacity.ram)} allocated to VMs`}
+            subtitle={
+              analytics.unassignedVmCount && analytics.unassignedVmCount > 0
+                ? `${autoScaleRam(analytics.usedCapacity.ram)} allocated (${analytics.unassignedVmCount} unplaced VMs)`
+                : `${autoScaleRam(analytics.usedCapacity.ram)} allocated to VMs`
+            }
             periodType="Current"
             tooltip="Total effective CPU and RAM allocated to active virtual machines"
           />

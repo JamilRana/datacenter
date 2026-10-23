@@ -1,7 +1,7 @@
 // src/app/inventory/horizon/page.tsx
 "use client";
 
-import { useState, useEffect, useTransition, useCallback } from "react";
+import { useState, useEffect, useTransition, useCallback, Fragment } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -423,9 +423,8 @@ export default function HorizonPage() {
                 {users.map((user) => {
                   const isExpanded = expandedUserIds.includes(user.id);
                   return (
-                    <>
+                    <Fragment key={user.id}>
                       <tr
-                        key={user.id}
                         className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
                         onClick={() => toggleRow(user.id)}
                       >
@@ -588,7 +587,7 @@ export default function HorizonPage() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
                 {users.length === 0 && (
