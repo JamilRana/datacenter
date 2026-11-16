@@ -6,7 +6,15 @@
 .pnp.js
 .yarn/install-state.gz
 
-.env
+# env and secrets
+.env*
+!.env.example
+*.pem
+*.key
+*backup*.json
+*backup*.sql
+data/backups/
+*.dump
 
 # testing
 /coverage
@@ -20,7 +28,6 @@
 
 # misc
 .DS_Store
-*.pem
 
 # debug
 npm-debug.log*

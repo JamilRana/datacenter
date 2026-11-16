@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import * as emailService from "@/lib/admin/emailService";
 import { getAppUrl } from "@/lib/utils";
@@ -10,8 +10,15 @@ import { getAppUrl } from "@/lib/utils";
  * Recommended schedule: Every Monday at 9:00 AM
  */
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Verify cron authorization secret
+    const authHeader = request.headers.get("authorization");
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json({ error: "Unauthorized cron execution" }, { status: 401 });
+    }
+
     // Check VMs expiring within 30 days
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);

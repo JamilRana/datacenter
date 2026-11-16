@@ -5,10 +5,20 @@ import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 
+// Dummy hash to prevent timing attacks / user enumeration
+const DUMMY_HASH = "$2b$10$epBzX9gW8FzM9eHlEaLReeA2HjV7O0X7gZtS9Yg8J8vFzW0FpB8a2";
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   secret: process.env.NEXTAUTH_SECRET,
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: 60 * 60, // 1 hour absolute session lifetime
+    updateAge: 60,   // Update token activity every 60 seconds
+  },
+  jwt: {
+    maxAge: 60 * 60, // 1 hour JWT lifespan
+  },
   cookies: {
     sessionToken: {
       name: '__sess',
@@ -17,15 +27,16 @@ export const authOptions: NextAuthOptions = {
         sameSite: 'lax',
         path: '/',
         secure: process.env.NODE_ENV === 'production',
+        maxAge: undefined, // Browser session cookie: deleted when browser is closed
       },
     },
     callbackUrl: {
       name: '__cb_url',
-      options: { sameSite: 'lax', path: '/', secure: true },
+      options: { sameSite: 'lax', path: '/', secure: true, maxAge: undefined },
     },
     csrfToken: {
       name: '__csrf',
-      options: { httpOnly: true, sameSite: 'lax', path: '/', secure: true },
+      options: { httpOnly: true, sameSite: 'lax', path: '/', secure: true, maxAge: undefined },
     },
   },
   providers: [
@@ -52,19 +63,14 @@ export const authOptions: NextAuthOptions = {
           },
         });
 
-        if (!user || !user.password) {
-          return null;
-        }
-
+        // Always run bcrypt comparison to prevent response timing enumeration
+        const passwordToCompare = user?.password || DUMMY_HASH;
         const isValid = await bcrypt.compare(
           credentials.password,
-          user.password
+          passwordToCompare
         );
-        if (!isValid) {
-          return null;
-        }
 
-        if (!user.isActive) {
+        if (!user || !user.password || !isValid || !user.isActive) {
           return null;
         }
 
@@ -87,6 +93,15 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: {
     async jwt({ token, user }) {
+      const now = Math.floor(Date.now() / 1000);
+      const IDLE_TIMEOUT_SECONDS = 10 * 60; // 10 minutes
+
+      // Check inactivity on subsequent requests
+      if (token.lastActivity && (now - (token.lastActivity as number) > IDLE_TIMEOUT_SECONDS)) {
+        return {} as any; // Invalidate stale token
+      }
+      token.lastActivity = now;
+
       if (user) {
         token.id = user.id;
         token.email = user.email;
@@ -112,18 +127,20 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      if (token) {
-        session.user = {
-          ...session.user,
-          id: token.id as string,
-          email: token.email as string,
-          name: token.name as string,
-          designation: token.designation as string,
-          roles: token.roles as string[],
-          contact: token.contact as string,
-          organization: token.organization as string,
-        };
+      if (!token || !token.id) {
+        return null as any;
       }
+
+      session.user = {
+        ...session.user,
+        id: token.id as string,
+        email: token.email as string,
+        name: token.name as string,
+        designation: token.designation as string,
+        roles: (token.roles as string[]) || [],
+        contact: token.contact as string,
+        organization: token.organization as string,
+      };
       return session;
     },
   },

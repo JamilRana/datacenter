@@ -1,6 +1,8 @@
 // src/app/api/files/[...path]/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/authOptions";
 import { getFileUrl, getMinioClient, minioBucket } from "@/lib/services/minio.service";
 import * as fs from "fs";
 import * as path from "path";
@@ -27,9 +29,20 @@ export async function GET(
   context: { params: Promise<{ path: string[] }> }
 ) {
   try {
+    // 1. Enforce authentication for file access
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized access" }, { status: 401 });
+    }
+
     const { path: pathSegments } = await context.params;
     if (!pathSegments || pathSegments.length === 0) {
       return NextResponse.json({ error: "File path missing" }, { status: 400 });
+    }
+
+    // 2. Prevent path traversal and hidden file access
+    if (pathSegments.some((seg) => seg.includes("..") || seg.includes("\\") || seg.startsWith("."))) {
+      return NextResponse.json({ error: "Invalid path" }, { status: 400 });
     }
 
     const key = pathSegments.join("/");
@@ -42,35 +55,33 @@ export async function GET(
     const dispositionType = isDownload ? "attachment" : "inline";
     const disposition = `${dispositionType}; filename="${encodeURIComponent(fileName)}"`;
 
-    // 1. Try resolving locally from multiple potential upload directories
-    const potentialLocalPaths = [
-      path.join(process.cwd(), "uploads", key.replace(/^uploads\//, "")),
-      path.join(process.cwd(), "uploads", key),
-      path.join(process.cwd(), key),
-      path.join(process.cwd(), "public", "uploads", key.replace(/^uploads\//, "")),
-      path.join(process.cwd(), "public", key),
+    // 3. Try resolving locally ONLY within strictly permitted upload directories
+    const cleanKey = key.replace(/^uploads\//, "");
+    const allowedBaseDirs = [
+      path.resolve(process.cwd(), "uploads"),
+      path.resolve(process.cwd(), "public", "uploads"),
     ];
 
-    for (const localPath of potentialLocalPaths) {
-      if (fs.existsSync(/*turbopackIgnore: true*/ localPath) && fs.statSync(/*turbopackIgnore: true*/ localPath).isFile()) {
-        const fileBuffer = fs.readFileSync(/*turbopackIgnore: true*/ localPath);
+    for (const baseDir of allowedBaseDirs) {
+      const resolvedPath = path.resolve(baseDir, cleanKey);
+      if (resolvedPath.startsWith(baseDir) && fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
+        const fileBuffer = fs.readFileSync(resolvedPath);
         return new NextResponse(fileBuffer, {
           headers: {
             "Content-Type": contentType,
             "Content-Disposition": disposition,
             "Content-Length": String(fileBuffer.length),
-            "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
+            "Cache-Control": "private, no-cache, no-store, must-revalidate",
           },
         });
       }
     }
 
-    // 2. Try streaming directly from MinIO
+    // 4. Try streaming directly from MinIO
     try {
       const client = getMinioClient();
-      const minioKey = key.replace(/^uploads\//, "");
+      const minioKey = cleanKey;
       
-      // Check minio with key or without uploads/ prefix
       const targetKeys = [key, minioKey];
       for (const k of targetKeys) {
         try {
@@ -85,7 +96,7 @@ export async function GET(
               "Content-Type": contentType,
               "Content-Disposition": disposition,
               "Content-Length": String(fileBuffer.length),
-              "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
+              "Cache-Control": "private, no-cache, no-store, must-revalidate",
             },
           });
         } catch (_) {
@@ -96,8 +107,8 @@ export async function GET(
       console.warn("MinIO getObject failed:", minioErr);
     }
 
-    // 3. Fallback to presigned URL redirect if stream failed
-    const url = await getFileUrl(key, 3600) || await getFileUrl(key.replace(/^uploads\//, ""), 3600);
+    // 5. Fallback to presigned URL redirect if stream failed
+    const url = await getFileUrl(key, 3600) || await getFileUrl(cleanKey, 3600);
     if (url) {
       return NextResponse.redirect(url);
     }

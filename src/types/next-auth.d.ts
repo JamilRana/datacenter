@@ -37,5 +37,6 @@ declare module "next-auth/jwt" {
     designation: string | null;
     organization: string | null;
     roles: string[];
+    lastActivity?: number;
   }
 }
