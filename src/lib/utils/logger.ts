@@ -13,6 +13,39 @@ interface LogContext {
   [key: string]: unknown;
 }
 
+const SENSITIVE_KEYS = new Set([
+  "password",
+  "newpassword",
+  "confirmpassword",
+  "token",
+  "secret",
+  "nextauth_secret",
+  "otp",
+  "authorization",
+  "credentials",
+  "cookie",
+]);
+
+function redactSensitive(obj: unknown): unknown {
+  if (typeof obj !== "object" || obj === null) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(redactSensitive);
+  }
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    if (SENSITIVE_KEYS.has(key.toLowerCase())) {
+      sanitized[key] = "[REDACTED]";
+    } else if (typeof value === "object" && value !== null) {
+      sanitized[key] = redactSensitive(value);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
 class Logger {
   private level: LogLevel = LogLevel.INFO;
   private isProduction: boolean;
@@ -23,7 +56,8 @@ class Logger {
 
   private formatMessage(level: string, message: string, context?: LogContext): string {
     const timestamp = new Date().toISOString();
-    const contextStr = context ? ` ${JSON.stringify(context)}` : "";
+    const redactedContext = context ? redactSensitive(context) : undefined;
+    const contextStr = redactedContext ? ` ${JSON.stringify(redactedContext)}` : "";
     return `[${timestamp}] [${level}] ${message}${contextStr}`;
   }
 

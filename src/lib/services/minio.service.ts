@@ -79,15 +79,34 @@ export async function uploadFile(
   }
 }
 
+export const ALLOWED_EXTENSIONS = new Set([
+  "pdf", "doc", "docx", "xls", "xlsx", "csv",
+  "png", "jpg", "jpeg", "gif", "svg", "webp",
+  "txt", "zip", "rar", "tar", "gz"
+]);
+
+export const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+
 export async function uploadBuffer(
   buffer: Buffer,
   originalFileName: string,
   folder: string = "attachments"
 ): Promise<UploadResult> {
+  if (!buffer || buffer.length === 0) {
+    return { success: false, error: "File buffer cannot be empty" };
+  }
+
+  if (buffer.length > MAX_FILE_SIZE) {
+    return { success: false, error: "File size exceeds 25MB maximum limit" };
+  }
+
   // Determine content type based on file extension
   const ext = originalFileName.split(".").pop()?.toLowerCase() || "";
+  if (!ALLOWED_EXTENSIONS.has(ext)) {
+    return { success: false, error: `File type .${ext} is prohibited for security reasons` };
+  }
+
   const contentType = getContentType(ext);
-  
   return uploadFile(buffer, originalFileName, folder, contentType);
 }
 

@@ -99,24 +99,49 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await context.params;
-      const requestData = await prisma.request.findUnique({
-        where: { id },
-        select: { requesterId: true, developerId: true, status: true, requestType: true },
-      });
-      if (requestData) {
-        return NextResponse.json({ ...requestData, type: "REQUEST" });
+    const requestData = await prisma.request.findUnique({
+      where: { id },
+      select: { requesterId: true, developerId: true, status: true, requestType: true },
+    });
+
+    const privilegedRoles = ["ADMIN", "DC_OPS", "APPROVER", "DIRECTOR"];
+    const isStaff = session.user.roles?.some((role: string) => privilegedRoles.includes(role));
+
+    if (requestData) {
+      const isOwner = requestData.requesterId === session.user.id;
+      const isDeveloper = requestData.developerId === session.user.id;
+
+      if (!isOwner && !isDeveloper && !isStaff) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      const customization = await prisma.customizationRequest.findUnique({
-        where: { id },
-        select: { requesterId: true, status: true },
-      });
-      if (customization) {
-        return NextResponse.json({ ...customization, type: "CUSTOMIZATION", requestType: "CUSTOMIZED" });
+
+      return NextResponse.json({ ...requestData, type: "REQUEST" });
+    }
+
+    const customization = await prisma.customizationRequest.findUnique({
+      where: { id },
+      select: { requesterId: true, status: true },
+    });
+
+    if (customization) {
+      const isOwner = customization.requesterId === session.user.id;
+
+      if (!isOwner && !isStaff) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }catch(error){
-    console.log(error);
+
+      return NextResponse.json({ ...customization, type: "CUSTOMIZATION", requestType: "CUSTOMIZED" });
+    }
+
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  } catch (error) {
+    console.error("Error loading request:", error);
     return NextResponse.json({ error: "Failed to load request" }, { status: 500 });
   }
 }
