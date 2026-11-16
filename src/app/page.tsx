@@ -1,21 +1,22 @@
 // src/app/page.tsx
 "use client";
 
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useEffect } from "react";
 
 export default function Home() {
   const { data: session, status } = useSession();
+  const router = useRouter();
 
   useEffect(() => {
     if (status === "loading") return;
     if (!session) {
-      redirect("/auth");
+      router.replace("/auth");
       return;
     }
-    redirect("/dashboard");
-  }, [session, status]);
+    router.replace("/dashboard");
+  }, [session, status, router]);
 
   return (
     <div className="min-h-screen flex items-center justify-center">

@@ -127,20 +127,18 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      if (!token || !token.id) {
-        return null as any;
+      if (token) {
+        session.user = {
+          ...session.user,
+          id: (token.id || token.sub) as string,
+          email: token.email as string,
+          name: token.name as string,
+          designation: token.designation as string,
+          roles: (token.roles as string[]) || [],
+          contact: token.contact as string,
+          organization: token.organization as string,
+        };
       }
-
-      session.user = {
-        ...session.user,
-        id: token.id as string,
-        email: token.email as string,
-        name: token.name as string,
-        designation: token.designation as string,
-        roles: (token.roles as string[]) || [],
-        contact: token.contact as string,
-        organization: token.organization as string,
-      };
       return session;
     },
   },

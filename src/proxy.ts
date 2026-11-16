@@ -7,18 +7,30 @@ import { rateLimitApi, rateLimitSensitive } from "@/lib/rate-limit";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
-  // 1. Get Authentication Token with custom cookie name
-  const useSecureCookie = process.env.NEXTAUTH_URL?.startsWith("https://") ?? false;
-  const cookieName = useSecureCookie ? "__Secure-__sess" : "__sess";
-
-  const token = await getToken({ 
+  // 1. Get Authentication Token (supporting __sess, __Secure-__sess, and default)
+  let token = await getToken({ 
     req: request,
     secret: process.env.NEXTAUTH_SECRET,
-    secureCookie: useSecureCookie,
-    cookieName: cookieName,
+    cookieName: "__sess",
   });
 
-  const isAuthenticated = Boolean(token && token.id);
+  if (!token) {
+    token = await getToken({ 
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET,
+      cookieName: "__Secure-__sess",
+      secureCookie: true,
+    });
+  }
+
+  if (!token) {
+    token = await getToken({ 
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET,
+    });
+  }
+
+  const isAuthenticated = Boolean(token && (token.id || token.sub || token.email));
 
   // 2a. Strict Rate Limiting for Auth routes (brute-force attack defense: 5 attempts/min)
   if (pathname.startsWith("/api/auth/callback") || pathname.startsWith("/api/auth/signin")) {
@@ -70,9 +82,9 @@ export async function proxy(request: NextRequest) {
   }
 
   // 3. Authentication & Authorization Redirects
-  // If trying to access /auth and valid token exists, redirect to dashboard
+  // If trying to access /auth and valid token exists, redirect directly to dashboard
   if (pathname.startsWith("/auth") && isAuthenticated) {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
   // Check if request is for static assets
